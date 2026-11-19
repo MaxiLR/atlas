@@ -393,6 +393,84 @@ describe("the definition popover", () => {
     await drained();
     expect(requests.slice(before)).toEqual([]);
   });
+
+  it("hands focus back to the passage on Escape while the definition is still being written", async () => {
+    const { article, user, valve } = await renderSection();
+
+    valve.close();
+    await select(article, "subduction");
+    await user.keyboard("d");
+    const popover = await screen.findByRole("dialog", {
+      name: "Definition of subduction",
+    });
+    expect(popover).toHaveAttribute("aria-busy", "true");
+
+    await user.keyboard("{Escape}");
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    const focused = document.activeElement;
+    expect(focused).not.toBe(document.body);
+    expect(article.contains(focused)).toBe(true);
+    expect(focused).toHaveTextContent("a process called subduction");
+    await act(async () => {
+      valve.open();
+      await drained();
+    });
+  });
+
+  it("hands focus back to the passage on Escape once the definition failed", async () => {
+    const { article, user } = await renderSection("failed-after-retries");
+
+    await select(article, "subduction");
+    await user.keyboard("d");
+    const popover = await screen.findByRole("dialog", {
+      name: "Definition of subduction",
+    });
+    await waitFor(() =>
+      expect(popover).toHaveTextContent("The definition could not be written."),
+    );
+
+    await user.keyboard("{Escape}");
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    const focused = document.activeElement;
+    expect(focused).not.toBe(document.body);
+    expect(article.contains(focused)).toBe(true);
+    expect(focused).toHaveTextContent("a process called subduction");
+  });
+
+  it("looks the term up on Wikipedia even when the popover was closed while it was written, so reopening it sends no request", async () => {
+    const { article, user, valve, requests } = await renderSection();
+
+    valve.close();
+    await select(article, "subduction");
+    await user.keyboard("d");
+    await screen.findByRole("dialog", { name: "Definition of subduction" });
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    await act(async () => {
+      valve.open();
+      await drained();
+    });
+    const term = await within(article).findByRole("button", {
+      name: "subduction",
+    });
+    await act(async () => {
+      await drained();
+    });
+
+    const before = requests.length;
+    await user.click(term);
+
+    const reopened = await screen.findByRole("dialog", {
+      name: "Definition of subduction",
+    });
+    expect(reopened).toHaveTextContent(SUBDUCTION_DEFINITION);
+    expect(reopened).toHaveTextContent(SUBDUCTION_ARTICLE);
+    await drained();
+    expect(requests.slice(before)).toEqual([]);
+  });
 });
 
 describe("marks in the text", () => {

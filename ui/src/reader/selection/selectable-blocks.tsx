@@ -92,6 +92,26 @@ function useVirtualAnchor(
   });
 }
 
+/**
+ * Hands focus to the prose element `range` lay in, or else to block `block`
+ * of `frame`: a stop outside the tab order, until focus leaves it.
+ */
+function focusPassage(frame: HTMLElement, range: Range, block: number) {
+  const start = range.startContainer;
+  const element = start instanceof Element ? start : start.parentElement;
+  const passage =
+    (start.isConnected
+      ? element?.closest<HTMLElement>("[data-prose-block]")
+      : null) ??
+    frame.querySelector<HTMLElement>(`[data-prose-block="${block}"]`);
+  if (passage == null) return;
+  passage.tabIndex = -1;
+  passage.addEventListener("blur", () => passage.removeAttribute("tabindex"), {
+    once: true,
+  });
+  passage.focus();
+}
+
 const nothing: never[] = [];
 
 /**
@@ -234,16 +254,43 @@ export function SelectableBlocks({
   );
   const card = useRef<HTMLDivElement>(null);
 
+  // A written definition is looked up on Wikipedia at once, whether its
+  // popover is still open or not, so reopening the term asks for nothing.
+  const looking = useRef(new Set<string>());
+  const [unreached, setUnreached] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const lookUp = useCallback(
+    (entryId: string) => {
+      if (looking.current.has(entryId)) return;
+      looking.current.add(entryId);
+      setUnreached((current) => {
+        if (!current.has(entryId)) return current;
+        const next = new Set(current);
+        next.delete(entryId);
+        return next;
+      });
+      send({ type: "LookupWikipedia", entryId })
+        .catch(() => setUnreached((current) => new Set(current).add(entryId)))
+        .finally(() => looking.current.delete(entryId));
+    },
+    [send],
+  );
+
   function requestDefinition(
     anchor: Anchor,
     sentence: string,
     range: Range | null,
   ) {
     setDoubt({ anchor, range, error: null, sentence });
-    send({ type: "Define", anchor, sentence }).catch((error: unknown) =>
-      setDoubt((current) =>
-        current?.anchor === anchor ? { ...current, error } : current,
-      ),
+    send({ type: "Define", anchor, sentence }).then(
+      ({ entry }) => {
+        if (entry.wikipedia === null) lookUp(entry.id);
+      },
+      (error: unknown) =>
+        setDoubt((current) =>
+          current?.anchor === anchor ? { ...current, error } : current,
+        ),
     );
   }
 
@@ -446,9 +493,17 @@ export function SelectableBlocks({
             event.preventDefault();
             card.current?.focus();
           }}
-          // Escape hands focus back to the term in the text; a press
-          // elsewhere leaves it where it went.
-          onEscapeKeyDown={() => termOf(doubtEntry?.id)?.focus()}
+          // Escape hands focus back to the term in the text, or to the
+          // passage while it is not defined yet; a press elsewhere leaves it
+          // where it went.
+          onEscapeKeyDown={() => {
+            const term = termOf(doubtEntry?.id);
+            if (term != null) {
+              term.focus();
+            } else if (doubt?.range != null && frame.current !== null) {
+              focusPassage(frame.current, doubt.range, doubt.anchor.block);
+            }
+          }}
           onCloseAutoFocus={(event) => event.preventDefault()}
         >
           {doubt !== null && (
@@ -456,6 +511,7 @@ export function SelectableBlocks({
               courseId={courseId}
               anchor={doubt.anchor}
               error={doubt.error}
+              unreached={unreached}
               onRetry={() =>
                 requestDefinition(
                   doubt.anchor,
@@ -463,6 +519,7 @@ export function SelectableBlocks({
                   doubt.range,
                 )
               }
+              onLookUp={lookUp}
               onAsk={(entry) => {
                 setDoubt(null);
                 ask(entry.anchor);

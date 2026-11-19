@@ -1,5 +1,5 @@
 import { ExternalLinkIcon } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect } from "react";
 
 import { failureInStore, useAtlas, useAtlasStore } from "@/app/store";
 import { Button } from "@/components/ui/button";
@@ -42,26 +42,28 @@ export function useDefinition(
 /**
  * The Wikipedia row under a definition: the article's summary with a link
  * that opens it in the browser, or that no article matches, or that
- * Wikipedia could not be reached. Looked up once; the result is kept.
+ * Wikipedia could not be reached. A term never looked up is looked up when
+ * it shows; the result is kept.
  */
-function WikipediaRow({ entry }: { entry: GlossaryEntry }) {
+function WikipediaRow({
+  entry,
+  unreached,
+  onLookUp,
+}: {
+  entry: GlossaryEntry;
+  /** The last lookup's request failed. */
+  unreached: boolean;
+  onLookUp: (entryId: string) => void;
+}) {
   const { send } = useAtlasStore();
-  const [failed, setFailed] = useState(false);
-  const pending = entry.wikipedia === null;
-  const lookup = useCallback(
-    () =>
-      send({ type: "LookupWikipedia", entryId: entry.id }).catch(() =>
-        setFailed(true),
-      ),
-    [send, entry.id],
-  );
+  const pending = entry.wikipedia === null && !unreached;
 
   useEffect(() => {
-    if (pending) void lookup();
-  }, [pending, lookup]);
+    if (pending) onLookUp(entry.id);
+  }, [pending, onLookUp, entry.id]);
 
   const result = entry.wikipedia;
-  const unreachable = failed || result?.type === "Failed";
+  const failed = unreached || result?.type === "Failed";
   return (
     <div className="flex flex-col gap-1 border-t border-edge px-4 py-3 text-13 text-muted-foreground">
       <div className="flex items-center justify-between gap-3">
@@ -83,16 +85,10 @@ function WikipediaRow({ entry }: { entry: GlossaryEntry }) {
           </a>
         )}
       </div>
-      {unreachable ? (
+      {failed ? (
         <div className="flex items-center justify-between gap-3">
           <p>Wikipedia could not be reached.</p>
-          <Button
-            variant="ghost"
-            onClick={() => {
-              setFailed(false);
-              void lookup();
-            }}
-          >
+          <Button variant="ghost" onClick={() => onLookUp(entry.id)}>
             Try again
           </Button>
         </div>
@@ -116,14 +112,19 @@ export function DefinitionBody({
   courseId,
   anchor,
   error,
+  unreached,
   onRetry,
+  onLookUp,
   onAsk,
 }: {
   courseId: string;
   anchor: Anchor;
   /** Why the request for it failed; null while it runs or once written. */
   error: unknown;
+  /** The entries whose Wikipedia lookup could not be sent. */
+  unreached: ReadonlySet<string>;
   onRetry: () => void;
+  onLookUp: (entryId: string) => void;
   onAsk: (entry: GlossaryEntry) => void;
 }) {
   const entry = useDefinition(courseId, anchor);
@@ -164,7 +165,11 @@ export function DefinitionBody({
       </div>
       {entry !== undefined && (
         <>
-          <WikipediaRow entry={entry} />
+          <WikipediaRow
+            entry={entry}
+            unreached={unreached.has(entry.id)}
+            onLookUp={onLookUp}
+          />
           <div className="flex items-center justify-between gap-3 border-t border-edge bg-wash py-2 pr-2 pl-4 text-13 text-muted-foreground">
             In the glossary
             <Button onClick={() => onAsk(entry)}>Ask about this</Button>

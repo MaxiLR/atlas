@@ -14,7 +14,7 @@ import { z } from "zod";
  * The version written in the generated prompt's front matter. Bump it
  * whenever the catalog changes, as for any prompt.
  */
-export const CATALOG_VERSION = 1;
+export const CATALOG_VERSION = 2;
 
 const caption = z
   .string()
@@ -121,29 +121,78 @@ const figure = z.strictObject({
   caption,
 });
 
-const checkQuestion = z.strictObject({
-  rung: z.int().min(0).describe("The id of the ladder rung it tests."),
-  stem: z.string().min(1).describe("The question."),
-  options: z
-    .array(
-      z.strictObject({
-        text: z.string().min(1),
-        misconception: z
-          .string()
-          .min(1)
-          .nullable()
-          .describe(
-            "For a wrong option, one sentence naming the misconception it represents; null for the right option.",
-          ),
-      }),
-    )
-    .length(4),
-  key: z.int().min(0).max(3).describe("The right option, counted from 0."),
-  explanation: z
-    .string()
-    .min(1)
-    .describe("Why the right option is right, shown once answered."),
-});
+const OPTIONS = [0, 1, 2, 3] as const;
+
+/**
+ * The rule tying a check question's misconceptions to its key, in JSON
+ * schema for the core: the key's option names none, every other option names
+ * the one it represents. `superRefine` below says the same for the interface.
+ */
+const keyedMisconceptions = {
+  allOf: OPTIONS.map((key) => ({
+    if: { properties: { key: { const: key } }, required: ["key"] },
+    then: {
+      properties: {
+        options: {
+          prefixItems: OPTIONS.map((index) => ({
+            properties: {
+              misconception: { type: index === key ? "null" : "string" },
+            },
+          })),
+        },
+      },
+    },
+  })),
+};
+
+const checkQuestion = z
+  .strictObject({
+    rung: z.int().min(0).describe("The id of the ladder rung it tests."),
+    stem: z.string().min(1).describe("The question."),
+    options: z
+      .array(
+        z.strictObject({
+          text: z.string().min(1),
+          misconception: z
+            .string()
+            .min(1)
+            .nullable()
+            .describe(
+              "Null for the right option (the key). Every wrong option must name, in one sentence, the specific misconception that picking it reveals.",
+            ),
+        }),
+      )
+      .length(OPTIONS.length),
+    key: z
+      .int()
+      .min(0)
+      .max(OPTIONS.length - 1)
+      .describe(
+        "The right option, counted from 0; its misconception is null and every other option's is a string.",
+      ),
+    explanation: z
+      .string()
+      .min(1)
+      .describe("Why the right option is right, shown once answered."),
+  })
+  .superRefine(({ key, options }, context) => {
+    options.forEach(({ misconception }, index) => {
+      if (index === key && misconception !== null) {
+        context.addIssue({
+          code: "custom",
+          path: ["options", index, "misconception"],
+          message: `option ${index} is the key, so its misconception must be null`,
+        });
+      } else if (index !== key && misconception === null) {
+        context.addIssue({
+          code: "custom",
+          path: ["options", index, "misconception"],
+          message: `option ${index} is wrong, so it needs the misconception it represents`,
+        });
+      }
+    });
+  })
+  .meta(keyedMisconceptions);
 
 const citation = z.strictObject({
   number: z.int().min(1).describe("The source's number in the section."),

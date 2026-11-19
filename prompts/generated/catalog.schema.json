@@ -428,7 +428,7 @@
                     { "type": "string", "minLength": 1 },
                     { "type": "null" }
                   ],
-                  "description": "For a wrong option, one sentence naming the misconception it represents; null for the right option."
+                  "description": "Null for the right option (the key). Every wrong option must name, in one sentence, the specific misconception that picking it reveals."
                 }
               },
               "required": ["text", "misconception"],
@@ -439,7 +439,7 @@
             "type": "integer",
             "minimum": 0,
             "maximum": 3,
-            "description": "The right option, counted from 0."
+            "description": "The right option, counted from 0; its misconception is null and every other option's is a string."
           },
           "explanation": {
             "type": "string",
@@ -448,7 +448,81 @@
           }
         },
         "required": ["rung", "stem", "options", "key", "explanation"],
-        "additionalProperties": false
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": { "key": { "const": 0 } },
+              "required": ["key"]
+            },
+            "then": {
+              "properties": {
+                "options": {
+                  "prefixItems": [
+                    { "properties": { "misconception": { "type": "null" } } },
+                    { "properties": { "misconception": { "type": "string" } } },
+                    { "properties": { "misconception": { "type": "string" } } },
+                    { "properties": { "misconception": { "type": "string" } } }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": { "key": { "const": 1 } },
+              "required": ["key"]
+            },
+            "then": {
+              "properties": {
+                "options": {
+                  "prefixItems": [
+                    { "properties": { "misconception": { "type": "string" } } },
+                    { "properties": { "misconception": { "type": "null" } } },
+                    { "properties": { "misconception": { "type": "string" } } },
+                    { "properties": { "misconception": { "type": "string" } } }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": { "key": { "const": 2 } },
+              "required": ["key"]
+            },
+            "then": {
+              "properties": {
+                "options": {
+                  "prefixItems": [
+                    { "properties": { "misconception": { "type": "string" } } },
+                    { "properties": { "misconception": { "type": "string" } } },
+                    { "properties": { "misconception": { "type": "null" } } },
+                    { "properties": { "misconception": { "type": "string" } } }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": { "key": { "const": 3 } },
+              "required": ["key"]
+            },
+            "then": {
+              "properties": {
+                "options": {
+                  "prefixItems": [
+                    { "properties": { "misconception": { "type": "string" } } },
+                    { "properties": { "misconception": { "type": "string" } } },
+                    { "properties": { "misconception": { "type": "string" } } },
+                    { "properties": { "misconception": { "type": "null" } } }
+                  ]
+                }
+              }
+            }
+          }
+        ]
       },
       "citation": {
         "type": "object",

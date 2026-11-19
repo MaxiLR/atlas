@@ -1,5 +1,5 @@
 ---
-version: 1
+version: 2
 ---
 
 A catalog visual is one JSON object: a json-render spec holding exactly one element.
@@ -95,8 +95,8 @@ A multiple-choice question with four options, one right, testing one rung.
 - `stem` (string): The question.
 - `options` (list of exactly 4 objects)
   - `text` (string)
-  - `misconception` (string or null): For a wrong option, one sentence naming the misconception it represents; null for the right option.
-- `key` (integer from 0 to 3): The right option, counted from 0.
+  - `misconception` (string or null): Null for the right option (the key). Every wrong option must name, in one sentence, the specific misconception that picking it reveals.
+- `key` (integer from 0 to 3): The right option, counted from 0; its misconception is null and every other option's is a string.
 - `explanation` (string): Why the right option is right, shown once answered.
 
 ### `citation`

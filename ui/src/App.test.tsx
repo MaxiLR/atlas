@@ -3,10 +3,40 @@ import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
 import { App } from "./App";
+import type { CoreClient } from "./core/client";
 import { CoreProvider } from "./core/context";
 import { createFakeCore, createManualClock } from "./core/fake";
 import { startedAt } from "./test/fake-core";
 import { createGate } from "./test/gate";
+
+/**
+ * The default scenario's core, except that the first `refusals` requests for
+ * the session are refused as a core without the session feature refuses them.
+ */
+function renderWithoutSession(refusals: number) {
+  const core = createFakeCore({
+    scenario: "default",
+    clock: createManualClock(startedAt),
+    pace: () => Promise.resolve(),
+  });
+  let refused = 0;
+  const client: CoreClient = {
+    call(request) {
+      if (request.type === "GetSession" && refused < refusals) {
+        refused += 1;
+        return Promise.reject({ type: "Unavailable", feature: "session" });
+      }
+      return core.call(request);
+    },
+    subscribe: (listener) => core.subscribe(listener),
+  };
+  render(
+    <CoreProvider client={client}>
+      <App />
+    </CoreProvider>,
+  );
+  return userEvent.setup();
+}
 
 function renderApp(scenario: string, pace: () => Promise<void>) {
   const core = createFakeCore({
@@ -113,5 +143,31 @@ describe("the core loop against the fake core", () => {
     await expect
       .poll(() => second.textContent)
       .toContain("like soup on a stove");
+  });
+});
+
+describe("a core that cannot say the session", () => {
+  it("shows the refusal and still opens the library and its courses", async () => {
+    const user = renderWithoutSession(Infinity);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "session is not available yet.",
+    );
+    const index = await openPlateTectonics(user);
+    expect(within(index).getAllByRole("button").length).toBeGreaterThan(0);
+  });
+
+  it("asks again with Retry", async () => {
+    const user = renderWithoutSession(1);
+    await screen.findByRole("alert");
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+
+    await expect
+      .poll(() => screen.queryByText("session is not available yet."))
+      .toBeNull();
+    expect(
+      await screen.findByRole("button", { name: "Plate tectonics" }),
+    ).toBeVisible();
   });
 });

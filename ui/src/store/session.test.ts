@@ -6,6 +6,7 @@ import type { Session } from "@/core/generated/Session";
 
 import {
   applyEvent,
+  applyFailure,
   applyRequest,
   applyResponse,
   initialState,
@@ -119,5 +120,36 @@ describe("the session", () => {
     });
     expect(back.navigation.screen).toBe("library");
     expect(back.library.courses).toEqual(courses);
+  });
+});
+
+describe("asking for the session", () => {
+  const unavailable = { type: "Unavailable", feature: "session" } as const;
+
+  it("keeps the core's refusal while the session is unknown", () => {
+    const asked = applyRequest(initialState, { type: "GetSession" });
+    const refused = applyFailure(asked, { type: "GetSession" }, unavailable);
+
+    expect(refused.session).toEqual({ session: null, error: unavailable });
+    expect(refused.navigation.screen).toBe("library");
+  });
+
+  it("forgets the refusal when asked again and when the session arrives", () => {
+    const refused = applyFailure(
+      initialState,
+      { type: "GetSession" },
+      unavailable,
+    );
+
+    expect(applyRequest(refused, { type: "GetSession" }).session.error).toBe(
+      null,
+    );
+    expect(
+      applyResponse(
+        refused,
+        { type: "GetSession" },
+        { type: "Session", session: signedIn },
+      ).session,
+    ).toEqual({ session: signedIn, error: null });
   });
 });

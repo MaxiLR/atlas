@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { describeError } from "@/core/client";
 import { Reader } from "@/reader/reader";
 import { Library } from "@/screens/library/library";
-import { Placement } from "@/screens/Placement";
+import { Placement } from "@/screens/placement/placement";
 import { Settings } from "@/screens/settings/settings";
 import { SignIn } from "@/screens/sign-in/sign-in";
 import { selectOpenCourse } from "@/store";

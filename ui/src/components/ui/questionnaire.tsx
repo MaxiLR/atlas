@@ -98,11 +98,19 @@ function QuestionnaireChoices({
 function QuestionnaireChoice({
   children,
   className,
+  shortcut,
   ...props
-}: React.ComponentProps<typeof QuestionnairePrimitive.Choice>) {
+}: React.ComponentProps<typeof QuestionnairePrimitive.Choice> & {
+  /**
+   * A key the screen handles itself, shown in the row's key chip, for keys
+   * the root's `shortcuts` mode does not assign (0 for "Not sure").
+   */
+  shortcut?: string;
+}) {
   return (
     <QuestionnairePrimitive.Choice
       data-slot="questionnaire-choice"
+      data-shortcut={shortcut}
       className={cn(
         // An option row: 8 px corners and a hairline edge; the chosen one takes
         // the accent edge and wash.
@@ -114,6 +122,7 @@ function QuestionnaireChoice({
     >
       <QuestionnairePrimitive.ChoiceInput
         data-slot="questionnaire-choice-input"
+        aria-keyshortcuts={shortcut}
         className="absolute inset-0 z-10 size-full cursor-pointer opacity-0"
       />
       <span
@@ -134,8 +143,11 @@ function QuestionnaireChoice({
       </QuestionnairePrimitive.ChoiceLabel>
       <QuestionnairePrimitive.ChoiceShortcut
         data-slot="questionnaire-choice-shortcut"
+        hidden={shortcut === undefined ? undefined : false}
         className="pointer-events-none mt-0.5 hidden h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-[4px] border border-edge-strong px-1 text-[11px] leading-none font-medium text-muted-foreground tabular-nums group-data-[shortcut]/questionnaire-choice:inline-flex"
-      />
+      >
+        {shortcut}
+      </QuestionnairePrimitive.ChoiceShortcut>
     </QuestionnairePrimitive.Choice>
   );
 }

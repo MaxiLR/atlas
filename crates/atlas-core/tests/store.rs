@@ -233,6 +233,9 @@ fn anchor(version: Uuid, quote: &str) -> Anchor {
 
 // Migrations.
 
+// The schema version is a constant; asserting it documents that 0001 is not
+// the latest.
+#[allow(clippy::assertions_on_constants)]
 #[test]
 fn a_fresh_database_migrates_to_the_latest_version() {
     let fixture = Fixture::new();
@@ -703,6 +706,32 @@ fn a_convention_whose_normalised_key_exists_is_rejected() {
         ConventionOutcome::Stored
     );
     assert_eq!(fixture.store.conventions(other).unwrap(), vec![plan_term]);
+}
+
+#[test]
+fn the_database_refuses_a_second_live_convention_with_the_same_normalised_key() {
+    let fixture = Fixture::new();
+    let (course, _) = store_sample(&fixture.store);
+    let raw = fixture.raw();
+    let insert = |key: &str, normalised: &str| {
+        raw.execute(
+            "INSERT INTO conventions
+                (id, course_id, kind, key, normalised_key, meaning, created_at, updated_at)
+             VALUES (?1, ?2, 'terminology', ?3, ?4, 'another meaning',
+                     '2026-03-04T05:06:07.000000Z', '2026-03-04T05:06:07.000000Z')",
+            rusqlite::params![
+                Uuid::new_v4().to_string(),
+                course.to_string(),
+                key,
+                normalised
+            ],
+        )
+    };
+    assert!(insert("Plate ", "plate").is_err());
+    // Once the first is deleted the key is free again.
+    let first = any_id(&raw, "conventions");
+    assert!(fixture.store.delete(RecordKind::Convention, first).unwrap());
+    assert!(insert("Plate ", "plate").is_ok());
 }
 
 // Courses, placement, profile, checks.

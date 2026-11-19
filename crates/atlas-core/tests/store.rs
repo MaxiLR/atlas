@@ -404,6 +404,67 @@ fn a_stored_version_and_its_record_cannot_be_changed_but_the_pointer_moves() {
 }
 
 #[test]
+fn a_stored_version_cannot_be_replaced_or_deleted() {
+    let fixture = Fixture::new();
+    store_sample(&fixture.store);
+    let second = Uuid::new_v4();
+    fixture
+        .store
+        .insert_version(&new_version(second, LAYERS, simple_record("crust")), &[])
+        .unwrap();
+    let first_before = fixture.store.version(LAYERS_V1).unwrap().expect("stored");
+    let second_before = fixture.store.version(second).unwrap().expect("stored");
+
+    let raw = fixture.raw();
+    let columns = "id, node_id, style, blocks, checks, citations, sources, \
+                   written_without_search, record, record_status, model, prompt, \
+                   created_at, updated_at";
+    let changed = "node_id, style, '[]', checks, citations, sources, \
+                   written_without_search, NULL, NULL, model, prompt, created_at, updated_at";
+    for change in [
+        // A replace that conflicts on the id.
+        format!(
+            "INSERT OR REPLACE INTO section_versions ({columns})
+             SELECT id, {changed} FROM section_versions WHERE id = ?1"
+        ),
+        format!(
+            "REPLACE INTO section_versions ({columns})
+             SELECT id, {changed} FROM section_versions WHERE id = ?1"
+        ),
+        // A replace that conflicts on the row id under a new id.
+        format!(
+            "INSERT OR REPLACE INTO section_versions (rowid, {columns})
+             SELECT rowid, '{}', {changed} FROM section_versions WHERE id = ?1",
+            Uuid::new_v4()
+        ),
+        // An upsert.
+        format!(
+            "INSERT INTO section_versions ({columns})
+             SELECT id, {changed} FROM section_versions WHERE id = ?1
+             ON CONFLICT (id) DO UPDATE SET blocks = excluded.blocks"
+        ),
+        // A tombstone that moves onto another version's row id.
+        format!(
+            "UPDATE OR REPLACE section_versions
+             SET rowid = (SELECT rowid FROM section_versions WHERE id = '{second}'),
+                 deleted_at = '2030-01-01T00:00:00.000000Z'
+             WHERE id = ?1"
+        ),
+        "DELETE FROM section_versions WHERE id = ?1".to_owned(),
+    ] {
+        assert!(
+            raw.execute(&change, [LAYERS_V1.to_string()]).is_err(),
+            "the database allowed: {change}"
+        );
+    }
+    assert_eq!(
+        fixture.store.version(LAYERS_V1).unwrap(),
+        Some(first_before)
+    );
+    assert_eq!(fixture.store.version(second).unwrap(), Some(second_before));
+}
+
+#[test]
 fn a_version_of_another_node_cannot_become_current() {
     let fixture = Fixture::new();
     store_sample(&fixture.store);
@@ -709,29 +770,49 @@ fn a_convention_whose_normalised_key_exists_is_rejected() {
 }
 
 #[test]
-fn the_database_refuses_a_second_live_convention_with_the_same_normalised_key() {
+fn the_database_normalises_a_conventions_key_and_refuses_a_second_live_one() {
     let fixture = Fixture::new();
     let (course, _) = store_sample(&fixture.store);
     let raw = fixture.raw();
-    let insert = |key: &str, normalised: &str| {
+
+    // A writer cannot supply its own normalised key.
+    assert!(
         raw.execute(
             "INSERT INTO conventions
                 (id, course_id, kind, key, normalised_key, meaning, created_at, updated_at)
-             VALUES (?1, ?2, 'terminology', ?3, ?4, 'another meaning',
+             VALUES (?1, ?2, 'terminology', 'PLATE', 'PLATE', 'another meaning',
                      '2026-03-04T05:06:07.000000Z', '2026-03-04T05:06:07.000000Z')",
-            rusqlite::params![
-                Uuid::new_v4().to_string(),
-                course.to_string(),
-                key,
-                normalised
-            ],
+            rusqlite::params![Uuid::new_v4().to_string(), course.to_string()],
+        )
+        .is_err()
+    );
+
+    let insert = |key: &str| {
+        raw.execute(
+            "INSERT INTO conventions (id, course_id, kind, key, meaning, created_at, updated_at)
+             VALUES (?1, ?2, 'terminology', ?3, 'another meaning',
+                     '2026-03-04T05:06:07.000000Z', '2026-03-04T05:06:07.000000Z')",
+            rusqlite::params![Uuid::new_v4().to_string(), course.to_string(), key],
         )
     };
-    assert!(insert("Plate ", "plate").is_err());
+    for clash in ["PLATE", "  Plate\t", "\u{3000}plate\u{a0}"] {
+        assert!(insert(clash).is_err(), "the database stored {clash:?}");
+    }
+    assert!(insert("Slab").is_ok());
+    assert!(insert(" SLAB\n").is_err());
+
     // Once the first is deleted the key is free again.
     let first = any_id(&raw, "conventions");
     assert!(fixture.store.delete(RecordKind::Convention, first).unwrap());
-    assert!(insert("Plate ", "plate").is_ok());
+    assert!(insert("PLATE ").is_ok());
+    let normalised: String = raw
+        .query_row(
+            "SELECT normalised_key FROM conventions WHERE key = 'PLATE '",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(normalised, "plate");
 }
 
 // Courses, placement, profile, checks.

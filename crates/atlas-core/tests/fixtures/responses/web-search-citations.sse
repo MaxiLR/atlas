@@ -1,0 +1,81 @@
+event: response.created
+data: {"type":"response.created","sequence_number":0,"response":{"id":"resp_68f1c3b7e2a4819b","object":"response","created_at":1763560000,"status":"in_progress","error":null,"incomplete_details":null,"model":"gpt-6.2-sol","output":[],"store":false}}
+
+event: response.in_progress
+data: {"type":"response.in_progress","sequence_number":1,"response":{"id":"resp_68f1c3b7e2a4819b","object":"response","created_at":1763560000,"status":"in_progress","error":null,"incomplete_details":null,"model":"gpt-6.2-sol","output":[],"store":false}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","sequence_number":2,"output_index":0,"item":{"id":"msg_68f1c3b8","type":"message","status":"in_progress","role":"assistant","content":[]}}
+
+event: response.content_part.added
+data: {"type":"response.content_part.added","sequence_number":3,"item_id":"msg_68f1c3b8","output_index":0,"content_index":0,"part":{"type":"output_text","text":"","annotations":[]}}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","sequence_number":4,"item_id":"msg_68f1c3b8","output_index":0,"content_index":0,"delta":"Let me check ","logprobs":[]}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","sequence_number":5,"item_id":"msg_68f1c3b8","output_index":0,"content_index":0,"delta":"current figures.","logprobs":[]}
+
+event: response.output_text.done
+data: {"type":"response.output_text.done","sequence_number":6,"item_id":"msg_68f1c3b8","output_index":0,"content_index":0,"text":"Let me check current figures.","logprobs":[]}
+
+event: response.content_part.done
+data: {"type":"response.content_part.done","sequence_number":7,"item_id":"msg_68f1c3b8","output_index":0,"content_index":0,"part":{"type":"output_text","text":"Let me check current figures.","annotations":[]}}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","sequence_number":8,"output_index":0,"item":{"id":"msg_68f1c3b8","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":"Let me check current figures.","annotations":[]}]}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","sequence_number":9,"output_index":1,"item":{"id":"ws_68f1c3b9","type":"web_search_call","status":"in_progress"}}
+
+event: response.web_search_call.in_progress
+data: {"type":"response.web_search_call.in_progress","sequence_number":10,"output_index":1,"item_id":"ws_68f1c3b9"}
+
+event: response.web_search_call.searching
+data: {"type":"response.web_search_call.searching","sequence_number":11,"output_index":1,"item_id":"ws_68f1c3b9"}
+
+event: response.web_search_call.completed
+data: {"type":"response.web_search_call.completed","sequence_number":12,"output_index":1,"item_id":"ws_68f1c3b9"}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","sequence_number":13,"output_index":1,"item":{"id":"ws_68f1c3b9","type":"web_search_call","status":"completed","action":{"type":"search","query":"how fast do tectonic plates move"}}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","sequence_number":14,"output_index":2,"item":{"id":"msg_68f1c3ba","type":"message","status":"in_progress","role":"assistant","content":[]}}
+
+event: response.content_part.added
+data: {"type":"response.content_part.added","sequence_number":15,"item_id":"msg_68f1c3ba","output_index":2,"content_index":0,"part":{"type":"output_text","text":"","annotations":[]}}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","sequence_number":16,"item_id":"msg_68f1c3ba","output_index":2,"content_index":0,"delta":" Tectonic plates move a few ","logprobs":[]}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","sequence_number":17,"item_id":"msg_68f1c3ba","output_index":2,"content_index":0,"delta":"centimetres a year — about as fast ","logprobs":[]}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","sequence_number":18,"item_id":"msg_68f1c3ba","output_index":2,"content_index":0,"delta":"as fingernails grow (usgs.gov). ","logprobs":[]}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","sequence_number":19,"item_id":"msg_68f1c3ba","output_index":2,"content_index":0,"delta":"Their motion is driven by mantle ","logprobs":[]}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","sequence_number":20,"item_id":"msg_68f1c3ba","output_index":2,"content_index":0,"delta":"convection and slab pull (britannica.com).","logprobs":[]}
+
+event: response.output_text.annotation.added
+data: {"type":"response.output_text.annotation.added","sequence_number":21,"item_id":"msg_68f1c3ba","output_index":2,"content_index":0,"annotation_index":0,"annotation":{"type":"url_citation","start_index":1,"end_index":82,"url":"https://www.usgs.gov/faqs/how-fast-do-tectonic-plates-move","title":"How fast do tectonic plates move? | U.S. Geological Survey"}}
+
+event: response.output_text.annotation.added
+data: {"type":"response.output_text.annotation.added","sequence_number":22,"item_id":"msg_68f1c3ba","output_index":2,"content_index":0,"annotation_index":1,"annotation":{"type":"url_citation","start_index":95,"end_index":152,"url":"https://www.britannica.com/science/plate-tectonics","title":"Plate tectonics | Britannica"}}
+
+event: response.output_text.done
+data: {"type":"response.output_text.done","sequence_number":23,"item_id":"msg_68f1c3ba","output_index":2,"content_index":0,"text":" Tectonic plates move a few centimetres a year — about as fast as fingernails grow (usgs.gov). Their motion is driven by mantle convection and slab pull (britannica.com).","logprobs":[]}
+
+event: response.content_part.done
+data: {"type":"response.content_part.done","sequence_number":24,"item_id":"msg_68f1c3ba","output_index":2,"content_index":0,"part":{"type":"output_text","text":" Tectonic plates move a few centimetres a year — about as fast as fingernails grow (usgs.gov). Their motion is driven by mantle convection and slab pull (britannica.com).","annotations":[{"type":"url_citation","start_index":1,"end_index":82,"url":"https://www.usgs.gov/faqs/how-fast-do-tectonic-plates-move","title":"How fast do tectonic plates move? | U.S. Geological Survey"},{"type":"url_citation","start_index":95,"end_index":152,"url":"https://www.britannica.com/science/plate-tectonics","title":"Plate tectonics | Britannica"}]}}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","sequence_number":25,"output_index":2,"item":{"id":"msg_68f1c3ba","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":" Tectonic plates move a few centimetres a year — about as fast as fingernails grow (usgs.gov). Their motion is driven by mantle convection and slab pull (britannica.com).","annotations":[{"type":"url_citation","start_index":1,"end_index":82,"url":"https://www.usgs.gov/faqs/how-fast-do-tectonic-plates-move","title":"How fast do tectonic plates move? | U.S. Geological Survey"},{"type":"url_citation","start_index":95,"end_index":152,"url":"https://www.britannica.com/science/plate-tectonics","title":"Plate tectonics | Britannica"}]}]}}
+
+event: response.completed
+data: {"type":"response.completed","sequence_number":26,"response":{"id":"resp_68f1c3b7e2a4819b","object":"response","created_at":1763560000,"status":"completed","error":null,"incomplete_details":null,"model":"gpt-6.2-sol","output":[{"id":"msg_68f1c3b8","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":"Let me check current figures.","annotations":[]}]},{"id":"ws_68f1c3b9","type":"web_search_call","status":"completed","action":{"type":"search","query":"how fast do tectonic plates move"}},{"id":"msg_68f1c3ba","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":" Tectonic plates move a few centimetres a year — about as fast as fingernails grow (usgs.gov). Their motion is driven by mantle convection and slab pull (britannica.com).","annotations":[{"type":"url_citation","start_index":1,"end_index":82,"url":"https://www.usgs.gov/faqs/how-fast-do-tectonic-plates-move","title":"How fast do tectonic plates move? | U.S. Geological Survey"},{"type":"url_citation","start_index":95,"end_index":152,"url":"https://www.britannica.com/science/plate-tectonics","title":"Plate tectonics | Britannica"}]}]}],"store":false,"usage":{"input_tokens":1520,"output_tokens":48,"total_tokens":1568}}}
+

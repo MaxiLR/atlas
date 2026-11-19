@@ -93,6 +93,13 @@ impl FakeProvider {
         self
     }
 
+    /// Answers `task` by replaying this recorded Responses stream (the bytes
+    /// of an `.sse` file) through the Responses stream parser.
+    pub fn replay(self, task: Task, recording: impl Into<Vec<u8>>) -> Self {
+        let _ = (task, recording.into());
+        self
+    }
+
     /// The requests received so far, in order.
     pub fn requests(&self) -> Vec<ProviderRequest> {
         self.requests

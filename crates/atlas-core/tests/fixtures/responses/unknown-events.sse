@@ -1,0 +1,32 @@
+: a comment line, as servers send to keep a connection open
+retry: 3000
+
+event: response.created
+id: 1
+data: {"type":"response.created","sequence_number":0,"response":{"id":"resp_68f1c8a4e1f6819a","object":"response","created_at":1763560000,"status":"in_progress","error":null,"incomplete_details":null,"model":"gpt-6.2-sol","output":[],"store":false}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","sequence_number":1,"output_index":0,"item":{"id":"rs_68f1c8a5","type":"reasoning","summary":[]}}
+
+event: response.reasoning_summary_text.delta
+data: {"type":"response.reasoning_summary_text.delta","sequence_number":2,"item_id":"rs_68f1c8a5","output_index":0,"summary_index":0,"delta":"Thinking about plates."}
+
+:another comment
+event: response.some_future_event
+data: {"type":"response.some_future_event","sequence_number":3,"detail":"not yet documented"}
+
+event: response.output_item.added
+data:{"type":"response.output_item.added","sequence_number":4,"output_index":1,"item":{"id":"msg_68f1c8a6","type":"message","status":"in_progress","role":"assistant","content":[]}}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","sequence_number":5,
+data: "item_id":"msg_68f1c8a6","output_index":1,"content_index":0,
+data: "delta":"Mountains rise ","logprobs":[]}
+
+event: keepalive
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","sequence_number":6,"item_id":"msg_68f1c8a6","output_index":1,"content_index":0,"delta":"where plates meet.","logprobs":[]}
+
+event: response.completed
+data: {"type":"response.completed","sequence_number":7,"response":{"id":"resp_68f1c8a4e1f6819a","object":"response","created_at":1763560000,"status":"completed","error":null,"incomplete_details":null,"model":"gpt-6.2-sol","output":[],"store":false}}

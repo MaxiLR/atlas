@@ -3,9 +3,11 @@
 
 mod models;
 mod request;
+mod stream;
 
 pub use models::parse_models;
 pub use request::{build_responses_body, request_headers, responses_url};
+pub use stream::{ResponseFailure, ResponsesEvent, ResponsesStreamParser};
 
 use std::sync::Arc;
 

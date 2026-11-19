@@ -31,7 +31,8 @@ use crate::store::Store;
 pub(crate) struct Features {
     pub(crate) session: session::Feature,
     pub(crate) external: external::Feature,
-    pub(crate) models: models::Feature,
+    /// Shared with the session, which reports each session change to it.
+    pub(crate) models: Arc<models::Feature>,
     pub(crate) library: library::Feature,
     pub(crate) navigation: navigation::Feature,
     pub(crate) placement: placement::Feature,
@@ -49,10 +50,11 @@ pub(crate) struct Features {
 
 impl Features {
     pub(crate) fn new(deps: &CoreDeps, store: &Arc<Store>) -> Result<Self, CoreError> {
+        let models = Arc::new(models::Feature::new(deps, store)?);
         Ok(Self {
-            session: session::Feature::new(deps, store)?,
+            session: session::Feature::new(deps, store, &models)?,
             external: external::Feature::new(deps, store)?,
-            models: models::Feature::new(deps, store)?,
+            models,
             library: library::Feature::new(deps, store)?,
             navigation: navigation::Feature::new(deps, store)?,
             placement: placement::Feature::new(deps, store)?,

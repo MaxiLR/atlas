@@ -106,6 +106,10 @@ impl Attempts {
                 self.tokens.rejected().await;
                 Err(ProviderError::SignInRequired { request_id })
             }
+            Failure::NotAllowed { request_id } => {
+                self.tokens.plan_not_allowed().await;
+                Err(ProviderError::PlanNotAllowed { request_id })
+            }
             Failure::Temporary { .. } if self.retries < MAX_RETRIES => {
                 self.retries += 1;
                 Ok(Some(pause(self.retries)))

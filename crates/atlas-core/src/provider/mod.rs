@@ -197,23 +197,10 @@ pub enum ProviderChoice {
     Fake,
 }
 
-/// The provider for `choice`: the plan provider on `endpoints`, with the
-/// plan login's tokens and the clock that paces its retries, or the fake with
-/// its sample script.
-pub fn build(
-    choice: ProviderChoice,
-    endpoints: &Endpoints,
-    tokens: Arc<dyn TokenSource>,
-    clock: Arc<dyn Clock>,
-) -> Arc<dyn ModelProvider> {
-    match choice {
-        ProviderChoice::Plan => Arc::new(ChatGptProvider::new(endpoints, tokens, clock)),
-        ProviderChoice::Fake => Arc::new(FakeProvider::new(FakeScript::sample())),
-    }
-}
-
-/// The provider for `choice` as the app builds it: the plan provider takes
-/// its tokens from the session's plan login once the core is built.
+/// The provider for `choice` as the app builds it: the plan provider on
+/// `endpoints`, with the clock that paces its retries, taking its tokens from
+/// the session's plan login once the core is built; or the fake with its
+/// sample script.
 pub fn for_session(
     choice: ProviderChoice,
     endpoints: &Endpoints,
@@ -223,6 +210,19 @@ pub fn for_session(
         ProviderChoice::Plan => Arc::new(ChatGptProvider::awaiting_login(endpoints, clock)),
         ProviderChoice::Fake => Arc::new(FakeProvider::new(FakeScript::sample())),
     }
+}
+
+/// The provider for `choice` with `tokens` handed over at once, for a
+/// provider used without a core.
+pub fn build(
+    choice: ProviderChoice,
+    endpoints: &Endpoints,
+    tokens: Arc<dyn TokenSource>,
+    clock: Arc<dyn Clock>,
+) -> Arc<dyn ModelProvider> {
+    let provider = for_session(choice, endpoints, clock);
+    provider.use_plan_login(tokens);
+    provider
 }
 
 pub type ProviderStream = BoxStream<'static, Result<ProviderEvent, ProviderError>>;

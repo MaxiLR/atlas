@@ -12,7 +12,7 @@ pub use request::{build_responses_body, models_url, request_headers, responses_u
 pub use stream::{ResponseFailure, ResponsesEvent, ResponsesStreamParser};
 
 use std::collections::VecDeque;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -20,6 +20,7 @@ use reqwest::{Client, Request, Response};
 use tokio::sync::Mutex;
 use url::Url;
 
+use crate::auth::AccessToken;
 use crate::ports::{Clock, Endpoints};
 use crate::protocol::Model;
 use crate::provider::{
@@ -45,8 +46,10 @@ fn client(idle: Duration) -> Client {
         .expect("the HTTP client builds")
 }
 
-/// The provider for the plan route, built from the endpoints, the plan login's
-/// token source and the clock that paces its retries.
+/// The provider for the plan route, built from the endpoints and the clock
+/// that paces its retries. It draws its tokens from the plan login the
+/// session hands it through [`ModelProvider::use_plan_login`]; until then
+/// every call requires sign-in.
 ///
 /// A refused token is refreshed once and the request repeated; a second
 /// refusal ends the login. Temporary failures are retried up to three times
@@ -56,25 +59,28 @@ pub struct ChatGptProvider {
     client: Client,
     responses: Url,
     models: Url,
-    tokens: Arc<dyn TokenSource>,
+    /// The plan login's token source, for every call from now on.
+    tokens: RwLock<Arc<dyn TokenSource>>,
     clock: Arc<dyn Clock>,
     /// The first model listed, used when a request names none.
     default_model: Mutex<Option<String>>,
 }
 
 impl ChatGptProvider {
+    /// The provider with `tokens` given up front instead of the session's.
     pub fn new(endpoints: &Endpoints, tokens: Arc<dyn TokenSource>, clock: Arc<dyn Clock>) -> Self {
         Self {
             client: client(IDLE_TIMEOUT),
             responses: responses_url(&endpoints.api),
             models: models_url(&endpoints.api),
-            tokens,
+            tokens: RwLock::new(tokens),
             clock,
             default_model: Mutex::new(None),
         }
     }
 
-    /// The provider before any plan login: every call requires sign-in.
+    /// The provider before any plan login: every call requires sign-in until
+    /// the session hands it its login.
     pub fn awaiting_login(endpoints: &Endpoints, clock: Arc<dyn Clock>) -> Self {
         Self::new(endpoints, Arc::new(NoLogin), clock)
     }
@@ -89,7 +95,8 @@ impl ChatGptProvider {
     }
 
     fn attempts(&self) -> Attempts {
-        Attempts::new(self.client.clone(), self.tokens.clone())
+        let tokens = self.tokens.read().expect("token source lock poisoned");
+        Attempts::new(self.client.clone(), tokens.clone())
     }
 
     async fn default_model(&self) -> Result<String, ProviderError> {
@@ -114,11 +121,11 @@ struct NoLogin;
 
 #[async_trait]
 impl TokenSource for NoLogin {
-    async fn access_token(&self) -> Result<crate::auth::AccessToken, ProviderError> {
+    async fn access_token(&self) -> Result<AccessToken, ProviderError> {
         Err(ProviderError::SignInRequired { request_id: None })
     }
 
-    async fn refresh(&self) -> Result<crate::auth::AccessToken, ProviderError> {
+    async fn refresh(&self) -> Result<AccessToken, ProviderError> {
         Err(ProviderError::SignInRequired { request_id: None })
     }
 
@@ -174,6 +181,13 @@ impl ModelProvider for ChatGptProvider {
                 self.clock.sleep(pause).await;
             }
         }
+    }
+
+    /// Draws every later call's tokens from the plan login; this provider
+    /// spends plan usage.
+    fn use_plan_login(&self, tokens: Arc<dyn TokenSource>) -> bool {
+        *self.tokens.write().expect("token source lock poisoned") = tokens;
+        true
     }
 }
 

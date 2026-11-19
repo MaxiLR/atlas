@@ -23,6 +23,9 @@ pub(super) enum Failure {
     },
     /// The token was refused: refreshed once, then sign-in is required.
     Unauthorized { request_id: Option<String> },
+    /// The account or workspace may not use the plan: reported to the token
+    /// source, and the request ends.
+    NotAllowed { request_id: Option<String> },
     /// The request ends with this error.
     Final(ProviderError),
 }
@@ -38,7 +41,8 @@ impl Failure {
     }
 
     /// The error when nothing recovers the request: a temporary failure
-    /// fails, a refused token requires sign-in.
+    /// fails, a refused token requires sign-in, a refused account is not
+    /// allowed.
     pub(super) fn settled(self) -> ProviderError {
         match self {
             Self::Temporary { request_id, .. } => ProviderError::Failed {
@@ -46,6 +50,7 @@ impl Failure {
                 request_id,
             },
             Self::Unauthorized { request_id } => ProviderError::SignInRequired { request_id },
+            Self::NotAllowed { request_id } => ProviderError::PlanNotAllowed { request_id },
             Self::Final(error) => error,
         }
     }
@@ -68,7 +73,7 @@ pub(super) fn refusal(status: u16, body: &[u8], request_id: Option<String>) -> F
     }
     match status {
         401 => Failure::Unauthorized { request_id },
-        403 => Failure::Final(ProviderError::PlanNotAllowed { request_id }),
+        403 => Failure::NotAllowed { request_id },
         503 => Failure::Temporary {
             unreachable: false,
             request_id,
@@ -97,9 +102,7 @@ pub(super) fn response_failure(failure: ResponseFailure) -> Failure {
 /// recovery fail without a retry.
 fn coded(code: &str, param: Option<String>, request_id: Option<String>) -> Failure {
     match code {
-        "subscription_sharing_user_not_eligible" => {
-            Failure::Final(ProviderError::PlanNotAllowed { request_id })
-        }
+        "subscription_sharing_user_not_eligible" => Failure::NotAllowed { request_id },
         "subscription_sharing_usage_limit_exceeded" => Failure::Final(ProviderError::PlanLimit {
             resets_at: None,
             request_id,

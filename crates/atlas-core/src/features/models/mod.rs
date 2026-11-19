@@ -89,18 +89,14 @@ impl Feature {
         }
     }
 
-    /// Reads the list again for a new session and reports it. On failure the
-    /// last known list stays in use and the error is returned.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the session feature calls it when the session changes"
-        )
-    )]
-    pub(crate) async fn session_changed(&self, _cx: &Features) -> Result<(), CoreError> {
+    /// Reads the list again for a new session and reports it. `change`
+    /// applies the session's change once no listing is under way, so no
+    /// request reads the old session's list after it. On failure the last
+    /// known list stays in use and the error is returned.
+    pub(crate) async fn session_changed(&self, change: impl FnOnce()) -> Result<(), CoreError> {
         let mut listing = self.listing.lock().await;
         listing.fresh = false;
+        change();
         let models = self.read(&mut listing).await?;
         let list = self.view(models)?;
         self.events.emit(CoreEvent::ModelsChanged { list });
@@ -216,7 +212,7 @@ mod tests {
         assert_eq!(cx.models.current(&cx).await.unwrap().as_deref(), Some("a"));
         events.take();
 
-        cx.models.session_changed(&cx).await.unwrap();
+        cx.models.session_changed(|| {}).await.unwrap();
 
         let list = ModelList {
             models: vec![model("c"), model("a")],
@@ -242,7 +238,7 @@ mod tests {
         events.take();
 
         assert_eq!(
-            cx.models.session_changed(&cx).await,
+            cx.models.session_changed(|| {}).await,
             Err(CoreError::Offline)
         );
 

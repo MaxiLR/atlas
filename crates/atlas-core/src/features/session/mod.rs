@@ -4,13 +4,16 @@
 //! The tokens and the provider's not-allowed report stay in the secret store
 //! with the login, behind [`PlanAuth`]; what the session keeps itself is the
 //! sign-in waiting for the browser and why the last login ended.
+//!
+//! Whenever the session is signed in with plan usage on or signed out, the
+//! models feature reads the plan's list again and reports it.
 
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
 use async_trait::async_trait;
 use tokio::task::JoinHandle;
 
-use super::Features;
+use super::{Features, models};
 use crate::CoreDeps;
 use crate::auth::{
     AccessToken, AuthError, HostId, Login, PlanAuth, PlanAuthDeps, RefreshError, SignInMode,
@@ -26,6 +29,8 @@ const REFRESH_MARGIN: chrono::TimeDelta = chrono::TimeDelta::minutes(5);
 
 pub(crate) struct Feature {
     login: Arc<PlanLogin>,
+    /// The plan's model list, which follows the session.
+    models: Arc<models::Feature>,
     /// Whether the provider spends plan usage. The fake does not, so the
     /// guard lets everything through.
     plan_route: bool,
@@ -34,7 +39,11 @@ pub(crate) struct Feature {
 }
 
 impl Feature {
-    pub(crate) fn new(deps: &CoreDeps, store: &Arc<Store>) -> Result<Self, CoreError> {
+    pub(crate) fn new(
+        deps: &CoreDeps,
+        store: &Arc<Store>,
+        models: &Arc<models::Feature>,
+    ) -> Result<Self, CoreError> {
         let host_id = HostId(format!("urn:uuid:{}", store.host_id()?));
         let login = Arc::new(PlanLogin {
             auth: PlanAuth::new(PlanAuthDeps {
@@ -46,11 +55,15 @@ impl Feature {
             }),
             clock: deps.clock.clone(),
             events: deps.events.clone(),
+            // Weak: the provider holds the login and the models feature
+            // holds the provider.
+            models: Arc::downgrade(models),
             state: Mutex::default(),
         });
         let plan_route = deps.provider.use_plan_login(login.clone());
         Ok(Self {
             login,
+            models: models.clone(),
             plan_route,
             attempt: tokio::sync::Mutex::default(),
         })
@@ -138,6 +151,9 @@ impl Feature {
         let usage = cx.usage.sign_out(cx).await;
         self.login.state().reason = Some(SignedOutReason::SignedOut);
         let session = self.login.changed()?;
+        // Signed out, the plan's list cannot be read; whatever reading fails
+        // here is read again on the next need.
+        let _ = self.models.session_changed(|| {}).await;
         plan.map_err(auth_error)?;
         usage?;
         Ok(session)
@@ -158,9 +174,21 @@ impl Feature {
         };
         let session = self.login.changed()?;
         let login = self.login.clone();
+        let models = self.models.clone();
         *attempt = Some(tokio::spawn(async move {
             let result = pending.finish().await;
-            login.finish(number, mode, result);
+            if result
+                .as_ref()
+                .is_ok_and(|saved| plan_usage(saved) == PlanUsage::On)
+            {
+                // The list follows the new login; a failed reading is read
+                // again on the next need.
+                let _ = models
+                    .session_changed(|| login.finish(number, mode, result))
+                    .await;
+            } else {
+                login.finish(number, mode, result);
+            }
         }));
         Ok(session)
     }
@@ -179,6 +207,7 @@ struct PlanLogin {
     auth: PlanAuth,
     clock: Arc<dyn Clock>,
     events: Arc<dyn EventSink>,
+    models: Weak<models::Feature>,
     state: Mutex<State>,
 }
 
@@ -262,6 +291,13 @@ impl PlanLogin {
     fn end_login(&self) {
         self.state().reason = Some(SignedOutReason::LoginEnded);
         let _ = self.changed();
+        // The ending may come from a listing that holds the list, so the
+        // list is read again once that listing is done.
+        if let Some(models) = self.models.upgrade() {
+            tokio::spawn(async move {
+                let _ = models.session_changed(|| {}).await;
+            });
+        }
     }
 
     /// Maps the outcome of a refresh for the provider.

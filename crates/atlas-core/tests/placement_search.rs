@@ -3,6 +3,9 @@
 //! it leaves and the check-question step. Rungs are counted from 0 at the most
 //! basic; expected rungs are worked out by hand from the spec's rules.
 
+// The exhaustive walk takes its visitor as a plain `dyn FnMut`.
+#![allow(clippy::type_complexity)]
+
 use atlas_core::domain::ladder::{Ladder, Rung, RungId};
 use atlas_core::domain::profile::{CandidateProfile, Knowledge, Misconception, RungKnowledge};
 use atlas_core::placement::{

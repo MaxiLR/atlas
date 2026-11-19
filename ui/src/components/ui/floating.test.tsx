@@ -37,8 +37,14 @@ import {
 } from "./dialog";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "./dropdown-menu";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "./hover-card";
@@ -389,5 +395,55 @@ describe.each(schemes)("in the %s theme", (scheme) => {
       unmount();
     }
     expect(shadows.size).toBe(1);
+  });
+
+  it("a menu shows keyboard focus on every kind of item in the accent", async () => {
+    const user = userEvent.setup();
+    render(
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost">Claude Sonnet</Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent>
+          <DropdownMenuItem>Rename course</DropdownMenuItem>
+          <DropdownMenuCheckboxItem checked>
+            Show figures
+          </DropdownMenuCheckboxItem>
+          <DropdownMenuRadioGroup value="sonnet">
+            <DropdownMenuRadioItem value="sonnet">
+              Claude Sonnet
+            </DropdownMenuRadioItem>
+          </DropdownMenuRadioGroup>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>Export</DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              <DropdownMenuItem>PDF</DropdownMenuItem>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        </DropdownMenuContent>
+      </DropdownMenu>,
+    );
+    await openByKeyboard(
+      user,
+      screen.getByRole("button", { name: "Claude Sonnet" }),
+    );
+    await screen.findByRole("menu");
+    await applyStyles(scheme);
+
+    const items = [
+      screen.getByRole("menuitem", { name: "Rename course" }),
+      screen.getByRole("menuitemcheckbox", { name: "Show figures" }),
+      screen.getByRole("menuitemradio", { name: "Claude Sonnet" }),
+      screen.getByRole("menuitem", { name: "Export" }),
+    ];
+    await waitFor(() => expect(items[0]).toHaveFocus());
+    for (const [index, item] of items.entries()) {
+      if (index > 0) await user.keyboard("{ArrowDown}");
+      expect(item).toHaveFocus();
+      const style = getComputedStyle(item);
+      expect(style.outlineStyle).toBe("solid");
+      expect(style.outlineWidth).toBe("2px");
+      expect(sameColor(style.outlineColor, token(item, "focus"))).toBe(true);
+    }
   });
 });

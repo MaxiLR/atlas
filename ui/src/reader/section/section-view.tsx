@@ -1,6 +1,7 @@
 import { useId } from "react";
 
 import { failureInStore, useAtlas, useAtlasStore } from "@/app/store";
+import { CitationScope } from "@/catalog/components/citation/citation";
 import type { CourseView } from "@/core/generated/CourseView";
 import { placeOf } from "@/reader/course-tree";
 import { selectSection } from "@/store";
@@ -51,13 +52,15 @@ export function SectionView({
       </header>
       <SectionStatus courseId={course.id} sectionId={sectionId} />
       {display !== null && (
-        <Blocks
-          blocks={display.blocks}
-          citations={display.citations}
-          sources={display.sources}
-        />
+        <CitationScope>
+          <Blocks
+            blocks={display.blocks}
+            citations={display.citations}
+            sources={display.sources}
+          />
+          <Sources sources={display.sources} />
+        </CitationScope>
       )}
-      {display !== null && <Sources sources={display.sources} />}
       {display?.status === "stored" && (
         <Explain
           onExplain={(style) =>

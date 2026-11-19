@@ -320,14 +320,21 @@ async fn next_from_the_first_section_returns_the_second() {
         })
         .await;
 
-    match next {
-        CoreResponse::Section { section } => {
-            assert_eq!(section.id, ids[1]);
-            assert_eq!(section.title, "Plate boundaries");
-            assert_eq!(text(&section), "The crust floats on the mantle.");
+    // Next only answers; the interface then opens the section it names.
+    let section_id = match next {
+        CoreResponse::NextSection {
+            course_id,
+            section_id,
+        } => {
+            assert_eq!(course_id, course.id);
+            section_id
         }
         other => panic!("expected the second section, got {other:?}"),
-    }
+    };
+    assert_eq!(section_id, ids[1]);
+    let section = harness.open_section(&course, section_id).await;
+    assert_eq!(section.title, "Plate boundaries");
+    assert_eq!(text(&section), "The crust floats on the mantle.");
 }
 
 #[tokio::test]
@@ -337,16 +344,22 @@ async fn next_crosses_into_the_following_chapter_and_ends_after_the_last_section
     let course = harness.create_course("Plate tectonics").await;
     let ids = section_ids(&course);
 
-    match harness
-        .request(CoreRequest::Next {
+    assert_eq!(
+        harness
+            .request(CoreRequest::Next {
+                course_id: course.id,
+                section_id: ids[1],
+            })
+            .await,
+        CoreResponse::NextSection {
             course_id: course.id,
-            section_id: ids[1],
-        })
-        .await
-    {
-        CoreResponse::Section { section } => assert_eq!(section.title, "Convection"),
-        other => panic!("expected the next chapter's first section, got {other:?}"),
-    }
+            section_id: ids[2],
+        }
+    );
+    assert_eq!(
+        harness.open_section(&course, ids[2]).await.title,
+        "Convection"
+    );
     assert_eq!(
         harness
             .request(CoreRequest::Next {

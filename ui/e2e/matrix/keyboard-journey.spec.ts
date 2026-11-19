@@ -441,3 +441,27 @@ test("below 1024 px the titles overlay and the side panel hold focus while open,
   await expect(chats).toBeFocused();
   await expect(main).not.toHaveAttribute("inert");
 });
+
+test("below 1024 px the skip control closes the titles overlay and leads to the section's title", async ({
+  page,
+}, testInfo) => {
+  const { width, colorScheme } = projectOf(testInfo);
+  test.skip(
+    width >= 1024,
+    "the titles overlay opens over the column below 1024 px",
+  );
+  await openApp(page, { width, colorScheme });
+  const title = await resumeSample(page);
+  const toggle = page.getByRole("button", { name: "Show the index" });
+  await moveTo(page, toggle, "Shift+Tab");
+  await press(page, "Enter");
+  await expect(page.getByRole("main")).toHaveAttribute("inert");
+
+  const skip = page.getByRole("link", { name: "Skip to the reading column" });
+  await moveTo(page, skip, "Shift+Tab");
+  await page.keyboard.press("Enter");
+
+  await expect(page.getByRole("main")).not.toHaveAttribute("inert");
+  await expect(title).toBeFocused();
+  await expectFocusShown(page);
+});

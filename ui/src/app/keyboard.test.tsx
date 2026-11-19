@@ -182,6 +182,19 @@ describe("focus after each navigation", () => {
     expect(column().scrollTop).toBe(0);
   });
 
+  it("Go deeper on a section with deep dives opens one with focus on its title", async () => {
+    const { user } = renderApp();
+    await openPlateTectonics(user);
+    const goDeeper = screen.getByRole("button", { name: "Go deeper" });
+    await waitFor(() => expect(goDeeper).not.toHaveAttribute("aria-disabled"));
+    act(() => goDeeper.focus());
+
+    await user.keyboard("{Enter}");
+
+    const title = await sectionTitle("Subduction, step by step");
+    await waitFor(() => expect(title).toHaveFocus());
+  });
+
   it("returning to the library moves focus to the topic field", async () => {
     const { user } = renderApp();
     await openPlateTectonics(user);

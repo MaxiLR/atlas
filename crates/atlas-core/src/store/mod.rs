@@ -11,8 +11,7 @@
 //!
 //! One file per area: `courses` (courses, ladder, placement, profile),
 //! `index` (the index tree, the course map and the conventions), `sections`
-//! (versions, records, check answers), `glossary`, `chats`, `settings`, and
-//! `thin` for the views the thin loop's features still read.
+//! (versions, records, check answers), `glossary`, `chats` and `settings`.
 
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -64,14 +63,12 @@ mod glossary;
 mod index;
 mod sections;
 mod settings;
-mod thin;
 
 pub use chats::{NewChatMessage, SideChatRecord};
 pub use courses::{CourseRecord, PlacementQuestionRecord};
 pub use glossary::NewGlossaryEntry;
 pub use index::{ConventionOutcome, NodeKind, NodeRecord};
 pub use sections::{CheckAnswerRecord, CheckBlock, NewSectionVersion, StoredSectionVersion};
-pub use thin::{StoredSection, StoredVersion};
 
 /// Migration `n` (1-based) is `MIGRATIONS[n - 1]`; `PRAGMA user_version`
 /// records the last one applied. Migrations only ever move forward.

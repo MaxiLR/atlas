@@ -50,15 +50,10 @@ export function Settings() {
         )}
       </section>
       <div className="flex gap-2">
-        <Button
-          variant="outline"
-          onClick={() => request({ type: "OpenManageUsage" })}
-        >
+        <Button onClick={() => request({ type: "OpenManageUsage" })}>
           Manage usage
         </Button>
-        <Button variant="outline" onClick={() => request({ type: "SignOut" })}>
-          Sign out
-        </Button>
+        <Button onClick={() => request({ type: "SignOut" })}>Sign out</Button>
       </div>
       {error !== null && <p role="alert">{describeError(error)}</p>}
     </main>

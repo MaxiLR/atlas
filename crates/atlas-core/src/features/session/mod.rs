@@ -291,6 +291,11 @@ impl TokenSource for PlanLogin {
             .login()
             .map_err(stored)?
             .ok_or_else(sign_in_required)?;
+        // A call already past the guard spends no more once the plan is
+        // reported not allowed.
+        if login.plan_not_allowed {
+            return Err(ProviderError::PlanNotAllowed { request_id: None });
+        }
         let token = self
             .auth
             .access_token()

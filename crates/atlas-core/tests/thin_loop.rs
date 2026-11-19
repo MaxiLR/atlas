@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 use atlas_core::Core;
 use atlas_core::harness::index::{ChapterDraft, IndexDraft, SectionDraft};
 use atlas_core::ports::EventSink;
+use atlas_core::protocol::ChapterNode;
 use atlas_core::protocol::{
     Block, BlockContent, BlockKind, CoreEvent, CoreRequest, CoreResponse, CourseView,
     GenerationEvent, GenerationOutcome, GenerationTarget, Goal, NodeMark, PlacementAnswer,
@@ -264,6 +265,11 @@ async fn opening_a_section_streams_its_deltas_in_order_then_completes() {
             event(GenerationEvent::Finished {
                 outcome: GenerationOutcome::Completed,
             }),
+            // Finished in front of the candidate, the section is now read.
+            CoreEvent::IndexChanged {
+                course_id: course.id,
+                chapters: with_read(&course, first),
+            },
         ]
     );
     let requests = harness.provider.requests();
@@ -409,4 +415,19 @@ async fn the_data_survives_reopening_the_database_file() {
     assert_eq!(reopened.open_section(&course, section.id).await, section);
     assert!(reopened.provider.requests().is_empty());
     assert_eq!(reopened.events.take(), []);
+}
+
+/// The course's index with `section` shown read.
+fn with_read(course: &CourseView, section: Uuid) -> Vec<ChapterNode> {
+    let mut chapters = course.chapters.clone();
+    for node in chapters
+        .iter_mut()
+        .flat_map(|chapter| chapter.sections.iter_mut())
+    {
+        if node.id == section {
+            node.read = true;
+            node.mark = NodeMark::Read;
+        }
+    }
+    chapters
 }

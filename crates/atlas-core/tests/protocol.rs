@@ -1359,6 +1359,8 @@ async fn requests_for_features_not_built_yet_answer_unavailable_naming_the_featu
         "OpenCourse",
         "DeleteCourse",
         "OpenSection",
+        "StopGeneration",
+        "RetrySection",
         "Next",
         "Define",
         "LookupWikipedia",

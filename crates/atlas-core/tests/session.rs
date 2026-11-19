@@ -11,8 +11,8 @@ use atlas_core::ports::{
     Browser, BrowserError, Clock, Endpoints, EventSink, SecretError, SecretRecord, SecretStore,
 };
 use atlas_core::protocol::{
-    Account, CoreError, CoreEvent, CoreRequest, CoreResponse, Model, PlanUsage, Session,
-    SignedOutReason, UsageState,
+    Account, CoreError, CoreEvent, CoreRequest, CoreResponse, Goal, Model, PlanUsage, SelfRating,
+    Session, SignedOutReason, UsageState,
 };
 use atlas_core::provider::{
     FakeProvider, FakeScript, ModelProvider, ProviderError, ProviderRequest, ProviderStream,
@@ -717,11 +717,33 @@ impl Harness {
         self.settled().await
     }
 
+    /// Creates a course and submits its self-rating, which drafts the ladder
+    /// and writes the first question: two generations. A failed placement
+    /// step answers its error.
     async fn create_course(&self) -> Result<CoreResponse, CoreError> {
-        self.request(CoreRequest::CreateCourse {
-            topic: "Plate tectonics".to_owned(),
-        })
-        .await
+        let course_id = match self
+            .request(CoreRequest::CreateCourse {
+                topic: "Plate tectonics".to_owned(),
+            })
+            .await?
+        {
+            CoreResponse::Course { course } => course.id,
+            other => panic!("expected a course, got {other:?}"),
+        };
+        let response = self
+            .request(CoreRequest::SubmitSelfRating {
+                course_id,
+                rating: SelfRating::NewToThis,
+                goal: Goal::Overview,
+            })
+            .await?;
+        match &response {
+            CoreResponse::Placement { placement, .. } => match &placement.error {
+                Some(error) => Err(error.clone()),
+                None => Ok(response),
+            },
+            other => panic!("expected a placement state, got {other:?}"),
+        }
     }
 
     async fn course_topics(&self) -> Vec<String> {
@@ -929,7 +951,11 @@ async fn a_revoked_login_ends_signed_out_and_the_courses_stay() {
         harness.secrets.get(SecretRecord::IssuedClientId).is_some(),
         "the issued client id is kept"
     );
-    assert_eq!(harness.course_topics().await, ["Plate tectonics"]);
+    assert_eq!(
+        harness.course_topics().await,
+        ["Plate tectonics", "Plate tectonics"],
+        "the course placed and the one left in placement both stay"
+    );
     assert_eq!(
         harness.authorizations().len(),
         1,
@@ -952,7 +978,11 @@ async fn a_token_refused_again_after_one_refresh_ends_the_login() {
     assert_eq!(harness.session().await, ended);
     assert_eq!(harness.events.sessions().last(), Some(&ended));
     assert!(harness.secrets.get(SecretRecord::PlanLogin).is_none());
-    assert_eq!(harness.course_topics().await, ["Plate tectonics"]);
+    assert_eq!(
+        harness.course_topics().await,
+        ["Plate tectonics", "Plate tectonics"],
+        "the course placed and the one left in placement both stay"
+    );
 }
 
 #[tokio::test]
@@ -1127,8 +1157,8 @@ async fn an_expired_access_token_is_refreshed_before_a_generation() {
     let presented = harness.plan.presented();
     assert_eq!(
         presented[listed..],
-        [tokens[1].clone()],
-        "the generation presented only the refreshed token"
+        [tokens[1].clone(), tokens[1].clone()],
+        "the ladder and the first question presented only the refreshed token"
     );
     assert_eq!(harness.session().await, signed_in(PlanUsage::On));
 }
@@ -1147,7 +1177,11 @@ async fn concurrent_generations_with_an_expiring_token_share_one_refresh() {
     assert_eq!(harness.server.refreshes(), 1);
     let fresh = harness.server.access_tokens()[1].clone();
     let presented = harness.plan.presented();
-    assert_eq!(presented[listed..], [fresh.clone(), fresh]);
+    assert_eq!(
+        presented[listed..],
+        [fresh.clone(), fresh.clone(), fresh.clone(), fresh],
+        "each course's ladder and first question presented the fresh token"
+    );
 }
 
 #[tokio::test]
@@ -1168,7 +1202,7 @@ async fn a_token_about_to_expire_is_still_used_for_a_generation_when_the_token_e
         .expect("the still valid token is used");
     let presented = harness.plan.presented();
     assert_eq!(presented[..listed], first[..]);
-    assert_eq!(presented[listed..], first[..]);
+    assert_eq!(presented[listed..], [&first[..], &first[..]].concat());
     assert_eq!(harness.session().await, signed_in(PlanUsage::On));
 }
 

@@ -40,13 +40,19 @@ pub const REPAIR_STRUCTURED: Prompt = Prompt {
     source: include_str!("../../../../prompts/repair-structured.md"),
 };
 
+pub const REPAIR_BLOCK: Prompt = Prompt {
+    name: "repair-block",
+    source: include_str!("../../../../prompts/repair-block.md"),
+};
+
 /// Every prompt the core embeds.
-pub const ALL: [Prompt; 5] = [
+pub const ALL: [Prompt; 6] = [
     DRAFT_LADDER,
     PLACEMENT_QUESTION,
     BUILD_INDEX,
     WRITE_SECTION,
     REPAIR_STRUCTURED,
+    REPAIR_BLOCK,
 ];
 
 impl Prompt {

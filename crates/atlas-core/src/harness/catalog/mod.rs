@@ -34,6 +34,11 @@ pub fn prompt() -> &'static str {
     split_front_matter().1.trim()
 }
 
+/// The catalog's JSON schema, as generated.
+pub fn schema() -> &'static Value {
+    &SCHEMA
+}
+
 /// The version named in the prompt's front matter.
 pub fn version() -> u32 {
     split_front_matter()

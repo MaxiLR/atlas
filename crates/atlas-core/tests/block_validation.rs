@@ -783,3 +783,24 @@ async fn resolved_blocks_show_without_answer_keys() {
         }
     );
 }
+
+#[tokio::test]
+async fn a_repair_answered_inside_a_code_fence_is_accepted() {
+    let raw = closed(ReservedKind::Mermaid, "");
+    let fake = provider().answer(
+        Task::RepairBlock,
+        [ok(&format!("```mermaid\n{MERMAID}\n```"))],
+    );
+
+    let resolved = resolved(&raw, &fake).await;
+
+    assert_eq!(
+        resolved,
+        Resolved::Block {
+            block: ValidBlock::Mermaid {
+                source: MERMAID.to_owned()
+            },
+            description: Some(DESCRIPTION.to_owned()),
+        }
+    );
+}

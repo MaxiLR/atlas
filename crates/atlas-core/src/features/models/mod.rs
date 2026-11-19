@@ -2,10 +2,11 @@
 //! candidate's pick while it is still listed.
 //!
 //! The list is read from the provider once per launch, on first need, and
-//! again when the session changes. The default is the first model listed. The
-//! candidate's pick is stored and holds across launches; a listing that no
-//! longer contains it clears it. A failed listing keeps the last known list,
-//! and the next need reads again.
+//! again when the session changes; a session with no plan to read reports an
+//! empty list. The default is the first model listed. The candidate's pick is
+//! stored and holds across launches; a listing that no longer contains it
+//! clears it. A failed listing keeps the last known list, and the next need
+//! reads again.
 
 use std::sync::Arc;
 
@@ -89,16 +90,30 @@ impl Feature {
         }
     }
 
-    /// Reads the list again for a new session and reports it. `change`
-    /// applies the session's change once no listing is under way, so no
-    /// request reads the old session's list after it. On failure the last
-    /// known list stays in use and the error is returned.
-    pub(crate) async fn session_changed(&self, change: impl FnOnce()) -> Result<(), CoreError> {
+    /// Reports the list for a new session. `change` applies the session's
+    /// change once no listing is under way, so no request reads the old
+    /// session's list after it. With `listed` the list is read again; without
+    /// it the session has no plan to read, the old list is forgotten and an
+    /// empty one reported. On a failed reading the last known list stays in
+    /// use and the error is returned.
+    pub(crate) async fn session_changed(
+        &self,
+        listed: bool,
+        change: impl FnOnce(),
+    ) -> Result<(), CoreError> {
         let mut listing = self.listing.lock().await;
         listing.fresh = false;
         change();
-        let models = self.read(&mut listing).await?;
-        let list = self.view(models)?;
+        let list = if listed {
+            let models = self.read(&mut listing).await?;
+            self.view(models)?
+        } else {
+            listing.models = None;
+            ModelList {
+                models: Vec::new(),
+                current: None,
+            }
+        };
         self.events.emit(CoreEvent::ModelsChanged { list });
         Ok(())
     }
@@ -212,7 +227,7 @@ mod tests {
         assert_eq!(cx.models.current(&cx).await.unwrap().as_deref(), Some("a"));
         events.take();
 
-        cx.models.session_changed(|| {}).await.unwrap();
+        cx.models.session_changed(true, || {}).await.unwrap();
 
         let list = ModelList {
             models: vec![model("c"), model("a")],
@@ -238,7 +253,7 @@ mod tests {
         events.take();
 
         assert_eq!(
-            cx.models.session_changed(|| {}).await,
+            cx.models.session_changed(true, || {}).await,
             Err(CoreError::Offline)
         );
 

@@ -5,8 +5,9 @@
 //! with the login, behind [`PlanAuth`]; what the session keeps itself is the
 //! sign-in waiting for the browser and why the last login ended.
 //!
-//! Whenever the session is signed in with plan usage on or signed out, the
-//! models feature reads the plan's list again and reports it.
+//! Whenever the session signs in, turns plan usage on or signs out, the models
+//! feature reports the list again: read from the provider while it can be,
+//! empty while the plan provider has no plan usage to list it with.
 
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
@@ -151,9 +152,9 @@ impl Feature {
         let usage = cx.usage.sign_out(cx).await;
         self.login.state().reason = Some(SignedOutReason::SignedOut);
         let session = self.login.changed()?;
-        // Signed out, the plan's list cannot be read; whatever reading fails
-        // here is read again on the next need.
-        let _ = self.models.session_changed(|| {}).await;
+        // Signed out, the plan provider has no list to read; whatever reading
+        // fails here is read again on the next need.
+        let _ = self.models.session_changed(!self.plan_route, || {}).await;
         plan.map_err(auth_error)?;
         usage?;
         Ok(session)
@@ -175,19 +176,19 @@ impl Feature {
         let session = self.login.changed()?;
         let login = self.login.clone();
         let models = self.models.clone();
+        let plan_route = self.plan_route;
         *attempt = Some(tokio::spawn(async move {
             let result = pending.finish().await;
-            if result
-                .as_ref()
-                .is_ok_and(|saved| plan_usage(saved) == PlanUsage::On)
-            {
-                // The list follows the new login; a failed reading is read
-                // again on the next need.
-                let _ = models
-                    .session_changed(|| login.finish(number, mode, result))
-                    .await;
-            } else {
-                login.finish(number, mode, result);
+            match &result {
+                Ok(saved) => {
+                    let listed = !plan_route || plan_usage(saved) == PlanUsage::On;
+                    // The list follows the new login; a failed reading is
+                    // read again on the next need.
+                    let _ = models
+                        .session_changed(listed, || login.finish(number, mode, result))
+                        .await;
+                }
+                Err(_) => login.finish(number, mode, result),
             }
         }));
         Ok(session)
@@ -292,10 +293,11 @@ impl PlanLogin {
         self.state().reason = Some(SignedOutReason::LoginEnded);
         let _ = self.changed();
         // The ending may come from a listing that holds the list, so the
-        // list is read again once that listing is done.
+        // list is reported once that listing is done. Only the plan provider
+        // ends a login, and signed out it has no list to read.
         if let Some(models) = self.models.upgrade() {
             tokio::spawn(async move {
-                let _ = models.session_changed(|| {}).await;
+                let _ = models.session_changed(false, || {}).await;
             });
         }
     }

@@ -117,6 +117,8 @@ function useDrawBranch(group: RefObject<SVGGElement | null>, drawing: Drawing) {
 /**
  * The small drawn line: the current node, the line on to the next node and,
  * when it is asked for or exists, the branch with a node per deep dive.
+ * Hidden below 1024 px, and in a foot too narrow to hold it beside the texts
+ * and the controls (the side panel open beside a narrow column).
  */
 function SmallLine({
   next,
@@ -143,7 +145,7 @@ function SmallLine({
     <svg
       viewBox="0 0 180 40"
       aria-hidden
-      className="h-10 w-45 shrink-0 fill-none max-lg:hidden"
+      className="h-10 w-45 shrink-0 fill-none max-lg:hidden @max-[32rem]:hidden"
     >
       {/* The line runs on to the next node, or stops at a bar where the
           course ends. */}
@@ -305,7 +307,7 @@ export function ReaderFoot({
       : `${refused.type === "Next" ? "The next section could not be found." : "Deep dives could not be proposed."} ${describeError(refused.error)}`;
 
   return (
-    <footer className="border-t border-edge bg-canvas px-5">
+    <footer className="@container border-t border-edge bg-canvas px-5">
       <div className="mx-auto flex h-full max-w-170 items-center gap-3 text-13 text-muted-foreground">
         <SmallLine key={sectionId} next={next} branch={branch} />
         <div className="grid min-w-0 flex-1 gap-px">

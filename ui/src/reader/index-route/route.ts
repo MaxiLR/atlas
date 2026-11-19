@@ -7,12 +7,11 @@ export const ROW_HEIGHT = 30;
 
 /**
  * Where a node sits across the rail, by depth: the broad pass on the line,
- * deep dives a step in, deeper ones a step further. All fit the 72 px rail.
+ * a deep dive 20 px in, and each further level half the previous step again,
+ * so any depth branches off its parent and still fits the 72 px folded rail.
  */
-const NODE_X = [24, 44, 64];
-
 export function nodeX(depth: number): number {
-  return NODE_X[Math.min(depth, NODE_X.length - 1)]!;
+  return 24 + 40 * (1 - 0.5 ** depth);
 }
 
 /** The middle of row `row`, down the figure. */

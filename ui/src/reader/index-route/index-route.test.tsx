@@ -383,4 +383,47 @@ describe("the index as a route line", () => {
       ),
     ).toHaveAccessibleDescription("Unread");
   });
+
+  it("steps every further level of deep dives in again, within the folded rail", async () => {
+    const { store, state, course } = await courseIn(
+      "index-route",
+      "The history of mapmaking",
+    );
+    const itineraries = findSection(course, "Itineraries and stages");
+    await store.send({
+      type: "GoDeeper",
+      courseId: course.id,
+      sectionId: itineraries.id,
+    });
+    const inField = findSection(
+      state().course.byId[course.id]!,
+      "Itineraries and stages: in the field",
+    );
+    await store.send({
+      type: "GoDeeper",
+      courseId: course.id,
+      sectionId: inField.id,
+    });
+    draw(state().course.byId[course.id]!, inField.id);
+
+    // The broad pass, then four levels of deep dives, each a child of the last.
+    const chain = [
+      "Ptolemy and the grid: methods",
+      "Guessing longitude from travel times",
+      "Itineraries and stages",
+      "Itineraries and stages: in the field",
+      "Itineraries and stages: in the field: measured",
+    ];
+    for (let at = 1; at < chain.length; at += 1) {
+      expect(nodeX(chain[at]!)).toBeGreaterThan(nodeX(chain[at - 1]!));
+    }
+    // A child sits further in than its parent's siblings.
+    expect(nodeX("Itineraries and stages: in the field")).toBeGreaterThan(
+      nodeX("Marinus of Tyre"),
+    );
+    // Every node, the current mark's ring included, fits the 72 px folded rail.
+    expect(
+      nodeX("Itineraries and stages: in the field: measured") + 5.5,
+    ).toBeLessThanOrEqual(72);
+  });
 });

@@ -4,6 +4,9 @@
 //! repair of a map or an index that does not hold, and nothing of the map
 //! leaving the core.
 
+// The index-changed test compares chapters as plain tuples of ids and titles.
+#![allow(clippy::type_complexity)]
+
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 

@@ -32,8 +32,8 @@ import type { PanelTab } from "@/store";
  * that opened it.
  *
  * A section that opens starts at the top of the column with focus on its
- * title, except that Next and Go deeper keep focus where it was pressed.
- * The rail's first stop skips to the column.
+ * title, except that Next keeps focus, so it can be pressed again. The
+ * rail's first stop skips to the column.
  */
 export function Reader({ course }: { course: CourseView }) {
   const { send, navigate } = useAtlasStore();
@@ -48,6 +48,7 @@ export function Reader({ course }: { course: CourseView }) {
   const sidePanel = useRef<HTMLElement>(null);
   const indexToggle = useRef<HTMLButtonElement>(null);
   const panelOpener = useRef<HTMLButtonElement | null>(null);
+  const nextButton = useRef<HTMLButtonElement>(null);
   // Set when an action opens a region whose first control takes focus.
   const focusIndex = useRef(false);
   const focusPanel = useRef(false);
@@ -61,27 +62,27 @@ export function Reader({ course }: { course: CourseView }) {
   useFocusLoop(rail, overIndex);
   useFocusLoop(sidePanel, overPanel);
 
-  /** Focus to the open section's title, or to the column without one. */
-  const focusColumn = useCallback(() => {
+  /** The open section's title, or the column without one. */
+  const columnTarget = useCallback(() => {
     const scroller = column.current;
-    (scroller?.querySelector<HTMLElement>("article h1") ?? scroller)?.focus();
+    return scroller?.querySelector<HTMLElement>("article h1") ?? scroller;
   }, []);
 
   useEffect(() => {
     const scroller = column.current;
     if (scroller === null) return;
     scroller.scrollTop = 0;
-    // The foot's controls keep focus, so Next can be pressed again; the
-    // side panel keeps it while the candidate works there.
+    // Next keeps focus, so it can be pressed again; the side panel keeps it
+    // while the candidate works there.
     const focused = document.activeElement;
     if (
-      focused?.closest("main > footer") != null ||
+      (focused !== null && focused === nextButton.current) ||
       sidePanel.current?.contains(focused) === true
     ) {
       return;
     }
-    focusColumn();
-  }, [sectionId, focusColumn]);
+    columnTarget()?.focus();
+  }, [sectionId, columnTarget]);
 
   // Where focus goes back once an overlay has closed: only after the render
   // that lifts `inert` from the rest, which focus cannot enter before. A
@@ -199,8 +200,13 @@ export function Reader({ course }: { course: CourseView }) {
           )}
           onClick={(event) => {
             event.preventDefault();
-            if (indexOpen) navigate({ type: "CloseOverlay" });
-            focusColumn();
+            // Over the column, the overlay keeps it inert until it closes.
+            if (indexOpen) {
+              navigate({ type: "CloseOverlay" });
+              giveBack.current = columnTarget();
+            } else {
+              columnTarget()?.focus();
+            }
           }}
         >
           Skip to the reading column
@@ -299,7 +305,11 @@ export function Reader({ course }: { course: CourseView }) {
             />
           )}
         </div>
-        <ReaderFoot courseId={course.id} sectionId={sectionId} />
+        <ReaderFoot
+          courseId={course.id}
+          sectionId={sectionId}
+          nextRef={nextButton}
+        />
       </main>
 
       {panel.open && (

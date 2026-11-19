@@ -1,0 +1,8 @@
+{
+  "error": {
+    "message": "ChatGPT plan usage is unavailable for the selected user, workspace or policy.",
+    "type": "permission_error",
+    "param": null,
+    "code": "subscription_sharing_user_not_eligible"
+  }
+}

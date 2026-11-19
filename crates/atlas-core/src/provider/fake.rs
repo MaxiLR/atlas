@@ -130,12 +130,12 @@ impl ModelProvider for FakeProvider {
         let deltas = match request.task {
             Task::BuildIndex => {
                 let json = serde_json::to_string(&self.script.index)
-                    .map_err(|error| ProviderError::Failed(error.to_string()))?;
+                    .map_err(|error| ProviderError::failed(error.to_string()))?;
                 chunk(&json, 24)
             }
             Task::WriteSection => self.script.section_deltas.clone(),
             task => {
-                return Err(ProviderError::Failed(format!(
+                return Err(ProviderError::failed(format!(
                     "the fake provider has no script for {task:?}"
                 )));
             }

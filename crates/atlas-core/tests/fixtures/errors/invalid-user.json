@@ -1,0 +1,8 @@
+{
+  "error": {
+    "message": "The subscriber context could not be validated.",
+    "type": "authentication_error",
+    "param": null,
+    "code": "subscription_sharing_invalid_user"
+  }
+}

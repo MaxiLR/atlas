@@ -10,7 +10,7 @@ use crate::provider::ProviderError;
 /// model list, a listed entry without a string `slug` and `display_name`, or
 /// a list with no listed model is an error.
 pub fn parse_models(body: &str) -> Result<Vec<Model>, ProviderError> {
-    let malformed = |what: &str| ProviderError::Failed(format!("the model list {what}"));
+    let malformed = |what: &str| ProviderError::failed(format!("the model list {what}"));
     let body: Value =
         serde_json::from_str(body).map_err(|error| malformed(&format!("is not JSON: {error}")))?;
     let entries = body

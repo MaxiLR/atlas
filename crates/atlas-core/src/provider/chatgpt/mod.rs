@@ -11,13 +11,37 @@ pub use stream::{ResponseFailure, ResponsesEvent, ResponsesStreamParser};
 
 use std::sync::Arc;
 
+use async_trait::async_trait;
+
 use crate::ports::{Clock, Endpoints};
-use crate::provider::TokenSource;
+use crate::protocol::Model;
+use crate::provider::{ModelProvider, ProviderError, ProviderRequest, ProviderStream, TokenSource};
 
 /// The provider for the plan route, built from the endpoints, the plan login's
 /// token source and the clock that paces its retries.
 pub struct ChatGptProvider {
-    pub endpoints: Endpoints,
-    pub tokens: Arc<dyn TokenSource>,
-    pub clock: Arc<dyn Clock>,
+    endpoints: Endpoints,
+    tokens: Arc<dyn TokenSource>,
+    clock: Arc<dyn Clock>,
+}
+
+impl ChatGptProvider {
+    pub fn new(endpoints: &Endpoints, tokens: Arc<dyn TokenSource>, clock: Arc<dyn Clock>) -> Self {
+        Self {
+            endpoints: endpoints.clone(),
+            tokens,
+            clock,
+        }
+    }
+}
+
+#[async_trait]
+impl ModelProvider for ChatGptProvider {
+    async fn stream(&self, _request: ProviderRequest) -> Result<ProviderStream, ProviderError> {
+        Err(ProviderError::failed("the plan provider is not built yet"))
+    }
+
+    async fn list_models(&self) -> Result<Vec<Model>, ProviderError> {
+        Err(ProviderError::failed("the plan provider is not built yet"))
+    }
 }

@@ -41,12 +41,14 @@ impl ResponsesEvent {
             Self::Citation(citation) => Ok(ProviderEvent::Citation(citation)),
             Self::Completed => Ok(ProviderEvent::Completed),
             Self::Incomplete { reason } => Ok(ProviderEvent::Incomplete { reason }),
-            Self::Failed(failure) => Err(ProviderError::Failed(format!(
-                "the response failed with {} (request {})",
-                failure.code.as_deref().unwrap_or("no error code"),
-                failure.request_id.as_deref().unwrap_or("id unknown"),
-            ))),
-            Self::Broken => Err(ProviderError::Incomplete),
+            Self::Failed(failure) => Err(ProviderError::Failed {
+                message: format!(
+                    "the response failed with {}",
+                    failure.code.as_deref().unwrap_or("no error code"),
+                ),
+                request_id: failure.request_id,
+            }),
+            Self::Broken => Err(ProviderError::Incomplete { request_id: None }),
         }
     }
 }

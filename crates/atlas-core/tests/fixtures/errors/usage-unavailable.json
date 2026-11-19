@@ -1,0 +1,8 @@
+{
+  "error": {
+    "message": "Usage availability could not be checked.",
+    "type": "server_error",
+    "param": null,
+    "code": "subscription_sharing_usage_unavailable"
+  }
+}

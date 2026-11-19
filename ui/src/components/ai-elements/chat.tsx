@@ -18,12 +18,19 @@ export interface ChatTurn {
   content: ReactNode;
 }
 
-export function Chat({ turns }: { turns: ChatTurn[] }) {
+export function Chat({
+  turns,
+  className,
+}: {
+  turns: ChatTurn[];
+  /** Spacing around and between the turns. */
+  className?: string;
+}) {
   return (
     <MessageScrollerProvider autoScroll>
       <MessageScroller>
         <MessageScrollerViewport>
-          <MessageScrollerContent>
+          <MessageScrollerContent className={className}>
             {turns.map((turn) => (
               <MessageScrollerItem
                 key={turn.id}

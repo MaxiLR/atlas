@@ -80,7 +80,7 @@ function Generating({
  * When the plan can be used again: the time the refusal names, otherwise
  * the latest reset of the usage meter's windows at their limit.
  */
-function resetTime(
+export function resetTime(
   refusal: string | null,
   usage: UsageState | null,
 ): string | null {
@@ -106,7 +106,7 @@ const dayAndTime = new Intl.DateTimeFormat("en-GB", {
  * "It resets in 2 h 14 min.", or the day and time when more than a day
  * away; kept current while shown.
  */
-function ResetsAt({ resetsAt }: { resetsAt: string }) {
+export function ResetsAt({ resetsAt }: { resetsAt: string }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 30_000);

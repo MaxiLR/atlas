@@ -66,6 +66,7 @@ import {
   messageSent,
   replied,
   replyGenerated,
+  sendFailed,
   type SideChatsSlice,
 } from "./side-chats";
 import { unknownTag } from "./unknown-tag";
@@ -562,6 +563,11 @@ export function applyFailure(
       };
     case "GetSession":
       return { ...state, session: { ...state.session, error } };
+    case "SendSideChatMessage":
+      return {
+        ...state,
+        sideChats: sendFailed(state.sideChats, request.chatId, error),
+      };
     case "SignIn":
     case "CancelSignIn":
     case "EnablePlanUsage":
@@ -582,7 +588,6 @@ export function applyFailure(
     case "ListSideChats":
     case "StartSideChat":
     case "OpenSideChat":
-    case "SendSideChatMessage":
     case "StopSideChatReply":
     case "GetUsage":
     case "ConnectUsage":

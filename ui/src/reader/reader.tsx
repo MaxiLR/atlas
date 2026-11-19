@@ -12,7 +12,7 @@ import { GlossaryList } from "@/reader/glossary/glossary-list";
 import { ReaderHeader } from "@/reader/header/header";
 import { IndexRoute } from "@/reader/index-route/index-route";
 import { SectionView } from "@/reader/section/section-view";
-import { SideChatList } from "@/reader/side-chat/side-chat-list";
+import { SideChats } from "@/reader/side-chat/side-chats";
 import { SidePanel } from "@/reader/side-panel/side-panel";
 import { UsageMeter } from "@/reader/usage-meter/usage-meter";
 import { VersionSwitch } from "@/reader/versions/version-switch";
@@ -238,9 +238,7 @@ export function Reader({ course }: { course: CourseView }) {
           course={course}
           tab={panel.tab}
           onClose={closePanel}
-          sideChats={
-            <SideChatList courseId={course.id} openChatId={panel.chatId} />
-          }
+          sideChats={<SideChats courseId={course.id} />}
           glossary={<GlossaryList courseId={course.id} />}
         />
       )}

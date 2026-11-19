@@ -41,6 +41,8 @@ export type NavigationAction =
   | { type: "ShowSettings" }
   | { type: "OpenPanel"; tab: PanelTab }
   | { type: "ClosePanel" }
+  /** Leaves the open side chat for the course's list. */
+  | { type: "ShowSideChatList" }
   | { type: "OpenOverlay"; overlay: Overlay }
   | { type: "CloseOverlay" };
 
@@ -58,6 +60,8 @@ export function navigate(
       return { ...nav, panel: { ...nav.panel, open: true, tab: action.tab } };
     case "ClosePanel":
       return { ...nav, panel: { ...nav.panel, open: false } };
+    case "ShowSideChatList":
+      return { ...nav, panel: { ...nav.panel, chatId: null } };
     case "OpenOverlay":
       return { ...nav, overlay: action.overlay };
     case "CloseOverlay":

@@ -1,4 +1,5 @@
 import type { ChatMessage } from "@/core/generated/ChatMessage";
+import type { CoreError } from "@/core/generated/CoreError";
 import type { GenerationEvent } from "@/core/generated/GenerationEvent";
 import type { SideChat } from "@/core/generated/SideChat";
 import type { SideChatSummary } from "@/core/generated/SideChatSummary";
@@ -18,6 +19,8 @@ export interface OpenChat {
   /** The reply streaming, or the last one when it stopped or failed. */
   reply: Stream | null;
   followUps: string[];
+  /** Why the last message sent got no reply; null once another is sent. */
+  error: CoreError | null;
 }
 
 export interface SideChatsSlice {
@@ -91,21 +94,43 @@ export function chatOpened(
         thread: chat.messages.map((message) => ({ type: "Message", message })),
         reply: null,
         followUps: chat.followUps,
+        error: null,
       },
     },
   };
 }
 
+/**
+ * The candidate sent a message. Sent again after it failed, it stays the
+ * one line it was.
+ */
 export function messageSent(
   slice: SideChatsSlice,
   chatId: string,
   text: string,
 ): SideChatsSlice {
-  return update(slice, chatId, (chat) => ({
-    ...chat,
-    thread: [...chat.thread, { type: "Sent", text }],
-    followUps: [],
-  }));
+  return update(slice, chatId, (chat) => {
+    const last = chat.thread.at(-1);
+    const again =
+      chat.error !== null &&
+      (last?.type === "Sent" ? last.text : last?.message.text) === text;
+    return {
+      ...chat,
+      thread: again ? chat.thread : [...chat.thread, { type: "Sent", text }],
+      reply: null,
+      followUps: [],
+      error: null,
+    };
+  });
+}
+
+/** The core refused the message, or failed while writing its reply. */
+export function sendFailed(
+  slice: SideChatsSlice,
+  chatId: string,
+  error: CoreError,
+): SideChatsSlice {
+  return update(slice, chatId, (chat) => ({ ...chat, error }));
 }
 
 /** One step of a generation writing a reply. */

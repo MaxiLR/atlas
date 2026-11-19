@@ -35,8 +35,14 @@ target folder):
 npm --prefix ui run tauri build
 ```
 
-Until the ChatGPT plan provider lands, the app answers with a scripted fake
-provider. Courses are stored in SQLite in the app's data folder.
+The app signs in with ChatGPT and keeps its tokens in the macOS Keychain,
+under the service `com.maxilr.atlas`. Courses are stored in SQLite in the
+app's data folder. To run it without a login, against a scripted fake
+provider, set `ATLAS_FAKE_PROVIDER=1`:
+
+```sh
+ATLAS_FAKE_PROVIDER=1 npm --prefix ui run tauri dev
+```
 
 To work on the interface in a browser, without the desktop shell, run it
 against the in-browser fake core:
@@ -51,6 +57,13 @@ npm --prefix ui run dev:fake
 cargo test --workspace
 npm --prefix ui run test
 npm --prefix ui run test:e2e
+```
+
+One test round-trips a throwaway item through the real Keychain and is left
+out of the suite; run it by hand (macOS may ask for Keychain access):
+
+```sh
+cargo test -p atlas-app -- --ignored
 ```
 
 `AGENTS.md` lists every check and the rules the suite holds to.

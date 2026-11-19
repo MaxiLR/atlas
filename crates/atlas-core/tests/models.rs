@@ -10,7 +10,10 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use atlas_core::Core;
-use atlas_core::protocol::{CoreError, CoreEvent, CoreRequest, CoreResponse, Model, ModelList};
+use atlas_core::protocol::{
+    CoreError, CoreEvent, CoreRequest, CoreResponse, Goal, Model, ModelList, PlacementAnswer,
+    PlacementStep, SelfRating,
+};
 use atlas_core::provider::{
     FakeProvider, FakeScript, ModelProvider, ProviderError, ProviderRequest, ProviderStream, Task,
 };
@@ -108,23 +111,46 @@ impl Launch {
             })
     }
 
-    /// Creates a course and returns the model its index request carried.
+    /// Creates a course, places the candidate answering "Not sure"
+    /// throughout, and returns the model its generation requests carried,
+    /// every one the same, from the ladder to the index build.
     async fn generate(&self) -> Option<String> {
         let before = self.plan.generations.requests().len();
-        match self
+        let course_id = match self
             .core
             .handle(CoreRequest::CreateCourse {
                 topic: "Plate tectonics".to_owned(),
             })
             .await
         {
-            Ok(CoreResponse::Course { .. }) => {}
+            Ok(CoreResponse::Course { course }) => course.id,
             other => panic!("expected a course, got {other:?}"),
+        };
+        let mut request = CoreRequest::SubmitSelfRating {
+            course_id,
+            rating: SelfRating::NewToThis,
+            goal: Goal::Overview,
+        };
+        loop {
+            let placement = match self.core.handle(request).await {
+                Ok(CoreResponse::Placement { placement, .. }) => placement,
+                other => panic!("expected a placement state, got {other:?}"),
+            };
+            request = match placement.step {
+                PlacementStep::Question { question } => CoreRequest::AnswerPlacement {
+                    course_id,
+                    question_id: question.id,
+                    answer: PlacementAnswer::NotSure,
+                },
+                PlacementStep::Done => break,
+                other => panic!("placement stopped at {other:?}: {:?}", placement.error),
+            };
         }
-        let requests = self.plan.generations.requests();
-        assert_eq!(requests.len(), before + 1);
-        assert_eq!(requests[before].task, Task::BuildIndex);
-        requests[before].model.clone()
+        let requests = self.plan.generations.requests().split_off(before);
+        assert_eq!(requests[0].task, Task::DraftLadder);
+        assert_eq!(requests.last().map(|r| r.task), Some(Task::BuildIndex));
+        assert!(requests.iter().all(|r| r.model == requests[0].model));
+        requests[0].model.clone()
     }
 }
 

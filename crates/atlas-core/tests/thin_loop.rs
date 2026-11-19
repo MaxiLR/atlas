@@ -4,11 +4,15 @@
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+use atlas_core::Core;
 use atlas_core::harness::index::{ChapterDraft, IndexDraft, SectionDraft};
 use atlas_core::ports::EventSink;
-use atlas_core::protocol::{CoreEvent, CoreRequest, CoreResponse, CourseView, SectionView};
+use atlas_core::protocol::{
+    Block, BlockContent, BlockKind, CoreEvent, CoreRequest, CoreResponse, CourseView,
+    GenerationEvent, GenerationOutcome, GenerationTarget, NodeMark, SectionView, VersionStyle,
+};
 use atlas_core::provider::{FakeProvider, FakeScript, Task};
-use atlas_core::{Core, CoreDeps};
+use atlas_core::testing::FakePorts;
 use uuid::Uuid;
 
 #[derive(Default)]
@@ -61,12 +65,9 @@ fn script() -> FakeScript {
 fn start(database: &Path) -> Harness {
     let provider = Arc::new(FakeProvider::new(script()));
     let events = Arc::new(RecordedEvents::default());
-    let core = Core::new(CoreDeps {
-        database_path: database.to_owned(),
-        provider: provider.clone(),
-        events: events.clone(),
-    })
-    .expect("core starts");
+    let core =
+        Core::new(FakePorts::default().deps(database.to_owned(), provider.clone(), events.clone()))
+            .expect("core starts");
     Harness {
         core,
         provider,
@@ -113,6 +114,19 @@ fn section_ids(course: &CourseView) -> Vec<Uuid> {
         .collect()
 }
 
+/// The section's text: the thin loop writes one prose block.
+fn text(section: &SectionView) -> String {
+    section
+        .version
+        .blocks
+        .iter()
+        .map(|block| match &block.content {
+            BlockContent::Prose { text } => text.as_str(),
+            other => panic!("expected prose, got {other:?}"),
+        })
+        .collect()
+}
+
 #[tokio::test]
 async fn creating_a_course_stores_an_index_of_at_least_two_chapters() {
     let dir = tempfile::tempdir().unwrap();
@@ -134,7 +148,7 @@ async fn creating_a_course_stores_an_index_of_at_least_two_chapters() {
             .chapters
             .iter()
             .flat_map(|c| &c.sections)
-            .all(|s| !s.generated)
+            .all(|s| !s.read && s.mark == NodeMark::Unread)
     );
 
     let requests = harness.provider.requests();
@@ -176,22 +190,48 @@ async fn opening_a_section_streams_its_deltas_in_order_then_completes() {
 
     assert_eq!(section.id, first);
     assert_eq!(section.title, "Crust and mantle");
-    assert_eq!(section.content, "The crust floats on the mantle.");
-    let delta = |text: &str| CoreEvent::SectionDelta {
-        course_id: course.id,
-        section_id: first,
-        text: text.to_owned(),
+    assert_eq!(text(&section), "The crust floats on the mantle.");
+    let events = harness.events.take();
+    let Some(CoreEvent::Generation { generation_id, .. }) = events.first() else {
+        panic!("expected a generation, got {events:?}");
+    };
+    let event = |event| CoreEvent::Generation {
+        generation_id: *generation_id,
+        target: GenerationTarget::Section {
+            course_id: course.id,
+            section_id: first,
+            style: VersionStyle::Original,
+        },
+        event,
+    };
+    let delta = |text: &str| {
+        event(GenerationEvent::TextDelta {
+            block: 0,
+            text: text.to_owned(),
+        })
     };
     assert_eq!(
-        harness.events.take(),
+        events,
         [
+            event(GenerationEvent::Started),
+            event(GenerationEvent::BlockOpened {
+                block: 0,
+                kind: BlockKind::Prose,
+            }),
             delta("The crust "),
             delta("floats on "),
             delta("the mantle."),
-            CoreEvent::SectionCompleted {
-                course_id: course.id,
-                section_id: first,
-            },
+            event(GenerationEvent::BlockCompleted {
+                block: Block {
+                    index: 0,
+                    content: BlockContent::Prose {
+                        text: "The crust floats on the mantle.".to_owned(),
+                    },
+                },
+            }),
+            event(GenerationEvent::Finished {
+                outcome: GenerationOutcome::Completed,
+            }),
         ]
     );
     let requests = harness.provider.requests();
@@ -221,7 +261,10 @@ async fn opening_a_section_again_answers_from_the_store() {
         })
         .await
     {
-        CoreResponse::Course { course } => assert!(course.chapters[0].sections[0].generated),
+        CoreResponse::Course { course } => {
+            assert!(course.chapters[0].sections[0].read);
+            assert_eq!(course.chapters[0].sections[0].mark, NodeMark::Read);
+        }
         other => panic!("expected a course, got {other:?}"),
     }
 }
@@ -245,7 +288,7 @@ async fn next_from_the_first_section_returns_the_second() {
         CoreResponse::Section { section } => {
             assert_eq!(section.id, ids[1]);
             assert_eq!(section.title, "Plate boundaries");
-            assert_eq!(section.content, "The crust floats on the mantle.");
+            assert_eq!(text(&section), "The crust floats on the mantle.");
         }
         other => panic!("expected the second section, got {other:?}"),
     }
@@ -304,7 +347,8 @@ async fn the_data_survives_reopening_the_database_file() {
         other => panic!("expected courses, got {other:?}"),
     }
     let mut stored = course.clone();
-    stored.chapters[0].sections[0].generated = true;
+    stored.chapters[0].sections[0].read = true;
+    stored.chapters[0].sections[0].mark = NodeMark::Read;
     assert_eq!(
         reopened
             .request(CoreRequest::OpenCourse {

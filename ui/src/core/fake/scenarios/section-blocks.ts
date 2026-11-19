@@ -61,9 +61,25 @@ const thirdLaw: SampleSection = {
   ],
 };
 
+/** A section whose display formula is wider than the reading column. */
+const manyBodies: SampleSection = {
+  title: "Many bodies at once",
+  summary: "Why the pull of every planet adds up on each of them.",
+  sources: [],
+  blocks: [
+    {
+      type: "Prose",
+      chunks: [
+        "Each planet feels every other one, so the force on it is a long sum:\n\n",
+        "$$\nF = \\frac{G m_1 m_2}{r_{12}^2} + \\frac{G m_1 m_3}{r_{13}^2} + \\frac{G m_1 m_4}{r_{14}^2} + \\frac{G m_1 m_5}{r_{15}^2} + \\frac{G m_1 m_6}{r_{16}^2} + \\frac{G m_1 m_7}{r_{17}^2} + \\frac{G m_1 m_8}{r_{18}^2} + \\frac{G m_1 m_9}{r_{19}^2}\n$$",
+      ],
+    },
+  ],
+};
+
 export default {
   description:
-    "Signed in; the course Kepler's laws, whose unread section streams prose, maths, code, a figure and a diagram.",
+    "Signed in; the course Kepler's laws, whose unread sections stream prose, maths, code, a figure and a diagram, and a display formula wider than the column.",
   setup(world) {
     signIn(world);
     const course = newCourse(world, "Kepler's laws", "Ready");
@@ -71,7 +87,10 @@ export default {
       {
         id: crypto.randomUUID(),
         title: "Orbits",
-        sections: [newSection(course.id, thirdLaw, null)],
+        sections: [
+          newSection(course.id, thirdLaw, null),
+          newSection(course.id, manyBodies, null),
+        ],
       },
     ];
     world.courses.push(course);

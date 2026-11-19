@@ -66,3 +66,52 @@ test("a streaming section grows below its first paragraph without moving it, and
   ).toBeVisible();
   expect(outside).toEqual([]);
 });
+
+test("a display formula wider than the reading column scrolls inside it at the narrowest window", async ({
+  page,
+}) => {
+  await openApp(page, { scenario: "section-blocks", width: 720 });
+
+  await page.getByRole("button", { name: "Kepler's laws" }).click();
+  const index = page.getByRole("navigation", { name: "Index" });
+  await index.getByRole("button", { name: "Many bodies at once" }).click();
+  const article = page.getByRole("article", { name: "Many bodies at once" });
+  await expect(article).toHaveAttribute("aria-busy", "false");
+  await expect(article.locator('math[display="block"]')).toHaveCount(1);
+
+  // The paragraph spans the column; the formula's scroll box is its nearest
+  // ancestor that scrolls sideways.
+  const geometry = await article.evaluate((element) => {
+    const column = element.querySelector("p")!.getBoundingClientRect();
+    const formula = element.querySelector('math[display="block"]')!;
+    let box: Element | null = formula.parentElement;
+    while (box !== null && box !== element) {
+      if (/auto|scroll/.test(getComputedStyle(box).overflowX)) break;
+      box = box.parentElement;
+    }
+    const scroller = box === element ? null : box;
+    return {
+      column: { left: column.left, right: column.right },
+      scroller:
+        scroller === null
+          ? null
+          : {
+              left: scroller.getBoundingClientRect().left,
+              right: scroller.getBoundingClientRect().right,
+              scrollWidth: scroller.scrollWidth,
+              clientWidth: scroller.clientWidth,
+            },
+    };
+  });
+
+  expect(geometry.scroller).not.toBeNull();
+  expect(geometry.scroller!.left).toBeGreaterThanOrEqual(
+    geometry.column.left - 0.5,
+  );
+  expect(geometry.scroller!.right).toBeLessThanOrEqual(
+    geometry.column.right + 0.5,
+  );
+  expect(geometry.scroller!.scrollWidth).toBeGreaterThan(
+    geometry.scroller!.clientWidth,
+  );
+});

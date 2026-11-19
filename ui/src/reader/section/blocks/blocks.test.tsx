@@ -461,6 +461,63 @@ describe("the block list", () => {
       `Plates move a few centimetres a year${marker}. That is slow.`,
     );
   });
+
+  it("places a citation marker after a formula or inline code it ends on, and counts entities and escapes as the source writes them", () => {
+    const { section, cite, column } = renderBlocks();
+    const texts = [
+      "Energy equals $E=mc^2$. Then more.",
+      "The rate is `v`. Slow.",
+      "It costs AT&amp;T a lot. More.",
+      "Stars \\*shine\\* at night. Dark.",
+    ];
+    section(texts.map(prose));
+    const source: Source = {
+      number: 1,
+      url: "https://pubs.usgs.gov/gip/dynamic/understanding.html",
+      title: "Understanding plate motions",
+    };
+    const ends = [". Then more.", ". Slow.", ". More.", ". Dark."];
+    texts.forEach((text, block) => {
+      const start = text.indexOf(" ") + 1;
+      cite(
+        { block, start, end: text.indexOf(ends[block]!), source: 1 },
+        source,
+      );
+    });
+
+    const { container: entry } = render(
+      <CatalogVisual
+        spec={{
+          root: "c",
+          elements: {
+            c: { type: "citation", props: { ...source }, children: [] },
+          },
+        }}
+      />,
+    );
+    const marker = entry.textContent ?? "";
+    const paragraphs = column.querySelectorAll("p");
+    expect(paragraphs).toHaveLength(4);
+
+    // The formula comes before the marker, and only the sentence's end after it.
+    const formula = paragraphs[0]!.querySelector("math")!;
+    const cited = within(paragraphs[0]!).getByText(source.title);
+    expect(
+      formula.compareDocumentPosition(cited) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    const after = document.createRange();
+    after.setStartAfter(cited);
+    after.setEnd(paragraphs[0]!, paragraphs[0]!.childNodes.length);
+    expect(after.toString()).toBe(". Then more.");
+
+    expect(paragraphs[1]!.textContent).toBe(`The rate is v${marker}. Slow.`);
+    expect(paragraphs[2]!.textContent).toBe(
+      `It costs AT&T a lot${marker}. More.`,
+    );
+    expect(paragraphs[3]!.textContent).toBe(
+      `Stars *shine* at night${marker}. Dark.`,
+    );
+  });
 });
 
 describe("Markdown from the model", () => {
@@ -612,5 +669,62 @@ describe("marks and selections", () => {
       await drained();
     });
     expect(onSelection).toHaveBeenLastCalledWith(null);
+  });
+
+  it("reports a selection across a citation marker and a formula as text that, given back as a mark, marks the same passage", async () => {
+    const text = "A plate covers $d = vt$ in a year. That is slow.";
+    const source: Source = {
+      number: 1,
+      url: "https://pubs.usgs.gov/gip/dynamic/understanding.html",
+      title: "Understanding plate motions",
+    };
+    const citation: Citation = {
+      block: 0,
+      start: 2,
+      end: text.indexOf(". That"),
+      source: 1,
+    };
+    const onSelection = vi.fn();
+    const selecting = renderBlocks({ onSelection });
+    selecting.section([prose(text)]);
+    selecting.cite(citation, source);
+
+    const paragraph = selecting.column.querySelector("p")!;
+    const texts = [...paragraph.childNodes].filter(
+      (node) => node.nodeType === Node.TEXT_NODE,
+    );
+    const range = document.createRange();
+    range.setStart(texts[0]!, "A plate ".length);
+    range.setEnd(texts.at(-1)!, ". That".length);
+    const selection = window.getSelection()!;
+    await act(async () => {
+      selection.removeAllRanges();
+      selection.addRange(range);
+      await drained();
+    });
+    const passage = onSelection.mock.lastCall?.[0] as Passage | null;
+    expect(passage).toEqual({
+      block: 0,
+      text: "covers d = vt in a year. That",
+    });
+    selecting.unmount();
+
+    const marking = renderBlocks({
+      marks: [
+        { id: "chat-1", kind: "passage", block: 0, quote: passage!.text },
+      ],
+      markComponent: Underline,
+    });
+    marking.section([prose(text)]);
+    marking.cite(citation, source);
+
+    const parts = screen.getAllByTestId("mark-chat-1");
+    expect(parts[0]!.textContent).toBe("covers ");
+    expect(parts.some((part) => part.querySelector("math") !== null)).toBe(
+      true,
+    );
+    expect(parts.at(-1)!.textContent).toBe(". That");
+    const cited = screen.getByText(source.title);
+    for (const part of parts) expect(part).not.toContainElement(cited);
   });
 });

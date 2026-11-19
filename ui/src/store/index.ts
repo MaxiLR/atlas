@@ -105,7 +105,7 @@ export const initialState: AtlasState = {
 function sessionChanged(state: AtlasState, session: Session): AtlasState {
   return {
     ...state,
-    session: { session },
+    session: { session, error: null },
     navigation: sessionNavigated(state.navigation, session),
   };
 }
@@ -336,6 +336,7 @@ export function applyRequest(
         sideChats: messageSent(state.sideChats, request.chatId, request.text),
       };
     case "GetSession":
+      return { ...state, session: { ...state.session, error: null } };
     case "SignIn":
     case "CancelSignIn":
     case "EnablePlanUsage":
@@ -560,6 +561,7 @@ export function applyFailure(
         navigation: { ...state.navigation, nextFrom: null },
       };
     case "GetSession":
+      return { ...state, session: { ...state.session, error } };
     case "SignIn":
     case "CancelSignIn":
     case "EnablePlanUsage":

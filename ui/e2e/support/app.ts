@@ -6,7 +6,7 @@ export interface AppOptions {
   /** The window width in px; the project's when left out. */
   width?: number;
   /** The system colour scheme; the project's when left out. */
-  colorScheme?: "light" | "dark";
+  colorScheme?: "light" | "dark" | "no-preference";
 }
 
 /** Opens the app on the fake core in `scenario`, at a width and colour scheme. */

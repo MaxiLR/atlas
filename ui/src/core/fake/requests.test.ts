@@ -6,7 +6,6 @@ import {
   drained,
   findSection,
   openCourse,
-  placeCourse,
   startFake,
   startedAt,
 } from "@/test/fake-core";

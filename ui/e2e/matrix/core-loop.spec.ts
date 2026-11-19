@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { openApp } from "../support/app";
+import { openApp } from "../support/app.ts";
 
 test("first launch, sign in, topic, placement, index, a streamed section, then Next", async ({
   page,

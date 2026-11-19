@@ -1,0 +1,13 @@
+{
+  "root": "note",
+  "elements": {
+    "note": {
+      "type": "callout",
+      "props": {
+        "title": "The mantle is not liquid",
+        "body": "Mantle rock is solid, yet it flows like very stiff putty."
+      },
+      "children": []
+    }
+  }
+}

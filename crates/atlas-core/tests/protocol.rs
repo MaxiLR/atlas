@@ -1344,6 +1344,13 @@ async fn requests_for_features_not_built_yet_answer_unavailable_naming_the_featu
     let built = [
         "ListModels",
         "SelectModel",
+        "GetSession",
+        "SignIn",
+        "CancelSignIn",
+        "EnablePlanUsage",
+        "SignOut",
+        "OpenManageUsage",
+        "OpenExternal",
         "ListCourses",
         "CreateCourse",
         "OpenCourse",
@@ -1366,7 +1373,7 @@ async fn requests_for_features_not_built_yet_answer_unavailable_naming_the_featu
         );
     }
 
-    assert_eq!(unbuilt, 31);
+    assert_eq!(unbuilt, 24);
     assert!(provider.requests().is_empty());
     assert_eq!(events.take(), []);
     // The thin loop still answers beside them.

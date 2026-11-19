@@ -40,8 +40,11 @@
 //! Fences follow CommonMark: an opening fence may be indented up to three
 //! spaces, may use backticks or tildes, and closes only on a fence of the same
 //! character at least as long. Inside an ordinary code fence nothing opens a
-//! block. Containers such as block quotes and list items are not tracked, so a
-//! reserved fence inside one is not recognised as a block.
+//! block. Block quotes and list items are followed as CommonMark follows them:
+//! a fence inside one, whatever its name, is an ordinary code fence in the
+//! prose, and it ends with the container it sits in. A reserved block opens
+//! only outside every container. HTML blocks are not followed: a fence line
+//! inside one is read as a fence.
 //!
 //! Prose is reported as it arrives. Only the start of a line that may still
 //! become a reserved opening fence is held until the line rules it out or
@@ -146,15 +149,16 @@ pub struct Splitter {
     prose_block: Option<u32>,
     /// Whitespace at the start of a prose run not numbered yet.
     held_space: String,
+    /// The Markdown structure the prose is in.
+    outline: Outline,
     record_seen: bool,
 }
 
 #[derive(Debug, Default)]
 enum Mode {
+    /// Markdown prose, ordinary code fences included.
     #[default]
     Prose,
-    /// Inside an ordinary code fence, which is prose.
-    Code(Fence),
     Block(OpenBlock),
 }
 
@@ -264,14 +268,15 @@ impl Splitter {
             self.line.push_str(segment);
             match self.mode {
                 Mode::Prose => {
-                    if !self.line_is_prose && !may_open_reserved(&self.line) {
+                    if !self.line_is_prose
+                        && (self.outline.in_top_level_code() || !may_open_reserved(&self.line))
+                    {
                         self.line_is_prose = true;
                     }
                     if self.line_is_prose {
                         self.report_line(out);
                     }
                 }
-                Mode::Code(_) => self.emit_prose(segment, out),
                 Mode::Block(_) => {}
             }
             if segment.ends_with('\n') {
@@ -294,27 +299,12 @@ impl Splitter {
         let content = content.strip_suffix('\r').unwrap_or(content);
         match &mut self.mode {
             Mode::Prose => {
-                let reserved = if self.line_is_prose {
-                    None
-                } else {
-                    reserved_opening(content)
-                };
-                match reserved {
+                match self.outline.line(content) {
                     Some((kind, fence)) => self.open_block(kind, fence, out),
-                    None => {
-                        self.emit_prose(&line[self.reported..], out);
-                        if let Some((fence, _)) = fence_opening(content) {
-                            self.mode = Mode::Code(fence);
-                        }
-                    }
+                    None => self.emit_prose(&line[self.reported..], out),
                 }
                 self.reported = 0;
                 self.line_is_prose = false;
-            }
-            Mode::Code(fence) => {
-                if is_closing(content, fence) {
-                    self.mode = Mode::Prose;
-                }
             }
             Mode::Block(open) => {
                 if !is_closing(content, &open.fence) {
@@ -422,13 +412,6 @@ fn fence_opening(line: &str) -> Option<(Fence, &str)> {
     ))
 }
 
-/// An opening fence whose info string names a reserved block.
-fn reserved_opening(line: &str) -> Option<(ReservedKind, Fence)> {
-    let (fence, info) = fence_opening(line)?;
-    let name = info.split_ascii_whitespace().next()?;
-    ReservedKind::from_name(name).map(|kind| (kind, fence))
-}
-
 /// Whether a partial line may still become a reserved opening fence.
 fn may_open_reserved(partial: &str) -> bool {
     let Some((_, rest)) = fence_indent(partial) else {
@@ -470,4 +453,251 @@ fn is_closing(line: &str, fence: &Fence) -> bool {
 fn strip_indent(line: &str, indent: usize) -> &str {
     let spaces = line.len() - line.trim_start_matches(' ').len();
     &line[spaces.min(indent)..]
+}
+
+/// The reserved kind an info string names.
+fn reserved_name(info: &str) -> Option<ReservedKind> {
+    info.split_ascii_whitespace()
+        .next()
+        .and_then(ReservedKind::from_name)
+}
+
+/// The Markdown structure around the prose, as far as fences need it: the
+/// open block quotes and list items, and the leaf block in the innermost one.
+/// Lines are read with CommonMark's parsing strategy.
+#[derive(Debug, Default)]
+struct Outline {
+    containers: Vec<Container>,
+    leaf: Leaf,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Container {
+    Quote,
+    /// A list item whose content starts `indent` columns in; `empty` until a
+    /// line puts something in it.
+    Item {
+        indent: usize,
+        empty: bool,
+    },
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+enum Leaf {
+    #[default]
+    None,
+    Paragraph,
+    IndentedCode,
+    Fenced(Fence),
+}
+
+impl Outline {
+    /// Whether the prose is inside a code fence outside every container,
+    /// where no line can open a reserved block.
+    fn in_top_level_code(&self) -> bool {
+        self.containers.is_empty() && matches!(self.leaf, Leaf::Fenced(_))
+    }
+
+    /// Reads one complete line, without its line ending, and returns the
+    /// reserved block it opens.
+    fn line(&mut self, line: &str) -> Option<(ReservedKind, Fence)> {
+        let line = expand_tabs(line);
+        let mut rest: &str = &line;
+        let blank = is_blank(rest);
+
+        let mut matched = 0;
+        for container in &self.containers {
+            let after = match *container {
+                Container::Quote => quote_marker(rest),
+                Container::Item { empty, .. } if blank => (!empty).then_some(rest),
+                Container::Item { indent, .. } => {
+                    (indentation(rest) >= indent).then(|| &rest[indent..])
+                }
+            };
+            let Some(after) = after else { break };
+            rest = after;
+            matched += 1;
+        }
+        if !blank {
+            for container in &mut self.containers[..matched] {
+                if let Container::Item { empty, .. } = container {
+                    *empty = false;
+                }
+            }
+        }
+        let all_matched = matched == self.containers.len();
+        if all_matched {
+            match self.leaf {
+                Leaf::Fenced(fence) => {
+                    if is_closing(rest, &fence) {
+                        self.leaf = Leaf::None;
+                    }
+                    return None;
+                }
+                Leaf::IndentedCode if blank || indentation(rest) >= 4 => return None,
+                _ => {}
+            }
+        }
+
+        // Whether the line would otherwise continue an open paragraph, which
+        // some blocks may not interrupt.
+        let in_paragraph = all_matched && !blank && matches!(self.leaf, Leaf::Paragraph);
+        let mut started = false;
+        let leaf = loop {
+            if indentation(rest) >= 4 {
+                let after_paragraph = !started && matches!(self.leaf, Leaf::Paragraph);
+                break (!is_blank(rest) && !after_paragraph).then_some(Leaf::IndentedCode);
+            }
+            if let Some(after) = quote_marker(rest) {
+                self.close_unmatched(matched, &mut started);
+                self.containers.push(Container::Quote);
+                rest = after;
+                continue;
+            }
+            if let Some((fence, info)) = fence_opening(rest) {
+                self.close_unmatched(matched, &mut started);
+                if self.containers.is_empty()
+                    && let Some(kind) = reserved_name(info)
+                {
+                    return Some((kind, fence));
+                }
+                break Some(Leaf::Fenced(fence));
+            }
+            let interrupts = in_paragraph && !started;
+            if atx_heading(rest) || thematic_break(rest) || (interrupts && setext_underline(rest)) {
+                break Some(Leaf::None);
+            }
+            if let Some((indent, empty)) = list_marker(rest, interrupts) {
+                self.close_unmatched(matched, &mut started);
+                self.containers.push(Container::Item { indent, empty });
+                rest = &rest[indent.min(rest.len())..];
+                continue;
+            }
+            break None;
+        };
+
+        match leaf {
+            Some(leaf) => {
+                self.close_unmatched(matched, &mut started);
+                self.leaf = leaf;
+            }
+            // A lazy continuation line keeps every container open.
+            None if !started && !all_matched && !blank && matches!(self.leaf, Leaf::Paragraph) => {}
+            None => {
+                self.close_unmatched(matched, &mut started);
+                self.leaf = if is_blank(rest) {
+                    Leaf::None
+                } else {
+                    Leaf::Paragraph
+                };
+            }
+        }
+        None
+    }
+
+    /// Closes, on the line's first block start, the containers the line did
+    /// not continue, and the leaf block in the innermost one.
+    fn close_unmatched(&mut self, matched: usize, started: &mut bool) {
+        if !*started {
+            *started = true;
+            self.containers.truncate(matched);
+            self.leaf = Leaf::None;
+        }
+    }
+}
+
+/// The line with tabs expanded to spaces at stops of four columns.
+fn expand_tabs(line: &str) -> std::borrow::Cow<'_, str> {
+    if !line.contains('\t') {
+        return line.into();
+    }
+    let mut expanded = String::with_capacity(line.len() + 8);
+    let mut column = 0;
+    for c in line.chars() {
+        if c == '\t' {
+            let width = 4 - column % 4;
+            expanded.extend(std::iter::repeat_n(' ', width));
+            column += width;
+        } else {
+            expanded.push(c);
+            column += 1;
+        }
+    }
+    expanded.into()
+}
+
+fn is_blank(text: &str) -> bool {
+    text.trim_matches([' ', '\t']).is_empty()
+}
+
+/// The number of spaces `text` starts with.
+fn indentation(text: &str) -> usize {
+    marker_run(text, ' ')
+}
+
+/// The rest of a line after a block quote marker.
+fn quote_marker(text: &str) -> Option<&str> {
+    let (_, rest) = fence_indent(text)?;
+    let after = rest.strip_prefix('>')?;
+    Some(after.strip_prefix(' ').unwrap_or(after))
+}
+
+fn atx_heading(text: &str) -> bool {
+    fence_indent(text).is_some_and(|(_, rest)| {
+        let len = marker_run(rest, '#');
+        (1..=6).contains(&len) && (rest.len() == len || rest[len..].starts_with([' ', '\t']))
+    })
+}
+
+fn thematic_break(text: &str) -> bool {
+    fence_indent(text).is_some_and(|(_, rest)| {
+        rest.chars()
+            .next()
+            .filter(|c| matches!(c, '*' | '-' | '_'))
+            .is_some_and(|marker| {
+                rest.chars().all(|c| matches!(c, ' ' | '\t') || c == marker)
+                    && rest.chars().filter(|&c| c == marker).count() >= 3
+            })
+    })
+}
+
+fn setext_underline(text: &str) -> bool {
+    fence_indent(text).is_some_and(|(_, rest)| {
+        let rest = rest.trim_end_matches([' ', '\t']);
+        rest.chars()
+            .next()
+            .filter(|c| matches!(c, '=' | '-'))
+            .is_some_and(|marker| marker_run(rest, marker) == rest.len())
+    })
+}
+
+/// A list item marker: the column its content starts at and whether the item
+/// starts empty. A paragraph may be interrupted only by a non-empty item that
+/// is a bullet or numbered 1.
+fn list_marker(text: &str, interrupts_paragraph: bool) -> Option<(usize, bool)> {
+    let (indent, rest) = fence_indent(text)?;
+    let marker_len = match rest.as_bytes().first()? {
+        b'-' | b'+' | b'*' => 1,
+        b'0'..=b'9' => {
+            let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+            let delimited = matches!(rest.as_bytes().get(digits), Some(b'.' | b')'));
+            let starts_at_one = rest[..digits].parse::<u32>() == Ok(1);
+            if digits > 9 || !delimited || (interrupts_paragraph && !starts_at_one) {
+                return None;
+            }
+            digits + 1
+        }
+        _ => return None,
+    };
+    let after = &rest[marker_len..];
+    if !(after.is_empty() || after.starts_with(' ')) {
+        return None;
+    }
+    let empty = is_blank(after);
+    if interrupts_paragraph && empty {
+        return None;
+    }
+    let spaces = indentation(after);
+    let padding = if empty || spaces > 4 { 1 } else { spaces };
+    Some((indent + marker_len + padding, empty))
 }

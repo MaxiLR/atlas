@@ -4,6 +4,7 @@
 
 mod keychain;
 mod navigation;
+mod pdf;
 mod ports;
 #[cfg(test)]
 mod tests;
@@ -20,6 +21,8 @@ use tauri::{Emitter, Manager, State};
 
 use keychain::Keychain;
 use ports::{ForwardedEvents, SystemBrowser};
+
+pub use pdf::{EXPORT_CAPABILITY, EXPORT_WINDOW};
 
 /// The event that carries every core event to the interface.
 pub const CORE_EVENT: &str = "core-event";

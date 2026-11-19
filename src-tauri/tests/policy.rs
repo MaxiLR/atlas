@@ -267,6 +267,38 @@ fn no_capability_reaches_a_remote_domain() {
 }
 
 #[test]
+fn the_hidden_export_window_holds_only_the_core_request_and_its_event() {
+    // The window that prints a course reads it through the core and, like
+    // every page of the app, listens to the core's event; it never drags.
+    let capability: Value =
+        serde_json::from_str(atlas_app::EXPORT_CAPABILITY).expect("the capability is JSON");
+    assert_eq!(capability["windows"], json!([atlas_app::EXPORT_WINDOW]));
+    assert_ne!(atlas_app::EXPORT_WINDOW, "main");
+    assert!(capability.get("webviews").is_none(), "no extra webview");
+    assert!(capability.get("remote").is_none(), "no remote page");
+    let granted: BTreeSet<String> = capability["permissions"]
+        .as_array()
+        .expect("permissions is a list")
+        .iter()
+        .map(permission_identifier)
+        .collect();
+    let expected: BTreeSet<String> = [
+        "allow-core-request",
+        "core:event:allow-listen",
+        "core:event:allow-unlisten",
+    ]
+    .map(str::to_owned)
+    .into();
+    assert_eq!(granted, expected);
+    assert!(
+        granted
+            .iter()
+            .all(|permission| ALLOWED_PERMISSIONS.contains(&permission.as_str())),
+        "within the allow-list"
+    );
+}
+
+#[test]
 fn the_configuration_adds_no_inline_capability() {
     let config = config();
     let inline = &config["app"]["security"]["capabilities"];

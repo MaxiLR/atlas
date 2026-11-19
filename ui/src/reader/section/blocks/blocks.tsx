@@ -9,6 +9,7 @@ import {
 } from "react";
 
 import { CatalogVisual } from "@/catalog/catalog-visual";
+import { CheckPlaceContext } from "@/catalog/components/check-question/check-place";
 import { CaptionInFrame } from "@/catalog/frame-context";
 import { checkVisualSpec } from "@/catalog/visual-spec";
 import { Figure } from "@/components/ui/figure";
@@ -155,36 +156,57 @@ function captionOf(spec: unknown, description: string | null): string {
   return description ?? "";
 }
 
-function Check({ questions }: { questions: CheckQuestion[] }) {
+/** Where the check block sits: its stored version (null while written) and index. */
+interface CheckBlock {
+  versionId: string | null;
+  block: number;
+}
+
+function Check({
+  questions,
+  ...at
+}: CheckBlock & { questions: CheckQuestion[] }) {
   return (
     <>
       <h2>{questions.length === 1 ? "Check question" : "Check questions"}</h2>
       {questions.map((question) => (
-        <CheckEntry key={question.index} question={question} />
+        <CheckEntry key={question.index} question={question} {...at} />
       ))}
     </>
   );
 }
 
-function CheckEntry({ question }: { question: CheckQuestion }) {
+function CheckEntry({
+  question,
+  versionId,
+  block,
+}: CheckBlock & { question: CheckQuestion }) {
+  const { stem, options, index, answer } = question;
   const props = useMemo(
-    () => ({
-      stem: question.stem,
-      options: question.options.map((text) => ({ text })),
-    }),
-    [question],
+    () => ({ stem, options: options.map((text) => ({ text })) }),
+    [stem, options],
   );
-  return <RegistryEntry type="check-question" props={props} />;
+  const place = useMemo(
+    () => ({ versionId, block, question: index, answer }),
+    [versionId, block, index, answer],
+  );
+  return (
+    <CheckPlaceContext value={place}>
+      <RegistryEntry type="check-question" props={props} />
+    </CheckPlaceContext>
+  );
 }
 
 function Complete({
   content,
   label,
   prose,
+  at,
 }: {
   content: BlockContent;
   label: string | undefined;
   prose: (text: string) => ReactNode;
+  at: CheckBlock;
 }) {
   switch (content.type) {
     case "Prose":
@@ -230,7 +252,7 @@ function Complete({
         </Framed>
       );
     case "Check":
-      return <Check questions={content.questions} />;
+      return <Check questions={content.questions} {...at} />;
     case "Fallback":
       return (
         <Described label={label ?? ""} description={content.description} />
@@ -307,6 +329,7 @@ function byBlock<T extends { block: number }>(items: T[]): Map<number, T[]> {
  */
 export function Blocks({
   blocks,
+  versionId = null,
   citations = nothing,
   sources = nothing,
   marks = nothing,
@@ -314,6 +337,8 @@ export function Blocks({
   onSelection,
 }: {
   blocks: ShownBlock[];
+  /** The stored version shown, whose check questions can be answered. */
+  versionId?: string | null;
   /** The section's citations; their markers sit where their claims end. */
   citations?: Citation[];
   sources?: Source[];
@@ -361,6 +386,7 @@ export function Blocks({
                 content={block.content}
                 label={labels.get(block.index)}
                 prose={(text) => prose(text, false)}
+                at={{ versionId, block: block.index }}
               />
             ) : block.kind === "Prose" ? (
               prose(block.text, true)

@@ -55,6 +55,7 @@ export function SectionView({
         <CitationScope>
           <Blocks
             blocks={display.blocks}
+            versionId={display.versionId}
             citations={display.citations}
             sources={display.sources}
           />

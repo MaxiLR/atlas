@@ -1,0 +1,478 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Catalog visual",
+  "description": "A json-render spec holding exactly one element of the catalog; root names it.",
+  "type": "object",
+  "required": ["root", "elements"],
+  "additionalProperties": false,
+  "properties": {
+    "root": { "type": "string", "minLength": 1 },
+    "elements": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 1,
+      "additionalProperties": { "$ref": "#/$defs/element" }
+    }
+  },
+  "$defs": {
+    "element": {
+      "type": "object",
+      "required": ["type", "props"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "enum": [
+            "concept-map",
+            "layered-figure",
+            "timeline",
+            "step-through",
+            "comparison",
+            "callout",
+            "mermaid-diagram",
+            "figure",
+            "check-question",
+            "citation"
+          ]
+        },
+        "props": { "type": "object" },
+        "children": {
+          "type": "array",
+          "maxItems": 0,
+          "items": { "type": "string" }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "type": { "const": "concept-map" } },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": { "props": { "$ref": "#/$defs/props/concept-map" } }
+          }
+        },
+        {
+          "if": {
+            "properties": { "type": { "const": "layered-figure" } },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": {
+              "props": { "$ref": "#/$defs/props/layered-figure" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "type": { "const": "timeline" } },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": { "props": { "$ref": "#/$defs/props/timeline" } }
+          }
+        },
+        {
+          "if": {
+            "properties": { "type": { "const": "step-through" } },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": { "props": { "$ref": "#/$defs/props/step-through" } }
+          }
+        },
+        {
+          "if": {
+            "properties": { "type": { "const": "comparison" } },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": { "props": { "$ref": "#/$defs/props/comparison" } }
+          }
+        },
+        {
+          "if": {
+            "properties": { "type": { "const": "callout" } },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": { "props": { "$ref": "#/$defs/props/callout" } }
+          }
+        },
+        {
+          "if": {
+            "properties": { "type": { "const": "mermaid-diagram" } },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": {
+              "props": { "$ref": "#/$defs/props/mermaid-diagram" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "type": { "const": "figure" } },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": { "props": { "$ref": "#/$defs/props/figure" } }
+          }
+        },
+        {
+          "if": {
+            "properties": { "type": { "const": "check-question" } },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": {
+              "props": { "$ref": "#/$defs/props/check-question" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "type": { "const": "citation" } },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": { "props": { "$ref": "#/$defs/props/citation" } }
+          }
+        }
+      ]
+    },
+    "props": {
+      "concept-map": {
+        "type": "object",
+        "properties": {
+          "caption": {
+            "type": "string",
+            "minLength": 1,
+            "description": "One sentence saying what the visual shows."
+          },
+          "nodes": {
+            "minItems": 2,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Unique within the map."
+                },
+                "label": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The concept, a few words."
+                }
+              },
+              "required": ["id", "label"],
+              "additionalProperties": false
+            }
+          },
+          "links": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "from": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The id of a node."
+                },
+                "to": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The id of a node."
+                },
+                "label": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "How the two relate, a few words."
+                },
+                "directed": {
+                  "description": "True when the relation reads one way, from → to.",
+                  "type": "boolean"
+                }
+              },
+              "required": ["from", "to", "label"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["caption", "nodes", "links"],
+        "additionalProperties": false
+      },
+      "layered-figure": {
+        "type": "object",
+        "properties": {
+          "caption": {
+            "type": "string",
+            "minLength": 1,
+            "description": "One sentence saying what the visual shows."
+          },
+          "layers": {
+            "minItems": 2,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "A short name, a few words."
+                },
+                "note": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "One sentence."
+                }
+              },
+              "required": ["label", "note"],
+              "additionalProperties": false
+            },
+            "description": "Ordered from the top or outermost layer down."
+          }
+        },
+        "required": ["caption", "layers"],
+        "additionalProperties": false
+      },
+      "timeline": {
+        "type": "object",
+        "properties": {
+          "caption": {
+            "type": "string",
+            "minLength": 1,
+            "description": "One sentence saying what the visual shows."
+          },
+          "events": {
+            "minItems": 2,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "A date, year or period, as written."
+                },
+                "label": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "What happened, a few words."
+                },
+                "note": {
+                  "description": "One sentence.",
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": ["date", "label"],
+              "additionalProperties": false
+            },
+            "description": "In date order, earliest first."
+          }
+        },
+        "required": ["caption", "events"],
+        "additionalProperties": false
+      },
+      "step-through": {
+        "type": "object",
+        "properties": {
+          "caption": {
+            "type": "string",
+            "minLength": 1,
+            "description": "One sentence saying what the visual shows."
+          },
+          "steps": {
+            "minItems": 2,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "A short name, a few words."
+                },
+                "note": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "One sentence."
+                }
+              },
+              "required": ["label", "note"],
+              "additionalProperties": false
+            },
+            "description": "In order, first step first."
+          }
+        },
+        "required": ["caption", "steps"],
+        "additionalProperties": false
+      },
+      "comparison": {
+        "type": "object",
+        "properties": {
+          "caption": {
+            "type": "string",
+            "minLength": 1,
+            "description": "One sentence saying what the visual shows."
+          },
+          "columns": {
+            "minItems": 2,
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 },
+            "description": "The things compared, one heading per column."
+          },
+          "rows": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The aspect compared in this row."
+                },
+                "cells": {
+                  "type": "array",
+                  "items": { "type": "string", "minLength": 1 },
+                  "description": "One cell per column, in column order."
+                }
+              },
+              "required": ["label", "cells"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["caption", "columns", "rows"],
+        "additionalProperties": false
+      },
+      "callout": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The point, in one short sentence."
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "description": "One to three sentences."
+          }
+        },
+        "required": ["title", "body"],
+        "additionalProperties": false
+      },
+      "mermaid-diagram": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Mermaid source, without init directives, click lines, links or HTML."
+          },
+          "caption": {
+            "type": "string",
+            "minLength": 1,
+            "description": "One sentence saying what the visual shows."
+          }
+        },
+        "required": ["source", "caption"],
+        "additionalProperties": false
+      },
+      "figure": {
+        "type": "object",
+        "properties": {
+          "svg": {
+            "type": "string",
+            "minLength": 1,
+            "description": "One static <svg> element: no script, no foreignObject, no event attributes, no external references; colours only currentColor or the theme's variables."
+          },
+          "caption": {
+            "type": "string",
+            "minLength": 1,
+            "description": "One sentence saying what the visual shows."
+          }
+        },
+        "required": ["svg", "caption"],
+        "additionalProperties": false
+      },
+      "check-question": {
+        "type": "object",
+        "properties": {
+          "rung": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "The id of the ladder rung it tests."
+          },
+          "stem": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The question."
+          },
+          "options": {
+            "minItems": 4,
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "text": { "type": "string", "minLength": 1 },
+                "misconception": {
+                  "anyOf": [
+                    { "type": "string", "minLength": 1 },
+                    { "type": "null" }
+                  ],
+                  "description": "For a wrong option, one sentence naming the misconception it represents; null for the right option."
+                }
+              },
+              "required": ["text", "misconception"],
+              "additionalProperties": false
+            }
+          },
+          "key": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 3,
+            "description": "The right option, counted from 0."
+          },
+          "explanation": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Why the right option is right, shown once answered."
+          }
+        },
+        "required": ["rung", "stem", "options", "key", "explanation"],
+        "additionalProperties": false
+      },
+      "citation": {
+        "type": "object",
+        "properties": {
+          "number": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991,
+            "description": "The source's number in the section."
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The source's title."
+          },
+          "url": {
+            "type": "string",
+            "pattern": "^https?:\\/\\/\\S+$",
+            "description": "The source's address, http or https."
+          }
+        },
+        "required": ["number", "title", "url"],
+        "additionalProperties": false
+      }
+    }
+  }
+}

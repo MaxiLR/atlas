@@ -13,7 +13,8 @@
     "lint": "eslint . --max-warnings 0",
     "format": "cd .. && prettier --write .",
     "format:check": "cd .. && prettier --check .",
-    "build": "vite build",
+    "gen:catalog": "node scripts/gen-catalog.ts",
+    "build": "npm run gen:catalog && vite build",
     "test": "vitest run",
     "test:e2e": "PLAYWRIGHT_BROWSERS_PATH=0 playwright test",
     "tauri": "TAURI_APP_PATH=../src-tauri TAURI_FRONTEND_PATH=. tauri"

@@ -105,3 +105,21 @@ fn the_prompt_describes_every_entry_without_front_matter() {
     }
     assert!(catalog::version() >= 1);
 }
+
+#[test]
+fn a_citation_to_anything_but_a_web_page_fails() {
+    let mut spec = fixture("valid", "citation");
+    spec["elements"]["source"]["props"]["url"] = Value::from("javascript:alert(1)");
+    let error = catalog::validate(&spec).expect_err("a javascript: link passed");
+    assert!(error.to_string().contains("/props/url"), "{error}");
+}
+
+#[test]
+fn state_actions_and_visibility_are_refused() {
+    let mut spec = fixture("valid", "callout");
+    spec["elements"]["note"]["visible"] = Value::from(true);
+    assert!(catalog::validate(&spec).is_err());
+    let mut spec = fixture("valid", "callout");
+    spec["elements"]["note"]["props"]["title"] = serde_json::json!({ "$state": "/title" });
+    assert!(catalog::validate(&spec).is_err());
+}

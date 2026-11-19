@@ -516,3 +516,87 @@ fn bytes_that_are_not_utf8_become_replacement_characters_wherever_cut() {
         assert_eq!(split_chunks(&[head, tail]), expected, "cut at byte {cut}");
     }
 }
+
+#[test]
+fn a_reserved_name_inside_a_code_fence_in_a_list_item_is_not_a_block() {
+    let in_item = "- ```markdown\n  ```mermaid\n  graph\n  ```\n  ```\nAfter\n";
+    assert_eq!(
+        split_whole(in_item),
+        vec![
+            prose(0, in_item),
+            SplitEvent::Finished { record_seen: false },
+        ]
+    );
+
+    let in_nested_item = concat!(
+        "1. Step one\n",
+        "   - ```text\n",
+        "     ```atlas-record\n",
+        "     {}\n",
+        "     ```\n",
+        "     ```\n",
+        "2. Step two\n",
+    );
+    assert_eq!(
+        split_whole(in_nested_item),
+        vec![
+            prose(0, in_nested_item),
+            SplitEvent::Finished { record_seen: false },
+        ],
+        "an example record inside a nested item is not the section record"
+    );
+}
+
+#[test]
+fn a_reserved_name_inside_a_code_fence_in_a_block_quote_is_not_a_block() {
+    let in_quote = "> ```markdown\n> ```atlas-check\n> []\n> ```\n> ```\nAfter\n";
+    assert_eq!(
+        split_whole(in_quote),
+        vec![
+            prose(0, in_quote),
+            SplitEvent::Finished { record_seen: false },
+        ]
+    );
+}
+
+#[test]
+fn a_reserved_fence_inside_a_list_item_is_prose() {
+    let after_blank = "- Item\n\n  ```atlas-figure\n  <svg/>\n  ```\nAfter\n";
+    assert_eq!(
+        split_whole(after_blank),
+        vec![
+            prose(0, after_blank),
+            SplitEvent::Finished { record_seen: false },
+        ]
+    );
+
+    let after_lazy_line = "- Item\ncontinued\n  ```mermaid\n  graph\n  ```\n";
+    assert_eq!(
+        split_whole(after_lazy_line),
+        vec![
+            prose(0, after_lazy_line),
+            SplitEvent::Finished { record_seen: false },
+        ],
+        "a lazy continuation line keeps the item open"
+    );
+}
+
+#[test]
+fn a_fence_at_the_margin_ends_the_list_item_and_its_code_fence() {
+    use ReservedKind::*;
+    let input = "- ```text\n  code\n```mermaid\ngraph\n```\n> quoted\n```atlas-check\n[]\n```\n";
+
+    assert_eq!(
+        split_whole(input),
+        vec![
+            prose(0, "- ```text\n  code\n"),
+            opened(Some(1), Mermaid),
+            closed(Some(1), Mermaid, "graph\n", None),
+            prose(2, "> quoted\n"),
+            opened(Some(3), Check),
+            closed(Some(3), Check, "[]\n", None),
+            SplitEvent::Finished { record_seen: false },
+        ]
+    );
+    assert_cut_independent(input, 2);
+}

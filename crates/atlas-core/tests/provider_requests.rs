@@ -202,6 +202,18 @@ fn the_headers_carry_the_bearer_token_and_a_json_content_type() {
 }
 
 #[test]
+fn a_token_that_cannot_be_a_header_value_sends_no_authorization() {
+    let headers = request_headers(&AccessToken::new("token\nwith a newline".to_owned()));
+    assert!(headers.get("authorization").is_none());
+    assert_eq!(
+        headers
+            .get("content-type")
+            .and_then(|value| value.to_str().ok()),
+        Some("application/json")
+    );
+}
+
+#[test]
 fn the_endpoint_is_responses_under_the_injected_api_base() {
     let cases = [
         (

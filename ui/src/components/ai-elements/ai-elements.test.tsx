@@ -55,7 +55,6 @@ describe.each(schemes)("in the %s theme", (scheme) => {
     await applyStyles(scheme);
 
     const question = screen.getByText(/Is slab pull the main thing/);
-    // Cannot pass and must stay as written: wash-strong and edge share a value, and tokenOf names the first match, edge.
     expect(tokenOf(paintOf(question).background, question)).toBe("wash-strong");
     expect(sameColor(paintOf(question).color, token(question, "heading"))).toBe(
       true,

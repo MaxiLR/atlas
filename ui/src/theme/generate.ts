@@ -84,18 +84,22 @@ const TINTED_BASE = 0.02;
 const STATE_HUES = { green: 150, amber: 75, red: 25 };
 const STATE_CHROMA = 0.16;
 
-/** Translucent ink: dark grounds need a little more of it to read. */
+/**
+ * Translucent ink: dark grounds need a little more of it to read. Each fill
+ * stays at least 0.02 from the hairline, so a fill and an edge never share a
+ * value and a colour names one token.
+ */
 const ALPHAS = {
   dark: {
     wash: 0.05,
-    washStrong: 0.08,
+    washStrong: 0.1,
     edge: 0.08,
     edgeStrong: 0.14,
     accentWash: 0.14,
   },
   light: {
     wash: 0.04,
-    washStrong: 0.07,
+    washStrong: 0.06,
     edge: 0.08,
     edgeStrong: 0.16,
     accentWash: 0.1,

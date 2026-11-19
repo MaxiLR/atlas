@@ -148,3 +148,44 @@ for (const width of widths) {
     });
   }
 }
+
+for (const width of [1024, 1100, 1440] as const) {
+  test(`at ${width} px the header's controls stay beside the open side panel with two versions`, async ({
+    page,
+  }) => {
+    await openApp(page, { width });
+    const { column, panel } = await openReader(page);
+    await page
+      .getByRole("article", { name: "Convergent boundaries" })
+      .getByRole("button", { name: "More examples" })
+      .click();
+    const versions = page.getByRole("button", {
+      name: "Version: More examples, 2 of 2",
+    });
+    await expect(versions).toBeVisible();
+
+    await page.getByRole("button", { name: /^Side chats/ }).click();
+    await expect(panel).toBeVisible();
+
+    const edge = (await box(panel)).x;
+    const columnEnd = await box(column).then(({ x, width }) => x + width);
+    expect(columnEnd).toBeLessThanOrEqual(edge);
+    for (const control of [
+      versions,
+      page.getByRole("button", { name: /^Glossary/ }),
+      page.getByRole("button", { name: /^Side chats/ }),
+      page.getByRole("button", { name: "Course menu" }),
+    ]) {
+      const { x, width } = await box(control);
+      expect(x + width).toBeLessThanOrEqual(columnEnd);
+    }
+
+    await page.getByRole("button", { name: "Course menu" }).click();
+    await expect(
+      page.getByRole("menuitem", { name: "Export PDF" }),
+    ).toBeVisible();
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: /^Side chats/ }).click();
+    await expect(panel).toBeHidden();
+  });
+}

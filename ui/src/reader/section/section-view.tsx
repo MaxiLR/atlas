@@ -49,15 +49,7 @@ export function SectionView({
           <p className="mt-2 text-16 text-muted-foreground">{summary}</p>
         )}
       </header>
-      <SectionStatus
-        display={display}
-        onStop={() =>
-          send({ type: "StopGeneration", ...ids }).catch(failureInStore)
-        }
-        onRetry={() =>
-          send({ type: "RetrySection", ...ids }).catch(failureInStore)
-        }
-      />
+      <SectionStatus courseId={course.id} sectionId={sectionId} />
       {display !== null && <Blocks blocks={display.blocks} />}
       {display !== null && <Sources sources={display.sources} />}
       {display?.status === "stored" && (

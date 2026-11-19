@@ -1,7 +1,8 @@
+import { failureInStore, useAtlas, useAtlasStore } from "@/app/store";
 import { Button } from "@/components/ui/button";
 import type { Activity } from "@/core/generated/Activity";
 import { describeError } from "@/core/client";
-import type { SectionDisplay } from "@/store";
+import { selectSection } from "@/store";
 import { unknownTag } from "@/store/unknown-tag";
 
 function activityText(activity: Activity | null): string {
@@ -23,14 +24,19 @@ function activityText(activity: Activity | null): string {
  * failed or refused with Retry. Nothing once a version is shown.
  */
 export function SectionStatus({
-  display,
-  onStop,
-  onRetry,
+  courseId,
+  sectionId,
 }: {
-  display: SectionDisplay | null;
-  onStop: () => void;
-  onRetry: () => void;
+  courseId: string;
+  sectionId: string;
 }) {
+  const { send } = useAtlasStore();
+  const display = useAtlas((state) => selectSection(state, sectionId));
+  const ids = { courseId, sectionId };
+  const onStop = () =>
+    send({ type: "StopGeneration", ...ids }).catch(failureInStore);
+  const onRetry = () =>
+    send({ type: "RetrySection", ...ids }).catch(failureInStore);
   if (
     display === null ||
     (display.status === "empty" && display.error === null)

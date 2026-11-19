@@ -150,6 +150,12 @@ test("a fresh course shows its next chapter's sections and the one after as a st
   await expect(row(index, "Slab pull and ridge push")).toBeVisible();
 });
 
+// This test measures the next node before the deep dives arrive, so it
+// cannot pass: the dives push that node down after the measurement. It is
+// protected and must stay as written; change neither the product, the fake
+// nor this test for it. Its corrected twin follows it: "after Go deeper the
+// new nodes sit between the section and the next one, drawn along the
+// connector".
 test("after Go deeper the new nodes branch from the section, drawn along the connector", async ({
   page,
 }) => {
@@ -162,6 +168,41 @@ test("after Go deeper the new nodes branch from the section, drawn along the con
   const animated = await recordIndexAnimations(page);
 
   await page.getByRole("button", { name: "Go deeper" }).click();
+
+  const parent = await box(node(index, "Divergent boundaries"));
+  const next = await box(node(index, "Convergent boundaries"));
+  for (const title of [
+    "Divergent boundaries: in the field",
+    "Divergent boundaries: measured",
+    "Divergent boundaries: open questions",
+  ]) {
+    await expect(row(index, title)).toBeVisible();
+    const child = await box(node(index, title));
+    expect(child.x).toBeGreaterThan(parent.x);
+    expect(child.y).toBeGreaterThan(parent.y);
+    expect(child.y).toBeLessThan(next.y);
+  }
+  await expect(row(index, "Divergent boundaries")).toHaveAccessibleDescription(
+    "Read, 3 deep dives",
+  );
+  await expect.poll(animated).toEqual(expect.arrayContaining(["branch"]));
+});
+
+test("after Go deeper the new nodes sit between the section and the next one, drawn along the connector", async ({
+  page,
+}) => {
+  await openApp(page, { width: 1440 });
+  const index = await openCourse(page, "Plate tectonics");
+  await row(index, "Divergent boundaries").click();
+  await expect(
+    page.getByRole("article", { name: "Divergent boundaries" }),
+  ).toBeVisible();
+  const animated = await recordIndexAnimations(page);
+
+  await page.getByRole("button", { name: "Go deeper" }).click();
+  await expect(
+    row(index, "Divergent boundaries: open questions"),
+  ).toBeVisible();
 
   const parent = await box(node(index, "Divergent boundaries"));
   const next = await box(node(index, "Convergent boundaries"));
@@ -313,6 +354,12 @@ for (const scheme of ["light", "dark"] as const) {
   });
 }
 
+// This test expects Ptolemy and the grid: legacy to leave the rail's view
+// when the rail is scrolled to its end, but the rail is not long enough for
+// that, so it cannot pass. It is protected and must stay as written; change
+// neither the product, the fake nor this test for it. Its corrected twin
+// follows it: "a long course keeps the open node in view after the rail is
+// scrolled away from it".
 test("a long course scrolls inside the rail, cuts long titles short and keeps the open node in view", async ({
   page,
 }) => {
@@ -355,6 +402,36 @@ test("a long course scrolls inside the rail, cuts long titles short and keeps th
     index,
     "Measuring the Earth from Eratosthenes' shadows to the triangulation surveys of the eighteenth century: sources",
   );
+  await expect(opened).toHaveAttribute("aria-current", "page");
+  await expect(opened).toBeInViewport();
+});
+
+test("a long course keeps the open node in view after the rail is scrolled away from it", async ({
+  page,
+}) => {
+  await openApp(page, { width: 1440, scenario: "index-route" });
+  const index = await openCourse(page, "The history of mapmaking");
+  expect(
+    await index.evaluate(
+      (element) => element.scrollHeight > element.clientHeight,
+    ),
+  ).toBe(true);
+
+  await row(index, "Maps on every phone").click();
+  const first = row(index, "Maps on every phone: sources");
+  await expect(first).toHaveAttribute("aria-current", "page");
+  await expect(first).toBeInViewport();
+  await expect(
+    page.getByRole("article", { name: "Maps on every phone: sources" }),
+  ).toContainText("is part of the history of mapmaking.");
+
+  await index.evaluate((element) => {
+    element.scrollTop = 0;
+  });
+  await expect(first).not.toBeInViewport();
+
+  await page.getByRole("button", { name: "Next" }).click();
+  const opened = row(index, "Maps on every phone: instruments");
   await expect(opened).toHaveAttribute("aria-current", "page");
   await expect(opened).toBeInViewport();
 });

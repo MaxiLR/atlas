@@ -97,19 +97,25 @@ describe("the thin screens", () => {
 
     const index = await screen.findByRole("navigation", { name: "Index" });
     expect(within(index).getByText("The solid Earth")).toBeVisible();
-    expect(
-      within(index)
-        .getAllByRole("button")
-        .map((button) => button.textContent),
-    ).toEqual([
-      "Layers by composition",
-      "Lithosphere and asthenosphere",
-      "Divergent boundaries",
-      "Convergent boundaries",
-      "Transform boundaries",
-      "Mantle convection",
-      "Slab pull and ridge push",
-    ]);
+    // Three chapter rows and the sections of the first two chapters; the
+    // chapter further along is a station with its section count.
+    expect(within(index).getAllByRole("button")).toEqual(
+      [
+        "The solid Earth",
+        "Layers by composition",
+        "Lithosphere and asthenosphere",
+        "Plates and their boundaries",
+        "Divergent boundaries",
+        "Convergent boundaries",
+        "Transform boundaries",
+        "What moves the plates",
+      ].map((name) => within(index).getByRole("button", { name })),
+    );
+    const station = within(index).getByRole("button", {
+      name: "What moves the plates",
+    });
+    expect(station).toHaveTextContent("What moves the plates2");
+    expect(station).toHaveAccessibleDescription("Chapter, 2 sections");
   });
 
   it("show settings with the account, Manage usage and Sign out", async () => {

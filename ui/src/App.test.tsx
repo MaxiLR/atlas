@@ -84,7 +84,23 @@ describe("the core loop against the fake core", () => {
     ).toBeVisible();
     expect(within(index).getByText("The solid Earth")).toBeVisible();
     expect(within(index).getByText("What moves the plates")).toBeVisible();
-    expect(within(index).getAllByRole("button")).toHaveLength(7);
+    // Three chapter rows and the sections of the first two chapters; the
+    // chapter further along is a station with its section count.
+    expect(within(index).getAllByRole("button")).toEqual(
+      [
+        "The solid Earth",
+        "Layers by composition",
+        "Lithosphere and asthenosphere",
+        "Plates and their boundaries",
+        "Divergent boundaries",
+        "Convergent boundaries",
+        "Transform boundaries",
+        "What moves the plates",
+      ].map((name) => within(index).getByRole("button", { name })),
+    );
+    expect(
+      within(index).getByRole("button", { name: "What moves the plates" }),
+    ).toHaveAccessibleDescription("Chapter, 2 sections");
   });
 
   it("shows a section's text growing as it streams", async () => {

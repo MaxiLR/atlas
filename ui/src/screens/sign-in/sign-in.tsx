@@ -139,7 +139,7 @@ function OtherAction({
  * allowed, each said once with the action that moves on from it.
  */
 export function SignIn() {
-  const { send, navigate } = useAtlasStore();
+  const { send, navigate, screenChanged } = useAtlasStore();
   const session = useAtlas((state) => state.session.session);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
   const action = useRef<HTMLButtonElement>(null);
@@ -147,7 +147,11 @@ export function SignIn() {
   const shown = useRef(state);
 
   // When the action that had focus gives way to the next state's, focus
-  // follows to the new one; it is not taken on arrival.
+  // follows to the new one. It is not taken on arrival at launch, but is
+  // when another screen led here, as signing out does.
+  useEffect(() => {
+    if (screenChanged()) action.current?.focus();
+  }, [screenChanged]);
   useEffect(() => {
     if (shown.current === state) return;
     shown.current = state;

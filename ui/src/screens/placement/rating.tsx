@@ -12,7 +12,7 @@ import {
 import type { Goal } from "@/core/generated/Goal";
 import type { SelfRating } from "@/core/generated/SelfRating";
 
-import { Actions, continueStyle } from "./actions";
+import { Actions, continueStyle, groupFocusStyle } from "./actions";
 
 const ratings: [SelfRating, string][] = [
   ["NewToThis", "New to this"],
@@ -56,7 +56,7 @@ function ChoiceGroup<Value extends string>({
         onEnter();
       }}
     >
-      <QuestionnaireItem name={name} ref={ref}>
+      <QuestionnaireItem name={name} ref={ref} className={groupFocusStyle}>
         <QuestionnaireTitle>{title}</QuestionnaireTitle>
         <QuestionnaireChoices className="mt-4">
           {options.map(([option, label]) => (

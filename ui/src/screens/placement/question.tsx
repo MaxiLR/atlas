@@ -18,7 +18,7 @@ import {
 import type { PlacementAnswer } from "@/core/generated/PlacementAnswer";
 import type { PlacementQuestion } from "@/core/generated/PlacementQuestion";
 
-import { Actions, continueStyle } from "./actions";
+import { Actions, continueStyle, groupFocusStyle } from "./actions";
 
 const NOT_SURE = "not-sure";
 
@@ -108,7 +108,7 @@ export function QuestionForm({
       aria-busy={busy || undefined}
       className="gap-0"
     >
-      <QuestionnaireItem name={name} ref={group}>
+      <QuestionnaireItem name={name} ref={group} className={groupFocusStyle}>
         <QuestionnaireTitle>{question.stem}</QuestionnaireTitle>
         <QuestionnaireChoices className="mt-4">
           {question.options.map((text, index) => (

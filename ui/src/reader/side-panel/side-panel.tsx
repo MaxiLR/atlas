@@ -15,6 +15,7 @@ import type { PanelTab } from "@/store";
  */
 export function SidePanel({
   ref,
+  inert,
   course,
   tab,
   onClose,
@@ -23,6 +24,8 @@ export function SidePanel({
   className,
 }: {
   ref?: Ref<HTMLElement>;
+  /** Under the titles overlay, the panel takes no focus or input. */
+  inert?: boolean;
   course: CourseView;
   tab: PanelTab;
   onClose: () => void;
@@ -34,6 +37,7 @@ export function SidePanel({
   return (
     <aside
       ref={ref}
+      inert={inert}
       aria-label="Side panel"
       className={cn(
         "flex min-h-0 flex-col border-l border-edge bg-panel max-lg:fixed max-lg:inset-y-0 max-lg:right-0 max-lg:z-30 max-lg:w-[min(420px,calc(100%-72px))] max-lg:shadow-float",

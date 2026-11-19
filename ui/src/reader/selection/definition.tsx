@@ -71,7 +71,7 @@ function WikipediaRow({
         {result?.type === "Found" && (
           <a
             href={result.url}
-            className="inline-flex items-center gap-1 rounded-xs transition-colors outline-none hover:text-heading focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+            className="inline-flex items-center gap-1 rounded-xs transition-colors outline-none hover:text-heading focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus focus-visible:outline-solid"
             onClick={(event) => {
               event.preventDefault();
               send({ type: "OpenExternal", url: result.url }).catch(

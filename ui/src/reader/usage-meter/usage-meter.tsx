@@ -7,7 +7,7 @@ import {
   TriangleAlertIcon,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useSyncExternalStore, type ComponentProps } from "react";
+import { useEffect, useRef, type ComponentProps } from "react";
 
 import { failureInStore, useAtlas, useAtlasStore } from "@/app/store";
 import { Button } from "@/components/ui/button";
@@ -30,6 +30,7 @@ import type { UsageReading } from "@/core/generated/UsageReading";
 import type { UsageState } from "@/core/generated/UsageState";
 import type { UsageWindow } from "@/core/generated/UsageWindow";
 import { cn } from "@/lib/utils";
+import { useNarrow } from "@/reader/narrow";
 import { selectUsage } from "@/store";
 import { unknownTag } from "@/store/unknown-tag";
 
@@ -41,22 +42,6 @@ import { useNow } from "./use-now";
 const TICK_MS = 10_000;
 
 const MINUTE = 60_000;
-
-/** The width below which the folded rail shows the bars only. */
-const NARROW = "(width < 64rem)";
-
-function subscribeNarrow(changed: () => void) {
-  const query = window.matchMedia?.(NARROW);
-  query?.addEventListener("change", changed);
-  return () => query?.removeEventListener("change", changed);
-}
-
-function useNarrow(): boolean {
-  return useSyncExternalStore(
-    subscribeNarrow,
-    () => window.matchMedia?.(NARROW).matches ?? false,
-  );
-}
 
 const UNITS: Record<string, string> = {
   m: "minute",
@@ -265,7 +250,7 @@ function Windows({
                   shown={shown}
                   stale={stale !== null}
                   tabIndex={0}
-                  className="rounded-xs outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+                  className="rounded-xs outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus focus-visible:outline-solid"
                 />
               </TooltipTrigger>
               <TooltipContent
@@ -377,11 +362,13 @@ function MeterState({
   compact,
   onConnect,
   onCancel,
+  onDialogGone,
 }: {
   usage: UsageState;
   compact: boolean;
   onConnect: () => void;
   onCancel: () => void;
+  onDialogGone: () => void;
 }) {
   switch (usage.type) {
     case "NotConnected":
@@ -406,6 +393,7 @@ function MeterState({
             userCode={usage.userCode}
             expiresAt={usage.expiresAt}
             onCancel={onCancel}
+            onGone={onDialogGone}
           />
         </>
       );
@@ -455,6 +443,7 @@ export function UsageMeter({ folded }: { folded: boolean }) {
   const usage = useAtlas(selectUsage);
   const narrow = useNarrow();
   const compact = folded && narrow;
+  const meter = useRef<HTMLElement>(null);
 
   useEffect(() => {
     send({ type: "GetUsage" }).catch(failureInStore);
@@ -464,6 +453,7 @@ export function UsageMeter({ folded }: { folded: boolean }) {
   return (
     <TooltipProvider>
       <section
+        ref={meter}
         aria-label="Plan usage"
         // While the login runs the meter is the status the candidate waits
         // on, so it stays perceivable beside the device-code dialog.
@@ -479,6 +469,13 @@ export function UsageMeter({ folded }: { folded: boolean }) {
           onConnect={() => send({ type: "ConnectUsage" }).catch(failureInStore)}
           onCancel={() =>
             send({ type: "CancelConnectUsage" }).catch(failureInStore)
+          }
+          // Focus returns to the meter's control in its new state: Connect
+          // usage again, or the windows once connected.
+          onDialogGone={() =>
+            meter.current
+              ?.querySelector<HTMLElement>('button, [tabindex="0"]')
+              ?.focus()
           }
         />
       </section>

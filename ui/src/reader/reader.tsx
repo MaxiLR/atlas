@@ -1,8 +1,8 @@
 import { ChevronLeftIcon, XIcon } from "lucide-react";
-import { useCallback, useEffect, useId, useRef } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef } from "react";
 
 import { failureInStore, useAtlas, useAtlasStore } from "@/app/store";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import type { CourseView } from "@/core/generated/CourseView";
 import { cn } from "@/lib/utils";
 import { CourseMenu } from "@/reader/course-menu/course-menu";
@@ -11,6 +11,7 @@ import { ReaderFoot } from "@/reader/foot/foot";
 import { GlossaryList } from "@/reader/glossary/glossary-list";
 import { ReaderHeader } from "@/reader/header/header";
 import { IndexRoute } from "@/reader/index-route/index-route";
+import { useFocusLoop, useNarrow } from "@/reader/narrow";
 import { SectionView } from "@/reader/section/section-view";
 import { SideChats } from "@/reader/side-chat/side-chats";
 import { SidePanel } from "@/reader/side-panel/side-panel";
@@ -25,8 +26,14 @@ import type { PanelTab } from "@/store";
  *
  * At 1024 px and wider the three sit side by side. Narrower, the rail folds
  * to 72 px of marks, the header's index button opens it at full width over
- * the column, and the side panel opens over the column too. Escape closes
- * the overlay or the panel and returns focus to the button that opened it.
+ * the column, and the side panel opens over the column too; while either is
+ * open over the column, the rest is inert and Tab goes round inside it.
+ * Escape closes the overlay or the panel and returns focus to the button
+ * that opened it.
+ *
+ * A section that opens starts at the top of the column with focus on its
+ * title, except that Next and Go deeper keep focus where it was pressed.
+ * The rail's first stop skips to the column.
  */
 export function Reader({ course }: { course: CourseView }) {
   const { send, navigate } = useAtlasStore();
@@ -44,19 +51,60 @@ export function Reader({ course }: { course: CourseView }) {
   // Set when an action opens a region whose first control takes focus.
   const focusIndex = useRef(false);
   const focusPanel = useRef(false);
+  const column = useRef<HTMLDivElement>(null);
+  const columnId = useId();
+  const narrow = useNarrow();
+  const overIndex = narrow && indexOpen;
+  const overPanel = narrow && panel.open && !indexOpen;
   const { read, total } = readCount(course);
+
+  useFocusLoop(rail, overIndex);
+  useFocusLoop(sidePanel, overPanel);
+
+  /** Focus to the open section's title, or to the column without one. */
+  const focusColumn = useCallback(() => {
+    const scroller = column.current;
+    (scroller?.querySelector<HTMLElement>("article h1") ?? scroller)?.focus();
+  }, []);
+
+  useEffect(() => {
+    const scroller = column.current;
+    if (scroller === null) return;
+    scroller.scrollTop = 0;
+    // The foot's controls keep focus, so Next can be pressed again; the
+    // side panel keeps it while the candidate works there.
+    const focused = document.activeElement;
+    if (
+      focused?.closest("main > footer") != null ||
+      sidePanel.current?.contains(focused) === true
+    ) {
+      return;
+    }
+    focusColumn();
+  }, [sectionId, focusColumn]);
+
+  // Where focus goes back once an overlay has closed: only after the render
+  // that lifts `inert` from the rest, which focus cannot enter before. A
+  // layout effect, so that a margin mark that opened the panel can still
+  // take focus back in its own effect after this.
+  const giveBack = useRef<HTMLElement | null>(null);
 
   const closeIndex = useCallback(
     (returnFocus: boolean) => {
       navigate({ type: "CloseOverlay" });
-      if (returnFocus) indexToggle.current?.focus();
+      if (returnFocus) giveBack.current = indexToggle.current;
     },
     [navigate],
   );
   const closePanel = useCallback(() => {
     navigate({ type: "ClosePanel" });
-    panelOpener.current?.focus();
+    giveBack.current = panelOpener.current;
   }, [navigate]);
+
+  useLayoutEffect(() => {
+    giveBack.current?.focus();
+    giveBack.current = null;
+  }, [indexOpen, panel.open]);
 
   useEffect(() => {
     if (!indexOpen || !focusIndex.current) return;
@@ -136,12 +184,27 @@ export function Reader({ course }: { course: CourseView }) {
         ref={rail}
         id={railId}
         aria-label="Course"
+        inert={overPanel}
         className={cn(
           "col-start-1 row-start-1 flex min-h-0 min-w-0 flex-col border-r border-edge bg-panel",
           indexOpen &&
             "max-lg:fixed max-lg:inset-y-0 max-lg:left-0 max-lg:z-30 max-lg:w-80 max-lg:shadow-float",
         )}
       >
+        <a
+          href={`#${columnId}`}
+          className={cn(
+            buttonVariants({ size: "lg" }),
+            "pointer-events-none fixed top-1.5 left-20 z-40 bg-panel opacity-0 shadow-float focus:pointer-events-auto focus:opacity-100",
+          )}
+          onClick={(event) => {
+            event.preventDefault();
+            if (indexOpen) navigate({ type: "CloseOverlay" });
+            focusColumn();
+          }}
+        >
+          Skip to the reading column
+        </a>
         <div
           data-tauri-drag-region
           className={cn(
@@ -191,7 +254,10 @@ export function Reader({ course }: { course: CourseView }) {
         <UsageMeter folded={folded} />
       </aside>
 
-      <main className="col-start-2 row-start-1 grid min-h-0 min-w-0 grid-rows-[44px_minmax(0,1fr)_64px]">
+      <main
+        inert={overIndex || overPanel}
+        className="col-start-2 row-start-1 grid min-h-0 min-w-0 grid-rows-[44px_minmax(0,1fr)_64px]"
+      >
         <ReaderHeader
           course={course}
           sectionId={sectionId}
@@ -215,7 +281,12 @@ export function Reader({ course }: { course: CourseView }) {
           }
           menu={<CourseMenu courseId={course.id} />}
         />
-        <div className="min-h-0 overflow-y-auto">
+        <div
+          ref={column}
+          id={columnId}
+          tabIndex={-1}
+          className="min-h-0 overflow-y-auto outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus focus-visible:outline-solid"
+        >
           {sectionId === null ? (
             <p className="mx-auto max-w-180 px-5 pt-14 text-16 text-muted-foreground max-lg:px-7 max-lg:pt-10">
               Choose a section in the index.
@@ -234,6 +305,7 @@ export function Reader({ course }: { course: CourseView }) {
       {panel.open && (
         <SidePanel
           ref={sidePanel}
+          inert={overIndex}
           className="col-start-3 row-start-1"
           course={course}
           tab={panel.tab}

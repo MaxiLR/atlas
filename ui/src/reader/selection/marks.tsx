@@ -39,7 +39,7 @@ function Term({
       data-term={id}
       aria-haspopup="dialog"
       aria-expanded={marks?.openTermId === id}
-      className="cursor-pointer rounded-[3px] underline decoration-atlas-accent decoration-dotted underline-offset-4 transition-colors outline-none hover:bg-atlas-accent-wash focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus aria-expanded:bg-atlas-accent-wash"
+      className="cursor-pointer rounded-[3px] underline decoration-atlas-accent decoration-dotted underline-offset-4 transition-colors outline-none hover:bg-atlas-accent-wash focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus focus-visible:outline-solid aria-expanded:bg-atlas-accent-wash"
       onClick={() => {
         // The end of a drag that selects text is not an activation.
         if (document.getSelection()?.isCollapsed !== false) open();
@@ -162,7 +162,7 @@ export function MarginMarks({
         aria-label={`Side chat on “${opening(chat.anchor?.quote ?? chat.opening)}”`}
         aria-expanded={open}
         style={{ top, height: Math.max(height, 16) }}
-        className="group absolute -left-4 w-3 cursor-pointer rounded-xs outline-none focus-visible:outline-2 focus-visible:outline-focus"
+        className="group absolute -left-4 w-3 cursor-pointer rounded-xs outline-none focus-visible:outline-2 focus-visible:outline-focus focus-visible:outline-solid"
         onClick={() => onOpen(id)}
       >
         <span

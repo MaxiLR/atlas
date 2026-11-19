@@ -8,6 +8,13 @@ import type { ReactNode } from "react";
 export const continueStyle = "transition-[scale] max-[760px]:h-9";
 
 /**
+ * A question group that takes focus when it appears: the accent outline,
+ * drawn clear of its options.
+ */
+export const groupFocusStyle =
+  "rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-focus focus-visible:outline-solid";
+
+/**
  * The foot of a placement form: a muted note, or what went wrong, beside
  * Continue. Below 760 px Continue spans the column above the note.
  */

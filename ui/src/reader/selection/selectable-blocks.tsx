@@ -112,6 +112,32 @@ function focusPassage(frame: HTMLElement, range: Range, block: number) {
   passage.focus();
 }
 
+/**
+ * Where a selection made from the keyboard starts: the first word of the
+ * prose block holding `focused`, else of the first prose block of `frame`
+ * that shows in the window; null when the frame has no prose.
+ */
+function firstWordOf(
+  frame: HTMLElement,
+  focused: Element | null,
+): { node: Text; offset: number } | null {
+  const blocks = [...frame.querySelectorAll<HTMLElement>("[data-prose-block]")];
+  const block =
+    focused?.closest<HTMLElement>("[data-prose-block]") ??
+    blocks.find((each) => {
+      const rect = each.getBoundingClientRect();
+      return rect.bottom > 0 && rect.top < window.innerHeight;
+    }) ??
+    blocks[0];
+  if (block === undefined || !frame.contains(block)) return null;
+  const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+    const offset = node.nodeValue?.search(/\S/) ?? -1;
+    if (offset !== -1) return { node: node as Text, offset };
+  }
+  return null;
+}
+
 const nothing: never[] = [];
 
 /**
@@ -385,6 +411,55 @@ export function SelectableBlocks({
     return () => document.removeEventListener("keydown", onKey);
   }, [menuOpen]);
 
+  // Text that is not editable takes no caret from the keyboard, so Shift
+  // with an arrow key selects here: the first press takes the first word of
+  // the passage that has focus, or of the first passage in view; the next
+  // extend it by a character, by a word with Option, or by a line.
+  useEffect(() => {
+    if (versionId === null) return;
+    const select = (event: KeyboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        !event.shiftKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        !event.key.startsWith("Arrow")
+      ) {
+        return;
+      }
+      const root = frame.current;
+      const column = root?.closest("article");
+      const focused = document.activeElement;
+      if (root == null || column == null || !column.contains(focused)) return;
+      if (focused?.closest("input, textarea, select, [contenteditable]")) {
+        return;
+      }
+      const selection = document.getSelection();
+      if (selection === null) return;
+      const extending =
+        selection.type === "Range" && root.contains(selection.anchorNode);
+      if (!extending) {
+        const passage = firstWordOf(root, focused);
+        if (passage === null) return;
+        event.preventDefault();
+        selection.collapse(passage.node, passage.offset);
+        selection.modify("extend", "forward", "word");
+        return;
+      }
+      event.preventDefault();
+      const vertical = event.key === "ArrowUp" || event.key === "ArrowDown";
+      selection.modify(
+        "extend",
+        event.key === "ArrowRight" || event.key === "ArrowDown"
+          ? "forward"
+          : "backward",
+        vertical ? "line" : event.altKey ? "word" : "character",
+      );
+    };
+    document.addEventListener("keydown", select);
+    return () => document.removeEventListener("keydown", select);
+  }, [versionId]);
+
   const openTermId = doubtEntry?.id ?? null;
   const openChatId = panel.open ? panel.chatId : null;
   const marksState = useMemo<MarksState>(
@@ -495,7 +570,8 @@ export function SelectableBlocks({
             align="start"
             sideOffset={8}
             collisionPadding={8}
-            className="w-90 gap-0 overflow-hidden p-0"
+            // The card takes focus when it opens, drawn as every focus is.
+            className="w-90 gap-0 overflow-hidden p-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus focus-visible:outline-solid"
             onOpenAutoFocus={(event) => {
               event.preventDefault();
               card.current?.focus();

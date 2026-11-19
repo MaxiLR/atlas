@@ -17,16 +17,19 @@ import { useNow } from "./use-now";
 /**
  * The usage login in progress: the device code to enter on OpenAI's page,
  * which the core has opened, and the time left to enter it. Closing it
- * cancels the login.
+ * cancels the login. Once it has gone, `onGone` places focus: the button
+ * that opened it has given way to the meter's next state.
  */
 export function ConnectUsageDialog({
   userCode,
   expiresAt,
   onCancel,
+  onGone,
 }: {
   userCode: string;
   expiresAt: string;
   onCancel: () => void;
+  onGone: () => void;
 }) {
   const now = useNow(1000);
   const [copied, setCopied] = useState(false);
@@ -41,7 +44,14 @@ export function ConnectUsageDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !open && onCancel()}>
-      <DialogContent showCloseButton={false} className="gap-5 sm:max-w-sm">
+      <DialogContent
+        showCloseButton={false}
+        className="gap-5 sm:max-w-sm"
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          onGone();
+        }}
+      >
         <DialogHeader className="pr-0">
           <DialogTitle>Connect usage</DialogTitle>
           <DialogDescription className="text-balance">

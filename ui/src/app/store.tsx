@@ -40,6 +40,11 @@ export interface AtlasStore {
   ): Promise<ResponseTo<Request>>;
   /** An action of the interface's own: screens, the panel, overlays. */
   navigate(action: NavigationAction): void;
+  /**
+   * Whether the window has moved to another screen since it first showed
+   * one. A screen reached that way takes focus; the first one does not.
+   */
+  screenChanged(): boolean;
 }
 
 /**
@@ -78,6 +83,14 @@ export function createAtlasStore(client: CoreClient): AtlasStore {
       throw error;
     }
   };
+  // The first screen is the one shown once the session is known.
+  let firstScreen: AtlasState["navigation"]["screen"] | null = null;
+  let screenChanged = false;
+  state.subscribe((current) => {
+    if (screenChanged || current.session.session === null) return;
+    firstScreen ??= current.navigation.screen;
+    screenChanged = current.navigation.screen !== firstScreen;
+  });
   return {
     state,
     connect: () =>
@@ -86,6 +99,7 @@ export function createAtlasStore(client: CoreClient): AtlasStore {
       ),
     send,
     navigate: (action) => apply((current) => applyNavigation(current, action)),
+    screenChanged: () => screenChanged,
   };
 }
 

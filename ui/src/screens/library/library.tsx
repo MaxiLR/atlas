@@ -16,13 +16,14 @@ import { NewCourse } from "./new-course";
  * most recently opened first. With no courses, only the question shows.
  */
 export function Library() {
-  const { send, navigate } = useAtlasStore();
+  const { send, navigate, screenChanged } = useAtlasStore();
   const courses = useAtlas((state) => state.library.courses);
   const session = useAtlas((state) => state.session.session);
   const planUsage = session?.type === "SignedIn" ? session.planUsage : null;
   const [listError, setListError] = useState<unknown>(null);
   const [rowError, setRowError] = useState<string | null>(null);
   const field = useRef<HTMLInputElement>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
   const list = useRef<HTMLUListElement>(null);
   const headingId = useId();
   const now = new Date();
@@ -32,6 +33,15 @@ export function Library() {
   }, [send]);
 
   useEffect(listCourses, [listCourses]);
+
+  // Reached from another screen, the library puts focus in the topic field,
+  // or on its question while no course can start.
+  useEffect(() => {
+    if (!screenChanged()) return;
+    const input = field.current;
+    if (input !== null && !input.disabled) input.focus();
+    else heading.current?.focus();
+  }, [screenChanged]);
 
   function tryAgain() {
     setListError(null);
@@ -167,7 +177,7 @@ export function Library() {
         </>
       }
     >
-      <NewCourse planUsage={planUsage} field={field} />
+      <NewCourse planUsage={planUsage} field={field} heading={heading} />
       {shelf !== null && <div className="mt-8 max-[760px]:mt-0">{shelf}</div>}
     </WindowFrame>
   );

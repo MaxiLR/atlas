@@ -42,7 +42,9 @@ export function SectionView({
       <header className="mb-7">
         <h1
           id={titleId}
-          className="text-28 font-medium text-balance text-heading"
+          // Where focus lands when the section opens.
+          tabIndex={-1}
+          className="rounded-xs text-28 font-medium text-balance text-heading outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus focus-visible:outline-solid"
         >
           {node?.title}
         </h1>

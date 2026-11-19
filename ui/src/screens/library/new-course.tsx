@@ -19,10 +19,13 @@ import type { PlanUsage } from "@/core/generated/PlanUsage";
 export function NewCourse({
   planUsage,
   field,
+  heading,
 }: {
   /** Null until the session is known. */
   planUsage: PlanUsage | null;
   field: Ref<HTMLInputElement>;
+  /** The question, which takes focus while the field cannot. */
+  heading: Ref<HTMLHeadingElement>;
 }) {
   const { send } = useAtlasStore();
   const [topic, setTopic] = useState("");
@@ -89,7 +92,11 @@ export function NewCourse({
 
   return (
     <form onSubmit={start}>
-      <h1 className="text-20 font-medium tracking-[-0.012em] text-balance text-heading">
+      <h1
+        ref={heading}
+        tabIndex={-1}
+        className="rounded-xs text-20 font-medium tracking-[-0.012em] text-balance text-heading outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus focus-visible:outline-solid"
+      >
         What do you want to learn?
       </h1>
       <InputGroup className="mt-4 h-12 rounded-[10px] pr-1">

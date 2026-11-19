@@ -199,9 +199,11 @@ describe("the block list", () => {
 
     const formulas = column.querySelectorAll("math");
     expect(formulas).toHaveLength(2);
-    expect(formulas[0]).not.toHaveAttribute("display", "block");
+    // MathML elements are not HTML elements, which jest-dom's attribute
+    // matcher requires, so the attribute is read directly.
+    expect(formulas[0].getAttribute("display")).not.toBe("block");
     expect(formulas[0]).toHaveTextContent("d=vt");
-    expect(formulas[1]).toHaveAttribute("display", "block");
+    expect(formulas[1].getAttribute("display")).toBe("block");
     expect(formulas[1].querySelector("annotation")).toHaveTextContent(
       "T^2 = \\frac{4\\pi^2}{GM} a^3",
     );

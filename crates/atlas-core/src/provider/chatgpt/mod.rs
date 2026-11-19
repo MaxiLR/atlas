@@ -64,6 +64,10 @@ impl ChatGptProvider {
         }
     }
 
+    pub fn with_idle_timeout(self, _idle: Duration) -> Self {
+        self
+    }
+
     fn attempts(&self) -> Attempts {
         Attempts::new(self.client.clone(), self.tokens.clone())
     }

@@ -736,3 +736,249 @@ async fn no_error_shows_the_token_or_the_served_body() {
         }
     }
 }
+
+// A connection lost or gone silent after the stream opened.
+
+mod connection_loss {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use atlas_core::provider::chatgpt::ChatGptProvider;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::{TcpListener, TcpStream};
+
+    use super::*;
+
+    /// How the raw server answers one request.
+    #[derive(Debug, Clone, Copy)]
+    enum Answer {
+        /// The head of a stream and `Partial text`, then the connection drops.
+        Drop,
+        /// The head of a stream and `Partial text`, then silence on an open
+        /// connection.
+        Silent,
+        /// No answer at all on an open connection.
+        Mute,
+        /// The whole `Hello, world!` stream.
+        Complete,
+        /// The whole model list.
+        Models,
+    }
+
+    /// The bytes of one HTTP/1.1 chunk.
+    fn chunk(data: &[u8]) -> Vec<u8> {
+        let mut bytes = format!("{:x}\r\n", data.len()).into_bytes();
+        bytes.extend_from_slice(data);
+        bytes.extend_from_slice(b"\r\n");
+        bytes
+    }
+
+    fn partial_sse() -> String {
+        let events = [
+            json!({"type": "response.created", "sequence_number": 0,
+                   "response": {"id": "resp_1", "object": "response", "status": "in_progress"}}),
+            json!({"type": "response.output_text.delta", "sequence_number": 1, "item_id": "msg_1",
+                   "output_index": 0, "content_index": 0, "delta": "Partial "}),
+            json!({"type": "response.output_text.delta", "sequence_number": 2, "item_id": "msg_1",
+                   "output_index": 0, "content_index": 0, "delta": "text"}),
+        ];
+        let mut sse = String::new();
+        for event in events {
+            let kind = event["type"].as_str().expect("a type").to_owned();
+            sse.push_str(&format!("event: {kind}\ndata: {event}\n\n"));
+        }
+        sse
+    }
+
+    /// Reads one request: its head, then as many body bytes as it declares.
+    async fn read_request(socket: &mut TcpStream) {
+        let mut received = Vec::new();
+        let mut buffer = [0u8; 4096];
+        loop {
+            let read = socket.read(&mut buffer).await.expect("read the request");
+            assert!(read > 0, "the request ended early");
+            received.extend_from_slice(&buffer[..read]);
+            let Some(end) = received.windows(4).position(|w| w == b"\r\n\r\n") else {
+                continue;
+            };
+            let head = String::from_utf8_lossy(&received[..end]).to_ascii_lowercase();
+            let length = head
+                .lines()
+                .find_map(|line| line.strip_prefix("content-length:"))
+                .map_or(0, |value| value.trim().parse::<usize>().expect("a length"));
+            if received.len() >= end + 4 + length {
+                return;
+            }
+        }
+    }
+
+    /// A server on 127.0.0.1 answering each request with `answers` in order,
+    /// the last repeating, and counting the requests it reads.
+    async fn raw_server(answers: Vec<Answer>) -> (Endpoints, Arc<AtomicUsize>) {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind a free port");
+        let address = listener.local_addr().expect("the bound address");
+        let count = Arc::new(AtomicUsize::new(0));
+        let served = count.clone();
+        tokio::spawn(async move {
+            loop {
+                let (mut socket, _) = listener.accept().await.expect("accept");
+                let index = served.fetch_add(1, Ordering::SeqCst);
+                let answer = answers[index.min(answers.len() - 1)];
+                tokio::spawn(async move {
+                    read_request(&mut socket).await;
+                    if let Answer::Mute = answer {
+                        std::future::pending::<()>().await;
+                    }
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\n\
+                         x-request-id: {REQUEST_ID}\r\ntransfer-encoding: chunked\r\n\
+                         connection: close\r\n\r\n"
+                    );
+                    let mut bytes = head.into_bytes();
+                    match answer {
+                        Answer::Complete => {
+                            bytes.extend(chunk(fixture("responses/completed.sse").as_bytes()));
+                            bytes.extend_from_slice(b"0\r\n\r\n");
+                        }
+                        Answer::Models => {
+                            bytes.extend(chunk(&model_list().body));
+                            bytes.extend_from_slice(b"0\r\n\r\n");
+                        }
+                        _ => bytes.extend(chunk(partial_sse().as_bytes())),
+                    }
+                    socket.write_all(&bytes).await.expect("write the answer");
+                    socket.flush().await.expect("flush the answer");
+                    if let Answer::Silent = answer {
+                        std::future::pending::<()>().await;
+                    }
+                    // Dropping the socket cuts the stream before its last chunk.
+                });
+            }
+        });
+        let url = Url::parse(&format!("http://{address}/")).expect("a valid URL");
+        (Endpoints::local(&url), count)
+    }
+
+    /// A rig on the raw server; `idle` bounds how long the provider waits
+    /// for the next bytes of an answer.
+    fn rig(endpoints: &Endpoints, server: TestServer, idle: Option<Duration>) -> Rig {
+        let clock = Arc::new(FakeClock::default());
+        let tokens = Arc::new(FakeTokenSource::new(TOKEN));
+        let provider = ChatGptProvider::new(endpoints, tokens.clone(), clock.clone());
+        let provider = match idle {
+            Some(idle) => provider.with_idle_timeout(idle),
+            None => provider,
+        };
+        Rig {
+            server,
+            clock,
+            tokens,
+            provider: Arc::new(provider),
+        }
+    }
+
+    /// Runs `request` on `rig`, failing the test if it never ends.
+    async fn run_bounded(rig: &Rig) -> Run {
+        tokio::time::timeout(Duration::from_secs(20), rig.run(request()))
+            .await
+            .expect("the request ends instead of hanging")
+    }
+
+    const IDLE: Duration = Duration::from_millis(300);
+
+    #[tokio::test]
+    async fn a_connection_lost_mid_stream_is_retried_and_says_so() {
+        let (endpoints, requests) = raw_server(vec![Answer::Drop, Answer::Complete]).await;
+        let rig = rig(&endpoints, TestServer::start([]).await, None);
+        let run = run_bounded(&rig).await;
+        assert_eq!(run.error, None, "{run:?}");
+        let mut expected = partial_text();
+        expected.extend(retrying([2]));
+        expected.extend(hello_world());
+        assert_eq!(run.events, expected);
+        assert_eq!(requests.load(Ordering::SeqCst), 2);
+        assert_eq!(rig.pauses(), BACKOFF[..1]);
+        assert_eq!(rig.tokens.refreshes(), 0);
+    }
+
+    #[tokio::test]
+    async fn a_connection_lost_mid_stream_every_time_fails_with_retry() {
+        let (endpoints, requests) = raw_server(vec![Answer::Drop]).await;
+        let rig = rig(&endpoints, TestServer::start([]).await, None);
+        let run = run_bounded(&rig).await;
+        assert_eq!(
+            run.error,
+            Some(ProviderError::FailedAfterRetries {
+                attempts: 4,
+                request_id: rid(),
+            }),
+            "{run:?}"
+        );
+        assert_eq!(retry_attempts(&run.events), [2, 3, 4], "{run:?}");
+        assert_eq!(requests.load(Ordering::SeqCst), 4);
+        assert_eq!(rig.pauses(), BACKOFF);
+    }
+
+    #[tokio::test]
+    async fn a_stream_that_goes_silent_is_abandoned_and_retried() {
+        let (endpoints, requests) = raw_server(vec![Answer::Silent, Answer::Complete]).await;
+        let rig = rig(&endpoints, TestServer::start([]).await, Some(IDLE));
+        let run = run_bounded(&rig).await;
+        assert_eq!(run.error, None, "{run:?}");
+        let mut expected = partial_text();
+        expected.extend(retrying([2]));
+        expected.extend(hello_world());
+        assert_eq!(run.events, expected);
+        assert_eq!(requests.load(Ordering::SeqCst), 2);
+        assert_eq!(rig.pauses(), BACKOFF[..1]);
+    }
+
+    #[tokio::test]
+    async fn a_stream_that_always_goes_silent_fails_with_retry() {
+        let (endpoints, requests) = raw_server(vec![Answer::Silent]).await;
+        let rig = rig(&endpoints, TestServer::start([]).await, Some(IDLE));
+        let run = run_bounded(&rig).await;
+        assert_eq!(
+            run.error,
+            Some(ProviderError::FailedAfterRetries {
+                attempts: 4,
+                request_id: rid(),
+            }),
+            "{run:?}"
+        );
+        assert_eq!(retry_attempts(&run.events), [2, 3, 4], "{run:?}");
+        assert_eq!(requests.load(Ordering::SeqCst), 4);
+        assert_eq!(rig.pauses(), BACKOFF);
+    }
+
+    #[tokio::test]
+    async fn a_server_that_never_answers_fails_with_retry() {
+        let (endpoints, requests) = raw_server(vec![Answer::Mute]).await;
+        let rig = rig(&endpoints, TestServer::start([]).await, Some(IDLE));
+        let run = run_bounded(&rig).await;
+        assert_eq!(
+            run.error,
+            Some(ProviderError::FailedAfterRetries {
+                attempts: 4,
+                request_id: None,
+            }),
+            "{run:?}"
+        );
+        assert_eq!(run.events, retrying([2, 3, 4]), "{run:?}");
+        assert_eq!(requests.load(Ordering::SeqCst), 4);
+        assert_eq!(rig.pauses(), BACKOFF);
+    }
+
+    #[tokio::test]
+    async fn a_model_listing_whose_connection_drops_is_retried() {
+        let (endpoints, requests) = raw_server(vec![Answer::Drop, Answer::Models]).await;
+        let rig = rig(&endpoints, TestServer::start([]).await, None);
+        let models = tokio::time::timeout(Duration::from_secs(20), rig.provider.list_models())
+            .await
+            .expect("the listing ends instead of hanging");
+        assert_eq!(models, Ok(listed()));
+        assert_eq!(requests.load(Ordering::SeqCst), 2);
+        assert_eq!(rig.pauses(), BACKOFF[..1]);
+    }
+}

@@ -1342,6 +1342,8 @@ async fn requests_for_features_not_built_yet_answer_unavailable_naming_the_featu
     let dir = tempfile::tempdir().unwrap();
     let (core, provider, events) = start(&dir);
     let built = [
+        "ListModels",
+        "SelectModel",
         "ListCourses",
         "CreateCourse",
         "OpenCourse",
@@ -1364,7 +1366,7 @@ async fn requests_for_features_not_built_yet_answer_unavailable_naming_the_featu
         );
     }
 
-    assert_eq!(unbuilt, 33);
+    assert_eq!(unbuilt, 31);
     assert!(provider.requests().is_empty());
     assert_eq!(events.take(), []);
     // The thin loop still answers beside them.

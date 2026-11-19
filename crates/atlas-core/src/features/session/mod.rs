@@ -277,7 +277,7 @@ impl PlanLogin {
             }
             Err(RefreshError::SignedOut) => Err(sign_in_required()),
             Err(RefreshError::Unavailable(Unreachable::Network(_))) => Err(ProviderError::Offline),
-            Err(error) => Err(failed(error.to_string())),
+            Err(error) => Err(ProviderError::failed(error.to_string())),
         }
     }
 }
@@ -285,7 +285,7 @@ impl PlanLogin {
 #[async_trait]
 impl TokenSource for PlanLogin {
     async fn access_token(&self) -> Result<AccessToken, ProviderError> {
-        let stored = |error: AuthError| failed(error.to_string());
+        let stored = |error: AuthError| ProviderError::failed(error.to_string());
         let login = self
             .auth
             .login()
@@ -347,9 +347,5 @@ fn auth_error(error: AuthError) -> CoreError {
 }
 
 fn sign_in_required() -> ProviderError {
-    ProviderError::SignInRequired
-}
-
-fn failed(message: String) -> ProviderError {
-    ProviderError::Failed(message)
+    ProviderError::SignInRequired { request_id: None }
 }

@@ -15,6 +15,16 @@ pub struct Prompt {
     source: &'static str,
 }
 
+pub const DRAFT_LADDER: Prompt = Prompt {
+    name: "draft-ladder",
+    source: include_str!("../../../../prompts/draft-ladder.md"),
+};
+
+pub const PLACEMENT_QUESTION: Prompt = Prompt {
+    name: "placement-question",
+    source: include_str!("../../../../prompts/placement-question.md"),
+};
+
 pub const BUILD_INDEX: Prompt = Prompt {
     name: "build-index",
     source: include_str!("../../../../prompts/build-index.md"),
@@ -31,7 +41,13 @@ pub const REPAIR_STRUCTURED: Prompt = Prompt {
 };
 
 /// Every prompt the core embeds.
-pub const ALL: [Prompt; 3] = [BUILD_INDEX, WRITE_SECTION, REPAIR_STRUCTURED];
+pub const ALL: [Prompt; 5] = [
+    DRAFT_LADDER,
+    PLACEMENT_QUESTION,
+    BUILD_INDEX,
+    WRITE_SECTION,
+    REPAIR_STRUCTURED,
+];
 
 impl Prompt {
     pub fn name(&self) -> &'static str {

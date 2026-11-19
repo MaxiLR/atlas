@@ -1,5 +1,6 @@
-//! The thin loop through the core's request handler: topic → index → section
-//! → Next, with a scripted provider and a database in a temp dir.
+//! The thin loop through the core's request handler: topic → placement →
+//! index → section → Next, with a scripted provider and a database in a temp
+//! dir.
 
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -9,7 +10,8 @@ use atlas_core::harness::index::{ChapterDraft, IndexDraft, SectionDraft};
 use atlas_core::ports::EventSink;
 use atlas_core::protocol::{
     Block, BlockContent, BlockKind, CoreEvent, CoreRequest, CoreResponse, CourseView,
-    GenerationEvent, GenerationOutcome, GenerationTarget, NodeMark, SectionView, VersionStyle,
+    GenerationEvent, GenerationOutcome, GenerationTarget, Goal, NodeMark, PlacementAnswer,
+    PlacementStep, SectionView, SelfRating, VersionStyle,
 };
 use atlas_core::provider::{FakeProvider, FakeScript, Task};
 use atlas_core::testing::FakePorts;
@@ -80,13 +82,39 @@ impl Harness {
         self.core.handle(request).await.expect("request succeeds")
     }
 
+    /// Creates a course, places the candidate with the fake's questions,
+    /// answering "Not sure" throughout, and opens the course it builds.
     async fn create_course(&self, topic: &str) -> CourseView {
-        match self
+        let course_id = match self
             .request(CoreRequest::CreateCourse {
                 topic: topic.to_owned(),
             })
             .await
         {
+            CoreResponse::Course { course } => course.id,
+            other => panic!("expected a course, got {other:?}"),
+        };
+        let mut request = CoreRequest::SubmitSelfRating {
+            course_id,
+            rating: SelfRating::NewToThis,
+            goal: Goal::Overview,
+        };
+        loop {
+            let placement = match self.request(request).await {
+                CoreResponse::Placement { placement, .. } => placement,
+                other => panic!("expected a placement state, got {other:?}"),
+            };
+            request = match placement.step {
+                PlacementStep::Question { question } => CoreRequest::AnswerPlacement {
+                    course_id,
+                    question_id: question.id,
+                    answer: PlacementAnswer::NotSure,
+                },
+                PlacementStep::Done => break,
+                other => panic!("placement stopped at {other:?}: {:?}", placement.error),
+            };
+        }
+        match self.request(CoreRequest::OpenCourse { course_id }).await {
             CoreResponse::Course { course } => course,
             other => panic!("expected a course, got {other:?}"),
         }
@@ -151,10 +179,14 @@ async fn creating_a_course_stores_an_index_of_at_least_two_chapters() {
             .all(|s| !s.read && s.mark == NodeMark::Unread)
     );
 
-    let requests = harness.provider.requests();
-    assert_eq!(requests.len(), 1);
-    assert_eq!(requests[0].task, Task::BuildIndex);
-    assert!(requests[0].input.contains("Plate tectonics"));
+    let builds: Vec<_> = harness
+        .provider
+        .requests()
+        .into_iter()
+        .filter(|request| request.task == Task::BuildIndex)
+        .collect();
+    assert_eq!(builds.len(), 1);
+    assert!(builds[0].input.contains("Plate tectonics"));
 
     let stored = harness
         .request(CoreRequest::OpenCourse {
@@ -235,9 +267,13 @@ async fn opening_a_section_streams_its_deltas_in_order_then_completes() {
         ]
     );
     let requests = harness.provider.requests();
-    assert_eq!(requests.len(), 2);
-    assert_eq!(requests[1].task, Task::WriteSection);
-    assert!(requests[1].input.contains("Crust and mantle"));
+    let sections: Vec<_> = requests
+        .iter()
+        .filter(|request| request.task == Task::WriteSection)
+        .collect();
+    assert_eq!(sections.len(), 1);
+    assert_eq!(requests.last(), Some(sections[0]));
+    assert!(sections[0].input.contains("Crust and mantle"));
 }
 
 #[tokio::test]

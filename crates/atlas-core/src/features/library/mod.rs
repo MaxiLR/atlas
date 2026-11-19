@@ -30,12 +30,16 @@ impl Feature {
         Ok(self.store.list_courses()?)
     }
 
+    /// A course with its index, or with where placement stands while it is
+    /// in placement.
     pub(crate) async fn open_course(
         &self,
-        _cx: &Features,
+        cx: &Features,
         course_id: Uuid,
     ) -> Result<CourseView, CoreError> {
-        self.course(course_id)
+        let mut course = self.course(course_id)?;
+        course.placement = cx.placement.state(course_id)?;
+        Ok(course)
     }
 
     pub(crate) async fn delete_course(

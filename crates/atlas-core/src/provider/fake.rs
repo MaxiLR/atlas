@@ -179,6 +179,8 @@ impl ModelProvider for FakeProvider {
                     .map_err(|error| ProviderError::failed(error.to_string()))?;
                 chunk(&json, 24)
             }
+            Task::DraftLadder => chunk(SAMPLE_LADDER, 24),
+            Task::PlacementQuestion => chunk(SAMPLE_QUESTION, 24),
             Task::WriteSection => self.script.section_deltas.clone(),
             task => {
                 return Err(ProviderError::failed(format!(
@@ -198,6 +200,12 @@ impl ModelProvider for FakeProvider {
         Ok(self.models.clone())
     }
 }
+
+/// Answers every draft-ladder request: eight generic concepts.
+const SAMPLE_LADDER: &str = r#"{"concepts": ["The vocabulary", "The basic objects", "How the objects combine", "The core rule", "Applying the core rule", "The common exceptions", "Trade-offs between approaches", "Open problems"]}"#;
+
+/// Answers every placement-question request.
+const SAMPLE_QUESTION: &str = r#"{"stem": "You have applied the core rule once. What do you do next?", "options": [{"text": "Check the result against the basic objects", "misconception": null}, {"text": "Apply the rule again until it stops changing", "misconception": "The rule converges on its own"}, {"text": "Start over with a different rule", "misconception": "One application proves the rule wrong"}, {"text": "Stop, the result is final", "misconception": "A rule applied once needs no check"}], "key": 0}"#;
 
 fn chunk(text: &str, size: usize) -> Vec<String> {
     text.chars()

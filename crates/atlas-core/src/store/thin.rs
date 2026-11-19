@@ -1,16 +1,12 @@
-//! The views the thin loop's features read and write: a course built from a
-//! drafted index, the library, a course's index and a section with its
-//! current version as one text. The feature tickets move to the repository
-//! functions of the other files.
+//! The views the thin loop's features read and write: the library, a
+//! course's index and a section with its current version as one text. The
+//! feature tickets move to the repository functions of the other files.
 
 use rusqlite::OptionalExtension;
 use uuid::Uuid;
 
-use super::courses::insert_course;
-use super::index::{NewNode, NodeKind, insert_node};
 use super::sections::{VersionRow, insert_version_row};
 use super::{Id, Store, StoreError, id_at, json_at, optional_time_at, time_at};
-use crate::harness::index::IndexDraft;
 use crate::protocol::{
     Block, BlockContent, ChapterNode, CourseStage, CourseSummary, CourseView, NodeMark, Progress,
     SectionKind, SectionNode, VersionStyle,
@@ -35,69 +31,6 @@ pub struct StoredVersion {
 }
 
 impl Store {
-    /// Stores a new, ready course with its index, in one transaction.
-    pub fn insert_course(&self, topic: &str, index: &IndexDraft) -> Result<CourseView, StoreError> {
-        let now = self.now();
-        let mut connection = self.connection();
-        let transaction = connection.transaction()?;
-        let course_id = Uuid::new_v4();
-        insert_course(&transaction, now, course_id, topic, CourseStage::Ready)?;
-        let mut chapters = Vec::with_capacity(index.chapters.len());
-        for (chapter_position, chapter) in (0..).zip(&index.chapters) {
-            let chapter_id = Uuid::new_v4();
-            insert_node(
-                &transaction,
-                now,
-                course_id,
-                &NewNode {
-                    id: chapter_id,
-                    parent: None,
-                    kind: NodeKind::Chapter,
-                    position: chapter_position,
-                    title: &chapter.title,
-                    line: "",
-                    read: false,
-                },
-            )?;
-            let mut sections = Vec::with_capacity(chapter.sections.len());
-            for (section_position, section) in (0..).zip(&chapter.sections) {
-                let section_id = Uuid::new_v4();
-                insert_node(
-                    &transaction,
-                    now,
-                    course_id,
-                    &NewNode {
-                        id: section_id,
-                        parent: Some(chapter_id),
-                        kind: NodeKind::Section,
-                        position: section_position,
-                        title: &section.title,
-                        line: &section.summary,
-                        read: false,
-                    },
-                )?;
-                sections.push(section_node(
-                    section_id,
-                    section.title.clone(),
-                    section.summary.clone(),
-                    false,
-                ));
-            }
-            chapters.push(ChapterNode {
-                id: chapter_id,
-                title: chapter.title.clone(),
-                sections,
-            });
-        }
-        transaction.commit()?;
-        Ok(course_view(
-            course_id,
-            topic.to_owned(),
-            CourseStage::Ready,
-            chapters,
-        ))
-    }
-
     /// The library, most recently updated first.
     pub fn list_courses(&self) -> Result<Vec<CourseSummary>, StoreError> {
         let connection = self.connection();

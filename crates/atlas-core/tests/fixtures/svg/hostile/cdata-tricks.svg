@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <text x="0" y="20"><![CDATA[</text><script>alert(1)</script><text>]]></text>
+  <style><![CDATA[ @import url(https://evil.example/x.css); ]]></style>
+  <script><![CDATA[ ]]>alert(2)<![CDATA[ ]]></script>
+  <polyline points="0,0 10,10 20,0"/>
+</svg>

@@ -22,3 +22,10 @@ impl SanitisedSvg {
 pub struct Rejected {
     pub reason: String,
 }
+
+/// Parses `input` as SVG and re-serialises what the allow-list keeps.
+pub fn sanitise(_input: &str) -> Result<SanitisedSvg, Rejected> {
+    Err(Rejected {
+        reason: "the figure sanitiser is not built yet".to_owned(),
+    })
+}

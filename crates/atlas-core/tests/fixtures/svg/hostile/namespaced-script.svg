@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:s="http://www.w3.org/2000/svg" xmlns:h="http://www.w3.org/1999/xhtml" xmlns:x="http://evil.example/" viewBox="0 0 100 100">
+  <s:script>alert(1)</s:script>
+  <h:script>alert(2)</h:script>
+  <h:iframe src="https://evil.example/"/>
+  <x:rect width="10" height="10" s:onload="alert(3)"/>
+  <s:foreignObject><h:img src="x" h:onerror="alert(4)"/></s:foreignObject>
+  <rect width="20" height="20" x:fill="red" h:onclick="alert(5)"/>
+</svg>

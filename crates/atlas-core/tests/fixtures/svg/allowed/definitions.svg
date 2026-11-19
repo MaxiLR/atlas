@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 200" role="img" aria-label="Heat flowing from the core to the surface, shown by a fading band and arrows.">
+  <defs>
+    <linearGradient id="heat" x1="0" y1="0" x2="0" y2="1" gradientUnits="objectBoundingBox">
+      <stop offset="0" stop-color="var(--atlas-accent)" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="var(--atlas-accent-wash)" stop-opacity="0"/>
+    </linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" markerUnits="strokeWidth" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10Z" fill="currentColor"/>
+    </marker>
+    <clipPath id="frame" clipPathUnits="userSpaceOnUse">
+      <rect x="0" y="0" width="300" height="200" rx="8"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#frame)">
+    <rect x="0" y="0" width="300" height="200" fill="url(#heat)"/>
+    <ellipse cx="150" cy="190" rx="120" ry="30" fill="var(--atlas-wash-strong)" fill-opacity=".5" fill-rule="evenodd"/>
+  </g>
+  <line x1="60" y1="170" x2="60" y2="40" stroke="var(--atlas-heading)" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <polyline points="150,170 160,120 140,80 150,40" fill="none" stroke="currentColor" stroke-dasharray="4 2" stroke-dashoffset="1" stroke-miterlimit="4" marker-end="url(#arrow)"/>
+  <polygon points="230,170 250,40 270,170" fill="none" stroke="var(--atlas-muted)" stroke-opacity="0.6" stroke-linejoin="miter" clip-rule="nonzero"/>
+  <g transform="translate(10 10) rotate(-90 20 20) scale(1.5)" opacity="0.9">
+    <text x="0" y="0" dx="2" dy="-1" font-size="8" style="fill:currentColor;stroke:none">CORE <tspan x="0" dy="10" text-anchor="start">HEAT</tspan></text>
+  </g>
+  <path d="M10 10h20v20h-20z" style="fill:var(--atlas-faint);stroke:var(--atlas-edge-strong);stroke-width:2"/>
+</svg>

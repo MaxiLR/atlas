@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <style>@import url(https://evil.example/x.css); rect { fill: url(https://evil.example/p#q) }</style>
+  <STYLE type="text/css">@import "https://evil.example/y.css";</STYLE>
+  <rect width="10" height="10" style="@import url(https://evil.example/z.css); fill:red"/>
+  <circle cx="50" cy="50" r="10"/>
+</svg>

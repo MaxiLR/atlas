@@ -123,3 +123,80 @@ fn state_actions_and_visibility_are_refused() {
     spec["elements"]["note"]["props"]["title"] = serde_json::json!({ "$state": "/title" });
     assert!(catalog::validate(&spec).is_err());
 }
+
+fn check_question_with(key: u64, misconceptions: [Option<&str>; 4]) -> Value {
+    let mut spec = fixture("valid", "check-question");
+    let props = &mut spec["elements"]["question"]["props"];
+    props["key"] = Value::from(key);
+    for (index, misconception) in misconceptions.into_iter().enumerate() {
+        props["options"][index]["misconception"] = Value::from(misconception);
+    }
+    spec
+}
+
+#[test]
+fn a_check_question_whose_wrong_option_names_no_misconception_fails_naming_it() {
+    let spec = check_question_with(
+        0,
+        [
+            None,
+            Some("Thinks warmth softens"),
+            None,
+            Some("Confuses boundaries"),
+        ],
+    );
+    let error =
+        catalog::validate(&spec).expect_err("a wrong option without a misconception passed");
+    assert!(
+        error.to_string().contains("/props/options/2/misconception"),
+        "{error}"
+    );
+}
+
+#[test]
+fn a_check_question_whose_right_option_names_a_misconception_fails_naming_it() {
+    let spec = check_question_with(
+        0,
+        [
+            Some("Thinks age matters"),
+            Some("Thinks warmth softens"),
+            Some("Confuses kinds"),
+            Some("Confuses boundaries"),
+        ],
+    );
+    let error = catalog::validate(&spec).expect_err("a right option with a misconception passed");
+    assert!(
+        error.to_string().contains("/props/options/0/misconception"),
+        "{error}"
+    );
+}
+
+#[test]
+fn a_check_question_with_misconceptions_only_on_the_right_option_fails() {
+    let spec = check_question_with(0, [Some("Thinks age matters"), None, None, None]);
+    let error =
+        catalog::validate(&spec).expect_err("misconceptions on the wrong options were missing");
+    let reasons = error.to_string();
+    for index in 0..4 {
+        assert!(
+            reasons.contains(&format!("/props/options/{index}/misconception")),
+            "{reasons}"
+        );
+    }
+}
+
+#[test]
+fn a_check_question_keyed_to_another_option_passes_with_its_null_there() {
+    let spec = check_question_with(
+        3,
+        [
+            Some("Thinks age matters"),
+            Some("Thinks warmth softens"),
+            Some("Confuses kinds"),
+            None,
+        ],
+    );
+    if let Err(error) = catalog::validate(&spec) {
+        panic!("a question keyed to option 3 failed: {error}");
+    }
+}

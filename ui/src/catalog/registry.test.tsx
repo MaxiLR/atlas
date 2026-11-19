@@ -236,3 +236,76 @@ describe("CatalogVisual", () => {
     expect(onInvalid).toHaveBeenCalledTimes(1);
   });
 });
+
+/** The valid check question with its key and misconceptions replaced. */
+function checkQuestionWith(
+  key: number,
+  misconceptions: (string | null)[],
+): unknown {
+  const spec = fixture("valid", "check-question") as {
+    elements: {
+      question: {
+        props: { key: number; options: { misconception: string | null }[] };
+      };
+    };
+  };
+  const { props } = spec.elements.question;
+  props.key = key;
+  misconceptions.forEach((misconception, index) => {
+    props.options[index].misconception = misconception;
+  });
+  return spec;
+}
+
+describe("a check question's misconceptions", () => {
+  it.each([
+    {
+      case: "a wrong option names none",
+      key: 0,
+      misconceptions: [null, "Thinks warmth softens", null, "Confuses kinds"],
+      faulty: [2],
+    },
+    {
+      case: "the right option names one",
+      key: 0,
+      misconceptions: ["Thinks age matters", "Thinks warmth", "A", "B"],
+      faulty: [0],
+    },
+    {
+      case: "only the right option names one",
+      key: 0,
+      misconceptions: ["Thinks age matters", null, null, null],
+      faulty: [0, 1, 2, 3],
+    },
+  ])("renders nothing and reports why when $case", (example) => {
+    const onInvalid = vi.fn();
+    const { container } = render(
+      <CatalogVisual
+        spec={checkQuestionWith(example.key, example.misconceptions)}
+        onInvalid={onInvalid}
+      />,
+    );
+    expect(container).toBeEmptyDOMElement();
+    expect(onInvalid).toHaveBeenCalledTimes(1);
+    const reasons = onInvalid.mock.calls[0][0].join("\n");
+    for (const index of example.faulty) {
+      expect(reasons).toContain(`/options/${index}/misconception`);
+    }
+  });
+
+  it("renders a question keyed to another option with its null there", () => {
+    const onInvalid = vi.fn();
+    render(
+      <CatalogVisual
+        spec={checkQuestionWith(3, ["A", "B", "C", null])}
+        onInvalid={onInvalid}
+      />,
+    );
+    expect(onInvalid).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("heading", {
+        name: "A young, warm oceanic plate meets an old, cold one. Which sinks?",
+      }),
+    ).toBeVisible();
+  });
+});

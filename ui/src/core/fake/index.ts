@@ -46,7 +46,7 @@ export const sampleScript: FakeScript = {
       title: "Going further",
       sections: [
         { title: "Open questions", summary: "What is still debated." },
-        { title: "Where to go next", summary: "The deep dives worth taking." },
+        { title: "Beyond the basics", summary: "The deep dives worth taking." },
       ],
     },
   ],

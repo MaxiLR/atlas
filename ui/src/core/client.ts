@@ -1,3 +1,4 @@
+import type { CoreError } from "./generated/CoreError";
 import type { CoreEvent } from "./generated/CoreEvent";
 import type { CoreRequest } from "./generated/CoreRequest";
 import type { CoreResponse } from "./generated/CoreResponse";
@@ -11,4 +12,33 @@ export interface CoreClient {
   call(request: CoreRequest): Promise<CoreResponse>;
   /** Calls `listener` for every core event; returns the unsubscribe. */
   subscribe(listener: (event: CoreEvent) => void): () => void;
+}
+
+/** Narrows a response to the variant a request promises; anything else is a bug. */
+export function expectResponse<T extends CoreResponse["type"]>(
+  response: CoreResponse,
+  type: T,
+): Extract<CoreResponse, { type: T }> {
+  if (response.type !== type) {
+    throw new Error(`expected a ${type} response, got ${response.type}`);
+  }
+  return response as Extract<CoreResponse, { type: T }>;
+}
+
+/** A sentence for a failed request, whether the core or the transport failed. */
+export function describeError(error: unknown): string {
+  if (typeof error === "object" && error !== null && "type" in error) {
+    const coreError = error as CoreError;
+    switch (coreError.type) {
+      case "NotFound":
+        return `Not found: ${coreError.what}.`;
+      case "Unavailable":
+        return `${coreError.feature} is not available yet.`;
+      case "InvalidRequest":
+      case "Provider":
+      case "Store":
+        return coreError.message;
+    }
+  }
+  return error instanceof Error ? error.message : String(error);
 }

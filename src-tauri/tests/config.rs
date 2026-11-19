@@ -16,3 +16,24 @@ fn the_window_is_at_least_720_pixels_wide() {
     assert_eq!(windows[0].min_width, Some(720.0));
     assert!(windows[0].width >= 720.0);
 }
+
+#[test]
+fn the_content_security_policy_allows_no_remote_script_or_style() {
+    let context = atlas_app::context();
+    let csp = serde_json::to_value(&context.config().app.security.csp).unwrap();
+    let local = ["'self'", "'unsafe-inline'"];
+    for directive in ["default-src", "script-src", "style-src"] {
+        let sources = csp[directive]
+            .as_str()
+            .unwrap_or_else(|| panic!("{directive} is set"));
+        for source in sources.split_whitespace() {
+            assert!(local.contains(&source), "{directive} allows {source}");
+        }
+    }
+    assert!(
+        !csp["script-src"]
+            .as_str()
+            .unwrap()
+            .contains("unsafe-inline")
+    );
+}

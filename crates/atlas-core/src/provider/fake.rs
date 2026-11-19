@@ -49,7 +49,7 @@ impl FakeScript {
                         "Going further",
                         [
                             ("Open questions", "What is still debated."),
-                            ("Where to go next", "The deep dives worth taking."),
+                            ("Beyond the basics", "The deep dives worth taking."),
                         ],
                     ),
                 ],

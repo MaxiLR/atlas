@@ -5,6 +5,7 @@
 //! browser that follows only local redirects, and a fake clock.
 
 use std::collections::{HashMap, VecDeque};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -13,7 +14,10 @@ use atlas_core::protocol::{
     Account, CoreError, CoreEvent, CoreRequest, CoreResponse, Model, ModelList, PlanUsage, Session,
     SignedOutReason,
 };
+use atlas_core::protocol::{Goal, PlacementAnswer, PlacementState, PlacementStep, SelfRating};
+use atlas_core::provider::{FakeProvider, FakeScript, Task};
 use atlas_core::provider::{ProviderChoice, for_session};
+use atlas_core::testing::FakePorts;
 use atlas_core::testing::{FakeClock, FakePdfExporter, MemorySecretStore, RecordingEvents};
 use atlas_core::{Core, CoreDeps};
 use axum::Router;
@@ -28,6 +32,7 @@ use serde_json::{Value, json};
 use tempfile::TempDir;
 use tokio::net::TcpListener;
 use url::Url;
+use uuid::Uuid;
 
 const EMAIL: &str = "grace@example.com";
 const SUBJECT: &str = "user-9Kd1";
@@ -405,6 +410,92 @@ fn completed() -> String {
     std::fs::read_to_string(path).expect("the completed stream fixture")
 }
 
+/// A whole streamed response whose text is `text`, in one delta.
+fn streamed(text: &str) -> String {
+    let delta = json!({
+        "type": "response.output_text.delta",
+        "sequence_number": 0,
+        "item_id": "msg_wiring",
+        "output_index": 0,
+        "content_index": 0,
+        "delta": text,
+    });
+    let completed = json!({
+        "type": "response.completed",
+        "sequence_number": 1,
+        "response": { "id": "resp_wiring", "status": "completed", "output": [] },
+    });
+    format!(
+        "event: response.output_text.delta\ndata: {delta}\n\n\
+         event: response.completed\ndata: {completed}\n\n"
+    )
+}
+
+/// A valid answer of the draft-ladder task: eight concepts.
+fn ladder() -> String {
+    let concepts: Vec<String> = (1..=8).map(|rung| format!("Concept {rung}")).collect();
+    json!({ "concepts": concepts }).to_string()
+}
+
+/// A valid answer of the placement-question task: four options, the first
+/// one right, each wrong one labelled.
+fn placement_question(n: usize) -> String {
+    json!({
+        "stem": format!("Question {n}: what does a fluid do under shear?"),
+        "options": [
+            { "text": format!("Right option {n}"), "misconception": null },
+            { "text": format!("Wrong option {n}.1"), "misconception": "label 1" },
+            { "text": format!("Wrong option {n}.2"), "misconception": "label 2" },
+            { "text": format!("Wrong option {n}.3"), "misconception": "label 3" },
+        ],
+        "key": 0,
+    })
+    .to_string()
+}
+
+/// Writes into `database` a course in placement whose ladder is drafted and
+/// whose first question waits for its answer, with a core on the fake
+/// provider, so the plan route sees only the generation under test. Returns
+/// the course and the question.
+async fn course_awaiting_an_answer(database: &Path) -> (Uuid, Uuid) {
+    let provider = FakeProvider::new(FakeScript::sample())
+        .answer(Task::DraftLadder, [Ok(ladder())])
+        .answer(Task::PlacementQuestion, [Ok(placement_question(1))]);
+    let core = Core::new(FakePorts::default().deps(
+        database.to_owned(),
+        Arc::new(provider),
+        Arc::new(RecordingEvents::default()),
+    ))
+    .expect("the seeding core starts");
+    let course_id = match core
+        .handle(CoreRequest::CreateCourse {
+            topic: "Fluid dynamics".to_owned(),
+        })
+        .await
+    {
+        Ok(CoreResponse::Course { course }) => course.id,
+        other => panic!("expected a course, got {other:?}"),
+    };
+    match core
+        .handle(CoreRequest::SubmitSelfRating {
+            course_id,
+            rating: SelfRating::NewToThis,
+            goal: Goal::Overview,
+        })
+        .await
+    {
+        Ok(CoreResponse::Placement {
+            placement:
+                PlacementState {
+                    step: PlacementStep::Question { question },
+                    ..
+                },
+            ..
+        }) => (course_id, question.id),
+        other => panic!("expected the first question, got {other:?}"),
+    }
+}
+
 fn fixture_error(name: &str) -> Value {
     let path = format!(
         "{}/tests/fixtures/errors/{name}",
@@ -442,6 +533,9 @@ struct Harness {
     /// Every event taken from the sink so far.
     seen: Mutex<Vec<CoreEvent>>,
     core: Core,
+    /// A course in placement whose first question waits for its answer.
+    course_id: Uuid,
+    question_id: Uuid,
     _dir: TempDir,
 }
 
@@ -454,6 +548,11 @@ impl Harness {
         let server = FakeServer::start(clock.clone()).await;
         let events = Arc::new(RecordingEvents::default());
         let endpoints = server.endpoints();
+        let (course_id, question_id) =
+            course_awaiting_an_answer(&dir.path().join("atlas.sqlite3")).await;
+        // Each generation writes a valid next question unless a test scripts
+        // the plan route otherwise.
+        server.answer_responses([Reply::sse(&streamed(&placement_question(2)))]);
         let core = Core::new(CoreDeps {
             database_path: dir.path().join("atlas.sqlite3"),
             provider: for_session(ProviderChoice::Plan, &endpoints, clock.clone()),
@@ -468,6 +567,8 @@ impl Harness {
         Self {
             server,
             clock,
+            course_id,
+            question_id,
             events,
             seen: Mutex::new(Vec::new()),
             core,
@@ -531,12 +632,24 @@ impl Harness {
     }
 
     /// A request that generates with the plan.
+    /// It answers the waiting placement question, which writes the next one:
+    /// one generation. A failed placement step answers its error.
     async fn generate(&self) -> Result<CoreResponse, CoreError> {
-        self.core
-            .handle(CoreRequest::CreateCourse {
-                topic: "Fluid dynamics".to_owned(),
+        let response = self
+            .core
+            .handle(CoreRequest::AnswerPlacement {
+                course_id: self.course_id,
+                question_id: self.question_id,
+                answer: PlacementAnswer::NotSure,
             })
-            .await
+            .await?;
+        match &response {
+            CoreResponse::Placement { placement, .. } => match &placement.error {
+                Some(error) => Err(error.clone()),
+                None => Ok(response),
+            },
+            other => panic!("expected a placement state, got {other:?}"),
+        }
     }
 }
 

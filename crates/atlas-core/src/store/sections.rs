@@ -138,12 +138,22 @@ pub(super) struct VersionRow<'a> {
     pub prompt: &'a str,
 }
 
-/// Inserts a version and makes it its node's current one.
+/// Inserts a version and makes it its node's current one; fails with
+/// `NotFound` unless the node is a live section. Returns the section's course.
 pub(super) fn insert_version_row(
     connection: &Connection,
     now: DateTime<Utc>,
     version: &VersionRow<'_>,
-) -> Result<(), StoreError> {
+) -> Result<Uuid, StoreError> {
+    let course: Id = connection
+        .query_row(
+            "SELECT course_id FROM index_nodes
+             WHERE id = ?1 AND kind = 'section' AND deleted_at IS NULL",
+            [Id(version.node)],
+            |row| row.get(0),
+        )
+        .optional()?
+        .ok_or_else(|| StoreError::NotFound(format!("section {}", version.node)))?;
     connection.execute(
         "INSERT INTO section_versions
             (id, node_id, style, blocks, checks, citations, sources, written_without_search,
@@ -172,7 +182,7 @@ pub(super) fn insert_version_row(
         "UPDATE index_nodes SET current_version_id = ?2, updated_at = ?3 WHERE id = ?1",
         params![Id(version.node), Id(version.id), Time(now)],
     )?;
-    Ok(())
+    Ok(course.0)
 }
 
 impl Store {
@@ -187,16 +197,7 @@ impl Store {
         let now = self.now();
         let mut connection = self.connection();
         let transaction = connection.transaction()?;
-        let course: Id = transaction
-            .query_row(
-                "SELECT course_id FROM index_nodes
-                 WHERE id = ?1 AND kind = 'section' AND deleted_at IS NULL",
-                [Id(version.node)],
-                |row| row.get(0),
-            )
-            .optional()?
-            .ok_or_else(|| StoreError::NotFound(format!("section {}", version.node)))?;
-        insert_version_row(
+        let course = insert_version_row(
             &transaction,
             now,
             &VersionRow {
@@ -215,7 +216,7 @@ impl Store {
         )?;
         let outcomes = conventions
             .iter()
-            .map(|convention| insert_convention(&transaction, now, course.0, convention))
+            .map(|convention| insert_convention(&transaction, now, course, convention))
             .collect::<Result<_, _>>()?;
         transaction.commit()?;
         Ok(outcomes)

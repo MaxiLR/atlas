@@ -423,9 +423,7 @@ impl Store {
     /// is tombstoned and its content erased, so nothing of it can be read
     /// back while its ids and times remain for a later sync to pass the
     /// deletion on. A row tombstoned before keeps its deletion time and has
-    /// its content erased too, except a section version, which the database
-    /// lets change only as it is tombstoned. Nothing is deleted if any part
-    /// fails.
+    /// its content erased too. Nothing is deleted if any part fails.
     pub fn delete_course(&self, course: Uuid) -> Result<(), StoreError> {
         let now = Time(self.now());
         let mut connection = self.connection();
@@ -476,8 +474,7 @@ const COURSE_ROWS: [(&str, &str, &str); 15] = [
         "section_versions",
         "blocks = '', checks = '', citations = '', sources = '', record = NULL,
          record_status = NULL,",
-        "deleted_at IS NULL
-         AND node_id IN (SELECT id FROM index_nodes WHERE course_id = ?1)",
+        "node_id IN (SELECT id FROM index_nodes WHERE course_id = ?1)",
     ),
     ("conventions", "key = '', meaning = '',", "course_id = ?1"),
     (

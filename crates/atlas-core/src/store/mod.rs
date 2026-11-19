@@ -75,9 +75,10 @@ pub use thin::{StoredSection, StoredVersion};
 
 /// Migration `n` (1-based) is `MIGRATIONS[n - 1]`; `PRAGMA user_version`
 /// records the last one applied. Migrations only ever move forward.
-const MIGRATIONS: [&str; 2] = [
+const MIGRATIONS: [&str; 3] = [
     include_str!("migrations/0001_thin_loop.sql"),
     include_str!("migrations/0002_full_schema.sql"),
+    include_str!("migrations/0003_erase_tombstoned_versions.sql"),
 ];
 
 /// The schema version this code migrates to.

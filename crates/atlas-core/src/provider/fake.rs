@@ -5,6 +5,7 @@ use futures::stream;
 
 use super::{ModelProvider, ProviderError, ProviderEvent, ProviderRequest, ProviderStream, Task};
 use crate::harness::index::{ChapterDraft, IndexDraft, SectionDraft};
+use crate::protocol::Model;
 
 /// What a [`FakeProvider`] answers, per task.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,15 +70,27 @@ impl FakeScript {
 #[derive(Debug)]
 pub struct FakeProvider {
     script: FakeScript,
+    models: Vec<Model>,
     requests: Mutex<Vec<ProviderRequest>>,
 }
 
 impl FakeProvider {
+    /// Lists one model, `fake-model`.
     pub fn new(script: FakeScript) -> Self {
         Self {
             script,
+            models: vec![Model {
+                slug: "fake-model".to_owned(),
+                display_name: "Fake model".to_owned(),
+            }],
             requests: Mutex::new(Vec::new()),
         }
+    }
+
+    /// Lists these models instead, in this order.
+    pub fn with_models(mut self, models: Vec<Model>) -> Self {
+        self.models = models;
+        self
     }
 
     /// The requests received so far, in order.
@@ -99,6 +112,11 @@ impl ModelProvider for FakeProvider {
                 chunk(&json, 24)
             }
             Task::WriteSection => self.script.section_deltas.clone(),
+            task => {
+                return Err(ProviderError::Failed(format!(
+                    "the fake provider has no script for {task:?}"
+                )));
+            }
         };
         self.requests
             .lock()
@@ -109,6 +127,10 @@ impl ModelProvider for FakeProvider {
             .map(|delta| Ok(ProviderEvent::TextDelta(delta)))
             .chain([Ok(ProviderEvent::Completed)]);
         Ok(Box::pin(stream::iter(events)))
+    }
+
+    async fn list_models(&self) -> Result<Vec<Model>, ProviderError> {
+        Ok(self.models.clone())
     }
 }
 

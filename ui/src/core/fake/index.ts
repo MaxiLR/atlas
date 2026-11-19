@@ -5,7 +5,8 @@ import type { CoreRequest } from "../generated/CoreRequest";
 import type { CoreResponse } from "../generated/CoreResponse";
 import type { CourseSummary } from "../generated/CourseSummary";
 import type { CourseView } from "../generated/CourseView";
-import type { SectionEntry } from "../generated/SectionEntry";
+import type { GenerationEvent } from "../generated/GenerationEvent";
+import type { SectionNode } from "../generated/SectionNode";
 import type { SectionView } from "../generated/SectionView";
 
 /** What the fake answers: the index of every new course and the text of every section. */
@@ -69,8 +70,9 @@ interface StoredCourse {
   summary: CourseSummary;
   view: CourseView;
   /** The view's sections in index order. */
-  sections: SectionEntry[];
-  contents: Map<string, string>;
+  sections: SectionNode[];
+  /** Each generated section, as it is reopened. */
+  stored: Map<string, SectionView>;
 }
 
 /**
@@ -100,19 +102,52 @@ export function createFakeCore(options: FakeCoreOptions = {}): CoreClient {
       stored.sections.find((section) => section.id === sectionId) ??
       fail({ type: "NotFound", what: `section ${sectionId}` });
     const courseId = stored.summary.id;
-    let content = stored.contents.get(sectionId);
-    if (content === undefined) {
-      content = "";
-      for (const text of script.sectionDeltas) {
-        await pace();
-        content += text;
-        emit({ type: "SectionDelta", courseId, sectionId, text });
-      }
-      stored.contents.set(sectionId, content);
-      entry.generated = true;
-      emit({ type: "SectionCompleted", courseId, sectionId });
+    const existing = stored.stored.get(sectionId);
+    if (existing !== undefined) return structuredClone(existing);
+
+    const generationId = crypto.randomUUID();
+    const send = (event: GenerationEvent) =>
+      emit({
+        type: "Generation",
+        generationId,
+        target: { type: "Section", courseId, sectionId, style: "Original" },
+        event,
+      });
+    send({ type: "Started" });
+    send({ type: "BlockOpened", block: 0, kind: "Prose" });
+    let text = "";
+    for (const delta of script.sectionDeltas) {
+      await pace();
+      text += delta;
+      send({ type: "TextDelta", block: 0, text: delta });
     }
-    return { id: entry.id, courseId, title: entry.title, content };
+    const block = { index: 0, content: { type: "Prose" as const, text } };
+    send({ type: "BlockCompleted", block });
+    const versionId = crypto.randomUUID();
+    const createdAt = new Date().toISOString();
+    const section: SectionView = {
+      id: entry.id,
+      courseId,
+      title: entry.title,
+      summary: entry.summary,
+      version: {
+        id: versionId,
+        style: "Original",
+        blocks: [block],
+        citations: [],
+        sources: [],
+        writtenWithoutSearch: false,
+        model: null,
+        createdAt,
+      },
+      versions: [{ id: versionId, style: "Original", createdAt }],
+    };
+    stored.stored.set(sectionId, section);
+    entry.read = true;
+    entry.mark = "Read";
+    stored.summary.progress.read += 1;
+    send({ type: "Finished", outcome: { type: "Completed" } });
+    return structuredClone(section);
   }
 
   async function handle(request: CoreRequest): Promise<CoreResponse> {
@@ -134,22 +169,40 @@ export function createFakeCore(options: FakeCoreOptions = {}): CoreClient {
         const view: CourseView = {
           id,
           topic,
+          stage: "Ready",
           chapters: script.chapters.map((chapter) => ({
             id: crypto.randomUUID(),
             title: chapter.title,
             sections: chapter.sections.map((section) => ({
               id: crypto.randomUUID(),
+              kind: "BroadPass",
               title: section.title,
               summary: section.summary,
-              generated: false,
+              read: false,
+              mark: "Unread",
+              deepDives: [],
             })),
           })),
+          resumeAt: null,
+          glossaryCount: 0,
+          sideChatCount: 0,
+          placement: null,
         };
+        const sections = view.chapters.flatMap((chapter) => chapter.sections);
         courses.set(id, {
-          summary: { id, topic, createdAt: now, updatedAt: now },
+          summary: {
+            id,
+            topic,
+            stage: "Ready",
+            progress: { read: 0, total: sections.length },
+            resumeTitle: null,
+            lastOpenedAt: null,
+            createdAt: now,
+            updatedAt: now,
+          },
           view,
-          sections: view.chapters.flatMap((chapter) => chapter.sections),
-          contents: new Map(),
+          sections,
+          stored: new Map(),
         });
         return { type: "Course", course: structuredClone(view) };
       }
@@ -184,6 +237,8 @@ export function createFakeCore(options: FakeCoreOptions = {}): CoreClient {
           section: await openSection(stored, following.id),
         };
       }
+      default:
+        return fail({ type: "Unavailable", feature: request.type });
     }
   }
 

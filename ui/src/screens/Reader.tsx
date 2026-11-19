@@ -5,13 +5,21 @@ import { describeError, expectResponse } from "@/core/client";
 import { useCore } from "@/core/context";
 import type { CoreRequest } from "@/core/generated/CoreRequest";
 import type { CourseView } from "@/core/generated/CourseView";
-import type { SectionEntry } from "@/core/generated/SectionEntry";
+import type { SectionNode } from "@/core/generated/SectionNode";
+import type { SectionView } from "@/core/generated/SectionView";
 
 interface ShownSection {
   id: string;
   title: string;
   text: string;
   generating: boolean;
+}
+
+/** The text of a section's prose blocks, in order. */
+function proseText(section: SectionView): string {
+  return section.version.blocks
+    .map((block) => (block.content.type === "Prose" ? block.content.text : ""))
+    .join("");
 }
 
 /** A course: its index beside the open section, with Next at its foot. */
@@ -32,14 +40,21 @@ export function Reader({
     () =>
       core.subscribe((event) =>
         setSection((current) => {
-          if (current === null || current.id !== event.sectionId) {
+          if (
+            current === null ||
+            event.type !== "Generation" ||
+            event.target.type !== "Section" ||
+            current.id !== event.target.sectionId
+          ) {
             return current;
           }
-          switch (event.type) {
-            case "SectionDelta":
-              return { ...current, text: current.text + event.text };
-            case "SectionCompleted":
+          switch (event.event.type) {
+            case "TextDelta":
+              return { ...current, text: current.text + event.event.text };
+            case "Finished":
               return { ...current, generating: false };
+            default:
+              return current;
           }
         }),
       ),
@@ -47,7 +62,7 @@ export function Reader({
   );
 
   /** Shows `entry` at once (streaming into it), then the core's answer. */
-  async function show(entry: SectionEntry | null, request: CoreRequest) {
+  async function show(entry: SectionNode | null, request: CoreRequest) {
     setEnded(false);
     setError(null);
     if (entry !== null) {
@@ -64,13 +79,15 @@ export function Reader({
         setEnded(true);
         return;
       }
-      const { id, title, content } = expectResponse(
-        response,
-        "Section",
-      ).section;
+      const shown = expectResponse(response, "Section").section;
       setSection((current) =>
-        current === null || current.id === id
-          ? { id, title, text: content, generating: false }
+        current === null || current.id === shown.id
+          ? {
+              id: shown.id,
+              title: shown.title,
+              text: proseText(shown),
+              generating: false,
+            }
           : current,
       );
     } catch (reason) {

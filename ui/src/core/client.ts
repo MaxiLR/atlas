@@ -38,6 +38,18 @@ export function describeError(error: unknown): string {
       case "Provider":
       case "Store":
         return coreError.message;
+      case "PlanLimit":
+        return "The plan's usage limit is reached.";
+      case "PlanUsageOff":
+        return "Plan usage is off.";
+      case "PlanNotAllowed":
+        return "Plan usage is not allowed for this account.";
+      case "SignInRequired":
+        return "Sign in with ChatGPT first.";
+      case "Offline":
+        return "The app is offline.";
+      case "FailedAfterRetries":
+        return `The request failed after ${coreError.attempts} attempts.`;
     }
   }
   return error instanceof Error ? error.message : String(error);

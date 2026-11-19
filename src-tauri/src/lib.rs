@@ -2,9 +2,11 @@
 
 use std::sync::Arc;
 
-use atlas_core::ports::EventSink;
+use atlas_core::ports::{Endpoints, EventSink, SystemClock};
 use atlas_core::protocol::{CoreError, CoreEvent, CoreRequest, CoreResponse};
-use atlas_core::provider::{FakeProvider, FakeScript};
+use atlas_core::testing::{
+    FakePdfExporter, FakeProvider, FakeScript, MemorySecretStore, RecordingBrowser,
+};
 use atlas_core::{Core, CoreDeps};
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -47,9 +49,16 @@ pub fn run() {
             std::fs::create_dir_all(&data_dir)?;
             let core = Core::new(CoreDeps {
                 database_path: data_dir.join(DATABASE_FILE),
-                // The fake provider stands in until the ChatGPT plan provider lands.
+                // The fake provider stands in until the ChatGPT plan provider
+                // lands, and the in-memory ports until the Keychain, the
+                // opener and the PDF printer are wired in the shell.
                 provider: Arc::new(FakeProvider::new(FakeScript::sample())),
                 events: Arc::new(TauriEvents(app.handle().clone())),
+                clock: Arc::new(SystemClock),
+                secrets: Arc::new(MemorySecretStore::default()),
+                browser: Arc::new(RecordingBrowser::default()),
+                pdf: Arc::new(FakePdfExporter::default()),
+                endpoints: Endpoints::production(),
             })?;
             app.manage(core);
             Ok(())

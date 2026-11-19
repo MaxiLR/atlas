@@ -9,7 +9,10 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 use uuid::Uuid;
 
 use crate::harness::index::IndexDraft;
-use crate::protocol::{ChapterView, CourseSummary, CourseView, SectionEntry};
+use crate::protocol::{
+    ChapterNode, CoreError, CourseStage, CourseSummary, CourseView, NodeMark, Progress,
+    SectionKind, SectionNode,
+};
 
 /// Migration `n` (1-based) is `MIGRATIONS[n - 1]`; `PRAGMA user_version`
 /// records the last one applied.
@@ -27,14 +30,30 @@ pub enum StoreError {
     Corrupt(String),
 }
 
-/// A section of the index, with its stored content if it has been generated.
+impl From<StoreError> for CoreError {
+    fn from(error: StoreError) -> Self {
+        CoreError::Store {
+            message: error.to_string(),
+        }
+    }
+}
+
+/// A section of the index, with its latest stored version if it has one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredSection {
     pub id: Uuid,
     pub course_id: Uuid,
     pub title: String,
     pub summary: String,
-    pub content: Option<String>,
+    pub latest: Option<StoredVersion>,
+}
+
+/// A complete version of a section as stored.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredVersion {
+    pub id: Uuid,
+    pub content: String,
+    pub created_at: DateTime<Utc>,
 }
 
 pub struct Store {
@@ -97,14 +116,14 @@ impl Store {
                     section.summary,
                     now,
                 ])?;
-                sections.push(SectionEntry {
-                    id: section_id,
-                    title: section.title.clone(),
-                    summary: section.summary.clone(),
-                    generated: false,
-                });
+                sections.push(section_node(
+                    section_id,
+                    section.title.clone(),
+                    section.summary.clone(),
+                    false,
+                ));
             }
-            chapters.push(ChapterView {
+            chapters.push(ChapterNode {
                 id: chapter_id,
                 title: chapter.title.clone(),
                 sections,
@@ -112,20 +131,26 @@ impl Store {
         }
         drop(node);
         transaction.commit()?;
-        Ok(CourseView {
-            id: course_id,
-            topic: topic.to_owned(),
-            chapters,
-        })
+        Ok(course_view(course_id, topic.to_owned(), chapters))
     }
 
     /// The library, most recently updated first.
     pub fn list_courses(&self) -> Result<Vec<CourseSummary>, StoreError> {
         let connection = self.connection();
         let mut statement = connection.prepare(
-            "SELECT id, topic, created_at, updated_at FROM courses
-             WHERE deleted_at IS NULL
-             ORDER BY updated_at DESC, created_at DESC",
+            "SELECT course.id, course.topic, course.created_at, course.updated_at,
+                    (SELECT COUNT(*) FROM index_nodes node
+                     WHERE node.course_id = course.id AND node.kind = 'section'
+                       AND node.deleted_at IS NULL),
+                    (SELECT COUNT(*) FROM index_nodes node
+                     WHERE node.course_id = course.id AND node.kind = 'section'
+                       AND node.deleted_at IS NULL
+                       AND EXISTS (SELECT 1 FROM section_versions version
+                                   WHERE version.node_id = node.id
+                                     AND version.deleted_at IS NULL))
+             FROM courses course
+             WHERE course.deleted_at IS NULL
+             ORDER BY course.updated_at DESC, course.created_at DESC",
         )?;
         let rows = statement.query_map([], |row| {
             Ok((
@@ -133,13 +158,19 @@ impl Store {
                 row.get::<_, String>(1)?,
                 row.get::<_, String>(2)?,
                 row.get::<_, String>(3)?,
+                row.get::<_, u32>(4)?,
+                row.get::<_, u32>(5)?,
             ))
         })?;
         rows.map(|row| {
-            let (id, topic, created_at, updated_at) = row?;
+            let (id, topic, created_at, updated_at, total, read) = row?;
             Ok(CourseSummary {
                 id: parse_id(&id)?,
                 topic,
+                stage: CourseStage::Ready,
+                progress: Progress { read, total },
+                resume_title: None,
+                last_opened_at: None,
                 created_at: parse_time(&created_at)?,
                 updated_at: parse_time(&updated_at)?,
             })
@@ -147,7 +178,8 @@ impl Store {
         .collect()
     }
 
-    /// A course with its index, or `None` if there is no such course.
+    /// A course with its index, or `None` if there is no such course. A
+    /// section counts as read once a version of it is stored.
     pub fn course(&self, course_id: Uuid) -> Result<Option<CourseView>, StoreError> {
         let connection = self.connection();
         let topic: Option<String> = connection
@@ -173,66 +205,81 @@ impl Store {
              ORDER BY chapter.position, section.position",
         )?;
         let mut rows = statement.query([course_id.to_string()])?;
-        let mut chapters: Vec<ChapterView> = Vec::new();
+        let mut chapters: Vec<ChapterNode> = Vec::new();
         while let Some(row) = rows.next()? {
             let chapter_id = parse_id(&row.get::<_, String>(0)?)?;
             if chapters
                 .last()
                 .is_none_or(|chapter| chapter.id != chapter_id)
             {
-                chapters.push(ChapterView {
+                chapters.push(ChapterNode {
                     id: chapter_id,
                     title: row.get(1)?,
                     sections: Vec::new(),
                 });
             }
-            let section = SectionEntry {
-                id: parse_id(&row.get::<_, String>(2)?)?,
-                title: row.get(3)?,
-                summary: row.get(4)?,
-                generated: row.get(5)?,
-            };
+            let section = section_node(
+                parse_id(&row.get::<_, String>(2)?)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get(5)?,
+            );
             chapters
                 .last_mut()
                 .expect("a chapter was just pushed")
                 .sections
                 .push(section);
         }
-        Ok(Some(CourseView {
-            id: course_id,
-            topic,
-            chapters,
-        }))
+        Ok(Some(course_view(course_id, topic, chapters)))
     }
 
-    /// A section of a course with its latest stored content.
+    /// A section of a course with its latest stored version.
     pub fn section(
         &self,
         course_id: Uuid,
         section_id: Uuid,
     ) -> Result<Option<StoredSection>, StoreError> {
-        self.connection()
+        let row = self
+            .connection()
             .query_row(
-                "SELECT title, summary,
-                        (SELECT content FROM section_versions version
-                         WHERE version.node_id = node.id AND version.deleted_at IS NULL
-                         ORDER BY version.created_at DESC LIMIT 1)
+                "SELECT node.title, node.summary, version.id, version.content, version.created_at
                  FROM index_nodes node
+                 LEFT JOIN section_versions version
+                   ON version.id = (SELECT latest.id FROM section_versions latest
+                                    WHERE latest.node_id = node.id AND latest.deleted_at IS NULL
+                                    ORDER BY latest.created_at DESC LIMIT 1)
                  WHERE node.id = ?1 AND node.course_id = ?2 AND node.kind = 'section'
                    AND node.deleted_at IS NULL",
                 [section_id.to_string(), course_id.to_string()],
                 |row: &Row<'_>| {
-                    Ok(StoredSection {
-                        id: section_id,
-                        course_id,
-                        title: row.get(0)?,
-                        summary: row.get(1)?,
-                        content: row.get(2)?,
-                    })
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                        row.get::<_, Option<String>>(4)?,
+                    ))
                 },
             )
-            .optional()
-            .map_err(StoreError::from)
+            .optional()?;
+        let Some((title, summary, version_id, content, created_at)) = row else {
+            return Ok(None);
+        };
+        let latest = match (version_id, content, created_at) {
+            (Some(id), Some(content), Some(created_at)) => Some(StoredVersion {
+                id: parse_id(&id)?,
+                content,
+                created_at: parse_time(&created_at)?,
+            }),
+            _ => None,
+        };
+        Ok(Some(StoredSection {
+            id: section_id,
+            course_id,
+            title,
+            summary,
+            latest,
+        }))
     }
 
     /// Stores a complete version of a section, written with `prompt`.
@@ -255,6 +302,35 @@ impl Store {
             ],
         )?;
         Ok(())
+    }
+}
+
+fn section_node(id: Uuid, title: String, summary: String, read: bool) -> SectionNode {
+    SectionNode {
+        id,
+        kind: SectionKind::BroadPass,
+        title,
+        summary,
+        read,
+        mark: if read {
+            NodeMark::Read
+        } else {
+            NodeMark::Unread
+        },
+        deep_dives: Vec::new(),
+    }
+}
+
+fn course_view(id: Uuid, topic: String, chapters: Vec<ChapterNode>) -> CourseView {
+    CourseView {
+        id,
+        topic,
+        stage: CourseStage::Ready,
+        chapters,
+        resume_at: None,
+        glossary_count: 0,
+        side_chat_count: 0,
+        placement: None,
     }
 }
 

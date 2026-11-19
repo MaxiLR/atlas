@@ -1,218 +1,254 @@
-use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use futures::StreamExt;
-use uuid::Uuid;
+use crate::features::Features;
+use crate::ports::{Browser, Clock, Endpoints, EventSink, PdfExporter, SecretStore};
+use crate::protocol::{CoreError, CoreRequest, CoreResponse};
+use crate::provider::ModelProvider;
+use crate::store::Store;
 
-use crate::harness::index::IndexDraft;
-use crate::harness::prompts;
-use crate::ports::EventSink;
-use crate::protocol::{CoreError, CoreEvent, CoreRequest, CoreResponse, CourseView, SectionView};
-use crate::provider::{ModelProvider, ProviderError, ProviderEvent, ProviderRequest, Task};
-use crate::store::{Store, StoreError};
-
-/// Everything the core is built from.
+/// Everything the core is built from. Tests build it with
+/// [`crate::testing::FakePorts`].
 pub struct CoreDeps {
     /// The SQLite database file; created if missing.
     pub database_path: PathBuf,
     pub provider: Arc<dyn ModelProvider>,
     pub events: Arc<dyn EventSink>,
+    pub clock: Arc<dyn Clock>,
+    pub secrets: Arc<dyn SecretStore>,
+    pub browser: Arc<dyn Browser>,
+    pub pdf: Arc<dyn PdfExporter>,
+    pub endpoints: Endpoints,
 }
 
 /// The core's single entry point: one typed request in, one typed response
 /// out, events on the side.
 pub struct Core {
-    store: Store,
-    provider: Arc<dyn ModelProvider>,
-    events: Arc<dyn EventSink>,
-}
-
-impl From<StoreError> for CoreError {
-    fn from(error: StoreError) -> Self {
-        CoreError::Store {
-            message: error.to_string(),
-        }
-    }
-}
-
-impl From<ProviderError> for CoreError {
-    fn from(error: ProviderError) -> Self {
-        CoreError::Provider {
-            message: error.to_string(),
-        }
-    }
+    features: Features,
 }
 
 impl Core {
+    /// Opens the store and builds every feature from the deps.
     pub fn new(deps: CoreDeps) -> Result<Self, CoreError> {
+        let store = Arc::new(Store::open(&deps.database_path)?);
         Ok(Self {
-            store: Store::open(&deps.database_path)?,
-            provider: deps.provider,
-            events: deps.events,
+            features: Features::new(&deps, &store)?,
         })
     }
 
+    /// Routes a request to the feature that answers it.
     pub async fn handle(&self, request: CoreRequest) -> Result<CoreResponse, CoreError> {
+        let cx = &self.features;
+        if spends_plan(&request) {
+            cx.session.require_plan(cx).await?;
+        }
+        let done = |()| CoreResponse::Done;
+        let session = |session| CoreResponse::Session { session };
+        let models = |list| CoreResponse::Models { list };
+        let section = |section| CoreResponse::Section { section };
+        let usage = |usage| CoreResponse::Usage { usage };
         match request {
-            CoreRequest::ListCourses => Ok(CoreResponse::Courses {
-                courses: self.store.list_courses()?,
-            }),
-            CoreRequest::CreateCourse { topic } => Ok(CoreResponse::Course {
-                course: self.create_course(&topic).await?,
-            }),
-            CoreRequest::OpenCourse { course_id } => Ok(CoreResponse::Course {
-                course: self.course(course_id)?,
-            }),
+            CoreRequest::GetSession => cx.session.get(cx).await.map(session),
+            CoreRequest::SignIn => cx.session.sign_in(cx).await.map(session),
+            CoreRequest::CancelSignIn => cx.session.cancel_sign_in(cx).await.map(session),
+            CoreRequest::EnablePlanUsage => cx.session.enable_plan_usage(cx).await.map(session),
+            CoreRequest::SignOut => cx.session.sign_out(cx).await.map(session),
+            CoreRequest::OpenManageUsage => cx.external.open_manage_usage(cx).await.map(done),
+            CoreRequest::OpenExternal { url } => cx.external.open_external(cx, url).await.map(done),
+
+            CoreRequest::ListModels => cx.models.list(cx).await.map(models),
+            CoreRequest::SelectModel { slug } => cx.models.select(cx, slug).await.map(models),
+
+            CoreRequest::ListCourses => cx
+                .library
+                .list_courses(cx)
+                .await
+                .map(|courses| CoreResponse::Courses { courses }),
+            CoreRequest::CreateCourse { topic } => cx
+                .placement
+                .create_course(cx, &topic)
+                .await
+                .map(|course| CoreResponse::Course { course }),
+            CoreRequest::OpenCourse { course_id } => cx
+                .library
+                .open_course(cx, course_id)
+                .await
+                .map(|course| CoreResponse::Course { course }),
+            CoreRequest::DeleteCourse { course_id } => {
+                cx.library.delete_course(cx, course_id).await.map(done)
+            }
+
+            CoreRequest::SubmitSelfRating {
+                course_id,
+                rating,
+                goal,
+            } => cx
+                .placement
+                .submit_self_rating(cx, course_id, rating, goal)
+                .await
+                .map(|placement| CoreResponse::Placement {
+                    course_id,
+                    placement,
+                }),
+            CoreRequest::AnswerPlacement {
+                course_id,
+                question_id,
+                answer,
+            } => cx
+                .placement
+                .answer(cx, course_id, question_id, answer)
+                .await
+                .map(|placement| CoreResponse::Placement {
+                    course_id,
+                    placement,
+                }),
+            CoreRequest::RetryPlacementStep { course_id } => cx
+                .placement
+                .retry_step(cx, course_id)
+                .await
+                .map(|placement| CoreResponse::Placement {
+                    course_id,
+                    placement,
+                }),
+
             CoreRequest::OpenSection {
                 course_id,
                 section_id,
-            } => Ok(CoreResponse::Section {
-                section: self.open_section(course_id, section_id).await?,
-            }),
+            } => cx
+                .sections
+                .open(cx, course_id, section_id)
+                .await
+                .map(section),
+            CoreRequest::StopGeneration {
+                course_id,
+                section_id,
+            } => cx.sections.stop(cx, course_id, section_id).await.map(done),
+            CoreRequest::RetrySection {
+                course_id,
+                section_id,
+            } => cx
+                .sections
+                .retry(cx, course_id, section_id)
+                .await
+                .map(section),
+            CoreRequest::ExplainDifferently {
+                course_id,
+                section_id,
+                style,
+            } => cx
+                .versions
+                .explain_differently(cx, course_id, section_id, style)
+                .await
+                .map(section),
+            CoreRequest::SelectVersion {
+                course_id,
+                section_id,
+                version_id,
+            } => cx
+                .versions
+                .select_version(cx, course_id, section_id, version_id)
+                .await
+                .map(section),
+            CoreRequest::AnswerCheck {
+                version_id,
+                block,
+                question,
+                choice,
+            } => cx
+                .checks
+                .answer(cx, version_id, block, question, choice)
+                .await
+                .map(|result| CoreResponse::CheckAnswered { result }),
             CoreRequest::Next {
                 course_id,
                 section_id,
-            } => self.next(course_id, section_id).await,
-        }
-    }
+            } => cx.navigation.next(cx, course_id, section_id).await,
+            CoreRequest::GoDeeper {
+                course_id,
+                section_id,
+            } => cx
+                .deep_dives
+                .go_deeper(cx, course_id, section_id)
+                .await
+                .map(|deep_dives| CoreResponse::DeepDives {
+                    course_id,
+                    section_id,
+                    deep_dives,
+                }),
 
-    fn course(&self, course_id: Uuid) -> Result<CourseView, CoreError> {
-        self.store
-            .course(course_id)?
-            .ok_or_else(|| CoreError::NotFound {
-                what: format!("course {course_id}"),
-            })
-    }
-
-    async fn create_course(&self, topic: &str) -> Result<CourseView, CoreError> {
-        let topic = topic.trim();
-        if topic.is_empty() {
-            return Err(CoreError::InvalidRequest {
-                message: "the topic is empty".to_owned(),
-            });
-        }
-        let text = self
-            .complete(
-                ProviderRequest {
-                    task: Task::BuildIndex,
-                    instructions: prompts::BUILD_INDEX.text().to_owned(),
-                    input: format!("Topic: {topic}"),
-                },
-                |_| {},
-            )
-            .await?;
-        let index: IndexDraft =
-            serde_json::from_str(&text).map_err(|error| CoreError::Provider {
-                message: format!("the index is not valid: {error}"),
-            })?;
-        if index.chapters.len() < 2 || index.chapters.iter().any(|c| c.sections.is_empty()) {
-            return Err(CoreError::Provider {
-                message: "the index needs at least two chapters, each with sections".to_owned(),
-            });
-        }
-        Ok(self.store.insert_course(topic, &index)?)
-    }
-
-    /// Answers from the store, or generates the section, streaming its text as
-    /// events, and stores it once the provider reports completion.
-    async fn open_section(
-        &self,
-        course_id: Uuid,
-        section_id: Uuid,
-    ) -> Result<SectionView, CoreError> {
-        let section =
-            self.store
-                .section(course_id, section_id)?
-                .ok_or_else(|| CoreError::NotFound {
-                    what: format!("section {section_id}"),
-                })?;
-        let view = |content: String| SectionView {
-            id: section.id,
-            course_id,
-            title: section.title.clone(),
-            content,
-        };
-        if let Some(content) = &section.content {
-            return Ok(view(content.clone()));
-        }
-
-        let course = self.course(course_id)?;
-        let mut input = format!("Topic: {}\n\nIndex:\n", course.topic);
-        for chapter in &course.chapters {
-            let _ = writeln!(input, "- {}", chapter.title);
-            for entry in &chapter.sections {
-                let _ = writeln!(input, "  - {}: {}", entry.title, entry.summary);
+            CoreRequest::Define { anchor, sentence } => cx
+                .define
+                .define(cx, anchor, sentence)
+                .await
+                .map(|entry| CoreResponse::Definition { entry }),
+            CoreRequest::LookupWikipedia { entry_id } => cx
+                .wikipedia
+                .lookup(cx, entry_id)
+                .await
+                .map(|result| CoreResponse::Wikipedia { entry_id, result }),
+            CoreRequest::ListGlossary { course_id } => cx
+                .define
+                .list_glossary(cx, course_id)
+                .await
+                .map(|entries| CoreResponse::Glossary { course_id, entries }),
+            CoreRequest::ListSideChats { course_id } => cx
+                .side_chats
+                .list(cx, course_id)
+                .await
+                .map(|chats| CoreResponse::SideChats { course_id, chats }),
+            CoreRequest::StartSideChat { course_id, anchor } => cx
+                .side_chats
+                .start(cx, course_id, anchor)
+                .await
+                .map(|chat| CoreResponse::SideChat { chat }),
+            CoreRequest::OpenSideChat { chat_id } => cx
+                .side_chats
+                .open(cx, chat_id)
+                .await
+                .map(|chat| CoreResponse::SideChat { chat }),
+            CoreRequest::SendSideChatMessage { chat_id, text } => cx
+                .side_chats
+                .send(cx, chat_id, text)
+                .await
+                .map(|message| CoreResponse::SideChatReply { chat_id, message }),
+            CoreRequest::StopSideChatReply { chat_id } => {
+                cx.side_chats.stop_reply(cx, chat_id).await.map(done)
             }
-        }
-        let _ = write!(
-            input,
-            "\nSection to write: {}: {}",
-            section.title, section.summary
-        );
-        let content = self
-            .complete(
-                ProviderRequest {
-                    task: Task::WriteSection,
-                    instructions: prompts::WRITE_SECTION.text().to_owned(),
-                    input,
-                },
-                |text| {
-                    self.events.emit(CoreEvent::SectionDelta {
-                        course_id,
-                        section_id,
-                        text: text.to_owned(),
-                    })
-                },
-            )
-            .await?;
-        self.store
-            .insert_section_version(section_id, &content, &prompts::WRITE_SECTION.id())?;
-        self.events.emit(CoreEvent::SectionCompleted {
-            course_id,
-            section_id,
-        });
-        Ok(view(content))
-    }
 
-    async fn next(&self, course_id: Uuid, section_id: Uuid) -> Result<CoreResponse, CoreError> {
-        let course = self.course(course_id)?;
-        let mut sections = course
-            .chapters
-            .iter()
-            .flat_map(|chapter| &chapter.sections)
-            .skip_while(|section| section.id != section_id);
-        if sections.next().is_none() {
-            return Err(CoreError::NotFound {
-                what: format!("section {section_id}"),
-            });
-        }
-        match sections.next() {
-            Some(following) => Ok(CoreResponse::Section {
-                section: self.open_section(course_id, following.id).await?,
-            }),
-            None => Ok(CoreResponse::EndOfCourse { course_id }),
-        }
-    }
-
-    /// Runs one provider request to completion, passing each text delta to
-    /// `on_delta`. Only a stream that reports completion counts.
-    async fn complete(
-        &self,
-        request: ProviderRequest,
-        mut on_delta: impl FnMut(&str),
-    ) -> Result<String, CoreError> {
-        let mut stream = self.provider.stream(request).await?;
-        let mut text = String::new();
-        while let Some(event) = stream.next().await {
-            match event? {
-                ProviderEvent::TextDelta(delta) => {
-                    on_delta(&delta);
-                    text.push_str(&delta);
-                }
-                ProviderEvent::Completed => return Ok(text),
+            CoreRequest::GetUsage => cx.usage.get(cx).await.map(usage),
+            CoreRequest::ConnectUsage => cx.usage.connect(cx).await.map(usage),
+            CoreRequest::CancelConnectUsage => cx.usage.cancel_connect(cx).await.map(usage),
+            CoreRequest::SetWindowFocused { focused } => {
+                cx.usage.set_window_focused(cx, focused).await.map(done)
             }
+
+            CoreRequest::GetExportDocument { course_id } => cx
+                .export
+                .document(cx, course_id)
+                .await
+                .map(|document| CoreResponse::ExportDocument { document }),
+            CoreRequest::ExportPdf { course_id } => cx
+                .export
+                .export_pdf(cx, course_id)
+                .await
+                .map(|result| CoreResponse::Exported { result }),
         }
-        Err(ProviderError::Incomplete.into())
     }
+}
+
+/// Requests that always spend plan usage. Opening a section spends it only
+/// when the section is generated, so the sections feature checks for itself.
+fn spends_plan(request: &CoreRequest) -> bool {
+    matches!(
+        request,
+        CoreRequest::CreateCourse { .. }
+            | CoreRequest::SubmitSelfRating { .. }
+            | CoreRequest::AnswerPlacement { .. }
+            | CoreRequest::RetryPlacementStep { .. }
+            | CoreRequest::RetrySection { .. }
+            | CoreRequest::ExplainDifferently { .. }
+            | CoreRequest::GoDeeper { .. }
+            | CoreRequest::Define { .. }
+            | CoreRequest::SendSideChatMessage { .. }
+    )
 }

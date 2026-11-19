@@ -221,6 +221,12 @@ pub trait ModelProvider: Send + Sync {
 
     /// The models the plan lists for display, in the order reported.
     async fn list_models(&self) -> Result<Vec<Model>, ProviderError>;
+
+    /// Hands the provider the plan login's token source. Answers whether the
+    /// provider spends plan usage; one that does not (the fake) ignores it.
+    fn use_plan_login(&self, _tokens: std::sync::Arc<dyn TokenSource>) -> bool {
+        false
+    }
 }
 
 /// A valid access token for each provider call, from the plan login.
@@ -232,6 +238,9 @@ pub trait TokenSource: Send + Sync {
     async fn refresh(&self) -> Result<AccessToken, ProviderError>;
     /// The provider refused a fresh token too: the login has ended.
     async fn rejected(&self);
+    /// The provider reported that the account or workspace may not use the
+    /// plan.
+    async fn plan_not_allowed(&self) {}
 }
 
 /// Runs one request to completion, passing each text delta to `on_delta`, and

@@ -552,3 +552,32 @@ fn the_predicted_record_lists_the_planned_concepts_and_is_unconfirmed() {
     let mapped_entry = entry(&course.map, HOW_PLATES_ARE_MAPPED).unwrap();
     assert_eq!(predicted_record(mapped_entry), mapped.record);
 }
+
+#[test]
+fn an_entry_for_no_section_or_a_second_entry_for_one_is_a_fault() {
+    let mut course = sample_course();
+    let stray = Uuid::from_u128(0xdead);
+    course.map.entries.push(map_entry(stray, &[], &[]));
+    course.map.entries.push(map_entry(LAYERS, &["crust"], &[]));
+    assert_eq!(
+        faults_of(&course),
+        vec![
+            fault(stray, None, FaultKind::UnknownSection),
+            fault(LAYERS, None, FaultKind::DuplicateEntry),
+        ]
+    );
+}
+
+#[test]
+fn a_proposal_for_a_section_the_map_already_has_is_a_fault() {
+    let course = sample_course();
+    let order = deepened(&course);
+    let mut proposed = proposals(&[], &[], &[]);
+    proposed
+        .entries
+        .push(map_entry(MICROPLATES, &["microplate"], &[]));
+    assert_eq!(
+        extend(&course.map, &order, &proposed, &course.ladder),
+        Err(vec![fault(MICROPLATES, None, FaultKind::DuplicateEntry)])
+    );
+}

@@ -3,6 +3,7 @@ use std::sync::Mutex;
 use async_trait::async_trait;
 use futures::stream;
 
+use super::chatgpt::ResponsesStreamParser;
 use super::{ModelProvider, ProviderError, ProviderEvent, ProviderRequest, ProviderStream, Task};
 use crate::harness::index::{ChapterDraft, IndexDraft, SectionDraft};
 use crate::protocol::Model;
@@ -71,6 +72,8 @@ impl FakeScript {
 pub struct FakeProvider {
     script: FakeScript,
     models: Vec<Model>,
+    /// Recorded Responses streams that answer their task instead of the script.
+    replays: Vec<(Task, Vec<u8>)>,
     requests: Mutex<Vec<ProviderRequest>>,
 }
 
@@ -83,6 +86,7 @@ impl FakeProvider {
                 slug: "fake-model".to_owned(),
                 display_name: "Fake model".to_owned(),
             }],
+            replays: Vec::new(),
             requests: Mutex::new(Vec::new()),
         }
     }
@@ -95,8 +99,8 @@ impl FakeProvider {
 
     /// Answers `task` by replaying this recorded Responses stream (the bytes
     /// of an `.sse` file) through the Responses stream parser.
-    pub fn replay(self, task: Task, recording: impl Into<Vec<u8>>) -> Self {
-        let _ = (task, recording.into());
+    pub fn replay(mut self, task: Task, recording: impl Into<Vec<u8>>) -> Self {
+        self.replays.push((task, recording.into()));
         self
     }
 
@@ -107,11 +111,22 @@ impl FakeProvider {
             .expect("fake provider lock poisoned")
             .clone()
     }
+
+    fn record(&self, request: ProviderRequest) {
+        self.requests
+            .lock()
+            .expect("fake provider lock poisoned")
+            .push(request);
+    }
 }
 
 #[async_trait]
 impl ModelProvider for FakeProvider {
     async fn stream(&self, request: ProviderRequest) -> Result<ProviderStream, ProviderError> {
+        if let Some((_, recording)) = self.replays.iter().find(|(task, _)| *task == request.task) {
+            self.record(request);
+            return Ok(Box::pin(stream::iter(replay(recording))));
+        }
         let deltas = match request.task {
             Task::BuildIndex => {
                 let json = serde_json::to_string(&self.script.index)
@@ -125,10 +140,7 @@ impl ModelProvider for FakeProvider {
                 )));
             }
         };
-        self.requests
-            .lock()
-            .expect("fake provider lock poisoned")
-            .push(request);
+        self.record(request);
         let events = deltas
             .into_iter()
             .map(|delta| Ok(ProviderEvent::TextDelta(delta)))
@@ -146,5 +158,19 @@ fn chunk(text: &str, size: usize) -> Vec<String> {
         .collect::<Vec<_>>()
         .chunks(size)
         .map(|chars| chars.iter().collect())
+        .collect()
+}
+
+/// The recording parsed as it would arrive: in small chunks, cut anywhere.
+fn replay(recording: &[u8]) -> Vec<Result<ProviderEvent, ProviderError>> {
+    let mut parser = ResponsesStreamParser::new(Some("req_fake_replay".to_owned()));
+    let mut events = Vec::new();
+    for chunk in recording.chunks(7) {
+        events.extend(parser.feed(chunk));
+    }
+    events.extend(parser.finish());
+    events
+        .into_iter()
+        .map(|event| event.into_provider())
         .collect()
 }

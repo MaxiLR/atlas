@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The main window: the one core command and the core's event.",
+  "windows": ["main"],
+  "permissions": [
+    "allow-core-request",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten"
+  ]
+}

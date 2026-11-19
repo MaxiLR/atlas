@@ -307,3 +307,18 @@ async fn a_repair_after_a_refusal_also_carries_the_schema_in_the_prompt() {
     assert_eq!(repair.schema, None);
     assert!(sent_text(repair).contains(SCHEMA_DESCRIPTION));
 }
+
+#[tokio::test]
+async fn an_answer_in_a_json_code_fence_is_read_without_a_repair() {
+    let fenced = format!("```json\n{VALID}\n```");
+    let fake = Arc::new(provider().answer(
+        Task::BuildIndex,
+        [Err(structured_output_refused()), ok(&fenced)],
+    ));
+    let runner = StructuredRunner::new(fake.clone());
+
+    let value = run(&runner, &ChaptersTask).await;
+
+    assert_eq!(value, Ok(valid()));
+    assert_eq!(fake.requests().len(), 2);
+}

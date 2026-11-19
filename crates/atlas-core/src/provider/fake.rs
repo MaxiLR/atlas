@@ -76,9 +76,12 @@ pub struct FakeProvider {
     /// Recorded Responses streams that answer their task instead of the script.
     replays: Vec<(Task, Vec<u8>)>,
     /// Scripted outcomes that answer their task, one per request, in order.
-    answers: Mutex<Vec<(Task, VecDeque<Result<String, ProviderError>>)>>,
+    answers: Mutex<Vec<(Task, Answers)>>,
     requests: Mutex<Vec<ProviderRequest>>,
 }
+
+/// Scripted outcomes for one task: a completed response's text, or an error.
+type Answers = VecDeque<Result<String, ProviderError>>;
 
 impl FakeProvider {
     /// Lists one model, `fake-model`.

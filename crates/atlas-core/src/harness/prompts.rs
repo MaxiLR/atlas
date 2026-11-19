@@ -25,8 +25,13 @@ pub const WRITE_SECTION: Prompt = Prompt {
     source: include_str!("../../../../prompts/write-section.md"),
 };
 
+pub const REPAIR_STRUCTURED: Prompt = Prompt {
+    name: "repair-structured",
+    source: include_str!("../../../../prompts/repair-structured.md"),
+};
+
 /// Every prompt the core embeds.
-pub const ALL: [Prompt; 2] = [BUILD_INDEX, WRITE_SECTION];
+pub const ALL: [Prompt; 3] = [BUILD_INDEX, WRITE_SECTION, REPAIR_STRUCTURED];
 
 impl Prompt {
     pub fn name(&self) -> &'static str {

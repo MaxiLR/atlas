@@ -121,7 +121,10 @@ impl Feature {
         let written = async {
             let text = complete_text(
                 self.provider.as_ref(),
-                ProviderRequest::new(Task::WriteSection, prompts::WRITE_SECTION.text(), input),
+                ProviderRequest {
+                    model: cx.models.current(cx).await?,
+                    ..ProviderRequest::new(Task::WriteSection, prompts::WRITE_SECTION.text(), input)
+                },
                 |text| {
                     emit(GenerationEvent::TextDelta {
                         block: 0,

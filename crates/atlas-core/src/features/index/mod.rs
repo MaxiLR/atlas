@@ -29,16 +29,19 @@ impl Feature {
     /// Stores a new course on `topic` with the index the provider builds.
     pub(crate) async fn build_from_topic(
         &self,
-        _cx: &Features,
+        cx: &Features,
         topic: &str,
     ) -> Result<CourseView, CoreError> {
         let text = complete_text(
             self.provider.as_ref(),
-            ProviderRequest::new(
-                Task::BuildIndex,
-                prompts::BUILD_INDEX.text(),
-                format!("Topic: {topic}"),
-            ),
+            ProviderRequest {
+                model: cx.models.current(cx).await?,
+                ..ProviderRequest::new(
+                    Task::BuildIndex,
+                    prompts::BUILD_INDEX.text(),
+                    format!("Topic: {topic}"),
+                )
+            },
             |_| {},
         )
         .await?;

@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::sync::Mutex;
 
 use async_trait::async_trait;
@@ -74,6 +75,8 @@ pub struct FakeProvider {
     models: Vec<Model>,
     /// Recorded Responses streams that answer their task instead of the script.
     replays: Vec<(Task, Vec<u8>)>,
+    /// Scripted outcomes that answer their task, one per request, in order.
+    answers: Mutex<Vec<(Task, VecDeque<Result<String, ProviderError>>)>>,
     requests: Mutex<Vec<ProviderRequest>>,
 }
 
@@ -87,6 +90,7 @@ impl FakeProvider {
                 display_name: "Fake model".to_owned(),
             }],
             replays: Vec::new(),
+            answers: Mutex::new(Vec::new()),
             requests: Mutex::new(Vec::new()),
         }
     }
@@ -104,6 +108,24 @@ impl FakeProvider {
         self
     }
 
+    /// Answers `task` with these outcomes, one per request in order, instead
+    /// of the script: the text of a completed response, or the error the call
+    /// fails with. A request after the last outcome fails.
+    pub fn answer(
+        self,
+        task: Task,
+        answers: impl IntoIterator<Item = Result<String, ProviderError>>,
+    ) -> Self {
+        {
+            let mut scripted = self.answers.lock().expect("fake provider lock poisoned");
+            match scripted.iter_mut().find(|(scripted, _)| *scripted == task) {
+                Some((_, queue)) => queue.extend(answers),
+                None => scripted.push((task, answers.into_iter().collect())),
+            }
+        }
+        self
+    }
+
     /// The requests received so far, in order.
     pub fn requests(&self) -> Vec<ProviderRequest> {
         self.requests
@@ -118,6 +140,19 @@ impl FakeProvider {
             .expect("fake provider lock poisoned")
             .push(request);
     }
+
+    /// The next scripted outcome for `task`, if its answers are scripted.
+    fn next_answer(&self, task: Task) -> Option<Result<String, ProviderError>> {
+        let mut scripted = self.answers.lock().expect("fake provider lock poisoned");
+        let (_, queue) = scripted
+            .iter_mut()
+            .find(|(scripted, _)| *scripted == task)?;
+        Some(queue.pop_front().unwrap_or_else(|| {
+            Err(ProviderError::failed(format!(
+                "the fake provider has no more answers for {task:?}"
+            )))
+        }))
+    }
 }
 
 #[async_trait]
@@ -126,6 +161,14 @@ impl ModelProvider for FakeProvider {
         if let Some((_, recording)) = self.replays.iter().find(|(task, _)| *task == request.task) {
             self.record(request);
             return Ok(Box::pin(stream::iter(replay(recording))));
+        }
+        if let Some(answer) = self.next_answer(request.task) {
+            self.record(request);
+            let events = chunk(&answer?, 24)
+                .into_iter()
+                .map(|delta| Ok(ProviderEvent::TextDelta(delta)))
+                .chain([Ok(ProviderEvent::Completed)]);
+            return Ok(Box::pin(stream::iter(events)));
         }
         let deltas = match request.task {
             Task::BuildIndex => {

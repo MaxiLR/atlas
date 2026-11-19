@@ -1,6 +1,7 @@
 //! The desktop shell: one window that shows only the app, one command into
 //! the core, one event out, and the core's ports on the Mac (the Keychain,
-//! the system browser, the app's data folder).
+//! the system browser, the app's data folder, and the PDF printer with its
+//! hidden window).
 
 mod keychain;
 mod navigation;
@@ -15,11 +16,11 @@ use std::sync::Arc;
 use atlas_core::ports::{Clock, Endpoints, SystemClock};
 use atlas_core::protocol::{CoreError, CoreRequest, CoreResponse};
 use atlas_core::provider::{ProviderChoice, for_session};
-use atlas_core::testing::FakePdfExporter;
 use atlas_core::{Core, CoreDeps};
-use tauri::{Emitter, Manager, State};
+use tauri::{Emitter, Manager, State, Url};
 
 use keychain::Keychain;
+use pdf::WebviewPdfExporter;
 use ports::{ForwardedEvents, SystemBrowser};
 
 pub use pdf::{EXPORT_CAPABILITY, EXPORT_WINDOW};
@@ -29,6 +30,9 @@ pub const CORE_EVENT: &str = "core-event";
 
 /// The database file inside the app's data folder.
 const DATABASE_FILE: &str = "atlas.sqlite3";
+
+/// Where the bundled interface is served on the Mac.
+const BUNDLED_APP: &str = "tauri://localhost";
 
 /// Set to `1`, the core runs the fake provider instead of the plan, for local
 /// development without a login.
@@ -63,11 +67,15 @@ pub fn run() {
     let dev_url = tauri::is_dev()
         .then(|| context.config().build.dev_url.clone())
         .flatten();
+    let app_url = dev_url
+        .clone()
+        .unwrap_or_else(|| Url::parse(BUNDLED_APP).expect("a valid app URL"));
     tauri::Builder::default()
         .plugin(navigation::plugin(dev_url))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .setup(|app| {
+        .setup(move |app| {
+            app.add_capability(EXPORT_CAPABILITY)?;
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
             let endpoints = Endpoints::production();
@@ -85,8 +93,7 @@ pub fn run() {
                 clock,
                 secrets: Arc::new(Keychain::atlas()),
                 browser: Arc::new(SystemBrowser(app.handle().clone())),
-                // The PDF printer is wired with the export.
-                pdf: Arc::new(FakePdfExporter::default()),
+                pdf: Arc::new(WebviewPdfExporter::new(app.handle().clone(), app_url)),
                 endpoints,
             })?;
             app.manage(core);

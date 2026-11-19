@@ -18,6 +18,11 @@ tauri-build = { version = "2.7.6", features = [] }
 tauri-plugin-opener = "2.7.3"
 tauri-plugin-dialog = "2.8.4"
 security-framework = "3.7.0"
+# The webview's print operation, for the PDF export.
+objc2 = "0.6.5"
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSDictionary", "NSGeometry", "NSString", "NSURL"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "objc2-core-foundation", "NSPrintInfo", "NSPrintOperation", "NSPrinter", "NSResponder", "NSView", "NSWindow"] }
+objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std", "objc2-app-kit", "WKWebView"] }
 
 # Core
 serde = { version = "1.0.229", features = ["derive"] }

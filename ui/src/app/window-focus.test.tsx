@@ -17,6 +17,8 @@ function renderApp() {
   });
   const focus: boolean[] = [];
   const client: CoreClient = {
+    // The recording double takes any request instead of repeating the
+    // @ts-expect-error -- client's generic signature; it forwards each as is.
     call(request: CoreRequest) {
       if (request.type === "SetWindowFocused") focus.push(request.focused);
       return core.call(request);

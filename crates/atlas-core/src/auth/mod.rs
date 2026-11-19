@@ -119,6 +119,9 @@ pub struct Login {
     pub plan_usage: bool,
     /// When the access token expires.
     pub expires_at: DateTime<Utc>,
+    /// The provider reported that the account or workspace may not use the
+    /// plan. Kept with the login until a new sign-in replaces it.
+    pub plan_not_allowed: bool,
 }
 
 /// Whether the authorisation server confirmed the end of the session.
@@ -177,11 +180,22 @@ pub enum RefreshError {
     LoginEnded { code: String },
     /// A network error or a server error: nothing was cleared.
     #[error("the token endpoint is unavailable: {0}")]
-    Unavailable(String),
+    Unavailable(Unreachable),
     #[error("the token endpoint refused the refresh ({status})")]
     Refused { status: u16, code: Option<String> },
     #[error(transparent)]
     Secret(#[from] SecretError),
+}
+
+/// Why the token endpoint could not be used.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum Unreachable {
+    /// No answer: the network or the connection failed.
+    #[error("{0}")]
+    Network(String),
+    /// A server error or an answer that could not be read.
+    #[error("{0}")]
+    Answer(String),
 }
 
 /// The plan login's OAuth mechanics.
@@ -247,6 +261,21 @@ impl PlanAuth {
     /// one request.
     pub async fn refresh(&self) -> Result<AccessToken, RefreshError> {
         refresh::refresh(&self.inner).await
+    }
+
+    /// Remembers with the saved login that the provider reported the account
+    /// or workspace not allowed to use the plan. Answers whether there was a
+    /// login to mark.
+    pub async fn mark_plan_not_allowed(&self) -> Result<bool, AuthError> {
+        let _serialised = self.inner.refresh_lock.lock().await;
+        let Some(mut login) = StoredLogin::read(&*self.inner.secrets)? else {
+            return Ok(false);
+        };
+        if !login.plan_not_allowed {
+            login.plan_not_allowed = true;
+            login.write(&*self.inner.secrets)?;
+        }
+        Ok(true)
     }
 
     /// Revokes the refresh token, then clears the tokens.

@@ -1,10 +1,9 @@
 //! The plan login: sign in, plan usage on, off or not allowed, sign out, the
 //! `TokenSource` the provider draws from, and the `require_plan` guard.
 //!
-//! The tokens stay in the secret store, behind [`PlanAuth`]; what the session
-//! keeps itself is the sign-in waiting for the browser, why the last login
-//! ended, and whether the provider reported the plan not allowed for the
-//! login.
+//! The tokens and the provider's not-allowed report stay in the secret store
+//! with the login, behind [`PlanAuth`]; what the session keeps itself is the
+//! sign-in waiting for the browser and why the last login ended.
 
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -15,6 +14,7 @@ use super::Features;
 use crate::CoreDeps;
 use crate::auth::{
     AccessToken, AuthError, HostId, Login, PlanAuth, PlanAuthDeps, RefreshError, SignInMode,
+    Unreachable,
 };
 use crate::ports::{Clock, EventSink};
 use crate::protocol::{Account, CoreError, CoreEvent, PlanUsage, Session, SignedOutReason};
@@ -136,11 +136,7 @@ impl Feature {
         self.login.state().signing_in = None;
         let plan = self.login.auth.sign_out().await;
         let usage = cx.usage.sign_out(cx).await;
-        {
-            let mut state = self.login.state();
-            state.reason = Some(SignedOutReason::SignedOut);
-            state.not_allowed = None;
-        }
+        self.login.state().reason = Some(SignedOutReason::SignedOut);
         let session = self.login.changed()?;
         plan.map_err(auth_error)?;
         usage?;
@@ -194,9 +190,6 @@ struct State {
     attempts: u64,
     /// Why the last login ended or failed, shown while signed out.
     reason: Option<SignedOutReason>,
-    /// The subject of the login the provider reported not allowed to use the
-    /// plan. A new explicit sign-in clears it.
-    not_allowed: Option<String>,
 }
 
 impl PlanLogin {
@@ -207,7 +200,7 @@ impl PlanLogin {
     /// The saved login's plan usage, whether or not a sign-in is waiting.
     fn plan_usage(&self) -> Result<Option<PlanUsage>, CoreError> {
         let login = self.auth.login().map_err(auth_error)?;
-        Ok(login.map(|login| plan_usage(&login, &self.state())))
+        Ok(login.as_ref().map(plan_usage))
     }
 
     fn session(&self) -> Result<Session, CoreError> {
@@ -218,7 +211,7 @@ impl PlanLogin {
         }
         Ok(match login {
             Some(login) => Session::SignedIn {
-                plan_usage: plan_usage(&login, &state),
+                plan_usage: plan_usage(&login),
                 account: Account {
                     email: login.identity.email,
                 },
@@ -249,7 +242,6 @@ impl PlanLogin {
             match (mode, result) {
                 (SignInMode::SignIn, Ok(_)) => {
                     state.reason = None;
-                    state.not_allowed = None;
                 }
                 (SignInMode::SignIn, Err(AuthError::Declined)) => {
                     state.reason = Some(SignedOutReason::Declined);
@@ -268,44 +260,55 @@ impl PlanLogin {
 
     /// The login ended: its tokens are gone and the courses are untouched.
     fn end_login(&self) {
-        {
-            let mut state = self.state();
-            state.reason = Some(SignedOutReason::LoginEnded);
-            state.not_allowed = None;
-        }
+        self.state().reason = Some(SignedOutReason::LoginEnded);
         let _ = self.changed();
     }
-}
 
-#[async_trait]
-impl TokenSource for PlanLogin {
-    async fn access_token(&self) -> Result<AccessToken, ProviderError> {
-        let login = self
-            .auth
-            .login()
-            .map_err(|error| failed(error.to_string()))?
-            .ok_or_else(sign_in_required)?;
-        if login.expires_at - REFRESH_MARGIN > self.clock.now()
-            && let Some(token) = self
-                .auth
-                .access_token()
-                .map_err(|error| failed(error.to_string()))?
-        {
-            return Ok(token);
-        }
-        self.refresh().await
-    }
-
-    async fn refresh(&self) -> Result<AccessToken, ProviderError> {
-        match self.auth.refresh().await {
+    /// Maps the outcome of a refresh for the provider.
+    fn refreshed(
+        &self,
+        result: Result<AccessToken, RefreshError>,
+    ) -> Result<AccessToken, ProviderError> {
+        match result {
             Ok(token) => Ok(token),
             Err(RefreshError::LoginEnded { .. }) => {
                 self.end_login();
                 Err(sign_in_required())
             }
             Err(RefreshError::SignedOut) => Err(sign_in_required()),
+            Err(RefreshError::Unavailable(Unreachable::Network(_))) => Err(ProviderError::Offline),
             Err(error) => Err(failed(error.to_string())),
         }
+    }
+}
+
+#[async_trait]
+impl TokenSource for PlanLogin {
+    async fn access_token(&self) -> Result<AccessToken, ProviderError> {
+        let stored = |error: AuthError| failed(error.to_string());
+        let login = self
+            .auth
+            .login()
+            .map_err(stored)?
+            .ok_or_else(sign_in_required)?;
+        let token = self
+            .auth
+            .access_token()
+            .map_err(stored)?
+            .ok_or_else(sign_in_required)?;
+        let now = self.clock.now();
+        if login.expires_at - REFRESH_MARGIN > now {
+            return Ok(token);
+        }
+        match self.auth.refresh().await {
+            // The token endpoint is out of reach, but the token still works.
+            Err(RefreshError::Unavailable(_)) if login.expires_at > now => Ok(token),
+            result => self.refreshed(result),
+        }
+    }
+
+    async fn refresh(&self) -> Result<AccessToken, ProviderError> {
+        self.refreshed(self.auth.refresh().await)
     }
 
     async fn rejected(&self) {
@@ -315,16 +318,14 @@ impl TokenSource for PlanLogin {
     }
 
     async fn plan_not_allowed(&self) {
-        let Ok(Some(login)) = self.auth.login() else {
-            return;
-        };
-        self.state().not_allowed = Some(login.identity.subject);
-        let _ = self.changed();
+        if let Ok(true) = self.auth.mark_plan_not_allowed().await {
+            let _ = self.changed();
+        }
     }
 }
 
-fn plan_usage(login: &Login, state: &State) -> PlanUsage {
-    if state.not_allowed.as_deref() == Some(login.identity.subject.as_str()) {
+fn plan_usage(login: &Login) -> PlanUsage {
+    if login.plan_not_allowed {
         PlanUsage::NotAllowed
     } else if login.plan_usage {
         PlanUsage::On

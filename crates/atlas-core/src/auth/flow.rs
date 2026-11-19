@@ -45,6 +45,7 @@ pub struct PendingSignIn {
     /// The saved client id this attempt reauthorises, or `None` for a new
     /// registration.
     client_id: Option<String>,
+    mode: SignInMode,
 }
 
 pub(super) async fn start(inner: Arc<Inner>, mode: SignInMode) -> Result<PendingSignIn, AuthError> {
@@ -95,6 +96,7 @@ pub(super) async fn start(inner: Arc<Inner>, mode: SignInMode) -> Result<Pending
         listener,
         attempt,
         client_id,
+        mode,
     })
 }
 
@@ -112,6 +114,7 @@ impl PendingSignIn {
             listener,
             attempt,
             client_id,
+            mode,
         } = self;
         let redirect_uri = listener.redirect_uri().as_str().to_owned();
         let callback = listener
@@ -194,6 +197,11 @@ impl PendingSignIn {
             .unwrap_or_default();
 
         let _serialised = inner.refresh_lock.lock().await;
+        // Only a new sign-in clears a not-allowed report; enabling plan usage
+        // for the same account keeps it.
+        let plan_not_allowed = mode == SignInMode::EnablePlanUsage
+            && StoredLogin::read(&*inner.secrets)?
+                .is_some_and(|saved| saved.subject == identity.subject && saved.plan_not_allowed);
         let stored = StoredLogin {
             subject: identity.subject,
             email: identity.email,
@@ -202,6 +210,7 @@ impl PendingSignIn {
             refresh_token,
             expires_at: inner.expires_at(tokens.expires_in),
             scopes,
+            plan_not_allowed,
         };
         stored.write(&*inner.secrets)?;
         Ok(stored.login())

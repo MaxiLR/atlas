@@ -3,7 +3,7 @@
 
 use super::oauth::{self, Failure, RESOURCE, TERMINAL_REFRESH_CODES};
 use super::stored::{StoredLogin, read_client_id};
-use super::{AccessToken, Inner, RefreshError};
+use super::{AccessToken, Inner, RefreshError, Unreachable};
 
 pub(super) async fn refresh(inner: &Inner) -> Result<AccessToken, RefreshError> {
     let seen = StoredLogin::read(&*inner.secrets)?.ok_or(RefreshError::SignedOut)?;
@@ -28,8 +28,13 @@ pub(super) async fn refresh(inner: &Inner) -> Result<AccessToken, RefreshError> 
     .await;
     let tokens = match answer {
         Ok(tokens) => tokens,
+        Err(Failure::Network(message)) => {
+            return Err(RefreshError::Unavailable(Unreachable::Network(message)));
+        }
         Err(failure) if failure.is_transient() => {
-            return Err(RefreshError::Unavailable(failure.to_string()));
+            return Err(RefreshError::Unavailable(Unreachable::Answer(
+                failure.to_string(),
+            )));
         }
         Err(Failure::Status {
             code: Some(code), ..
@@ -40,7 +45,11 @@ pub(super) async fn refresh(inner: &Inner) -> Result<AccessToken, RefreshError> 
         Err(Failure::Status { status, code }) => {
             return Err(RefreshError::Refused { status, code });
         }
-        Err(failure) => return Err(RefreshError::Unavailable(failure.to_string())),
+        Err(failure) => {
+            return Err(RefreshError::Unavailable(Unreachable::Answer(
+                failure.to_string(),
+            )));
+        }
     };
 
     login.access_token = tokens.access_token;

@@ -9,8 +9,8 @@ use super::{AccessToken, Identity, Login};
 use crate::ports::{SecretError, SecretRecord, SecretStore};
 
 /// The plan login's record: the validated identity, the tokens, the granted
-/// scopes and the ID token kept for `id_token_hint`. No `Debug`: it holds
-/// tokens.
+/// scopes, the ID token kept for `id_token_hint`, and whether the provider
+/// reported the plan not allowed. No `Debug`: it holds tokens.
 #[derive(Clone, Serialize, Deserialize)]
 pub(super) struct StoredLogin {
     pub subject: String,
@@ -20,6 +20,8 @@ pub(super) struct StoredLogin {
     pub refresh_token: String,
     pub expires_at: DateTime<Utc>,
     pub scopes: Vec<String>,
+    #[serde(default)]
+    pub plan_not_allowed: bool,
 }
 
 impl StoredLogin {
@@ -56,6 +58,7 @@ impl StoredLogin {
             scopes: self.scopes.clone(),
             plan_usage: self.scopes.iter().any(|scope| scope == PLAN_SCOPE),
             expires_at: self.expires_at,
+            plan_not_allowed: self.plan_not_allowed,
         }
     }
 }

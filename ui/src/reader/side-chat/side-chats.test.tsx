@@ -1,7 +1,7 @@
-import { act, render, screen, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { useEffect } from "react";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   AtlasStoreProvider,
@@ -19,6 +19,10 @@ import { selectOpenCourse } from "@/store";
 import { createValve, startedAt } from "@/test/fake-core";
 
 import { SideChats } from "./side-chats";
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 const PASSAGE =
   "Its weight drags the rest of the plate behind it, a force called slab pull";
@@ -196,9 +200,15 @@ describe("the side-chat list", () => {
     await user.click(
       within(entries[1]!).getByRole("button", { name: /slab pull/ }),
     );
+    const anchored = plateTectonics(core.world).chats[1]!;
+    expect(anchored.anchor).not.toBeNull();
     expect(requests).toContainEqual({
       type: "OpenSideChat",
-      chatId: sampleChat(core.world).id,
+      chatId: anchored.id,
+    });
+    expect(requests).not.toContainEqual({
+      type: "OpenSideChat",
+      chatId: "chat-unanchored",
     });
     const thread = await within(panel).findByRole("region", {
       name: "Side chat",
@@ -335,7 +345,11 @@ describe("a side chat's thread", () => {
     for (const link of thread.querySelectorAll("a")) {
       expect(link.getAttribute("href")).toMatch(/^https?:\/\//);
     }
-    expect(within(thread).queryByText("raw link")).toBeNull();
+    // The sections' Markdown drops the tags and keeps the words between them.
+    const rawLink = within(thread).getByText("raw link");
+    expect(rawLink).toBeVisible();
+    expect(rawLink.closest("a")).toBeNull();
+    expect(within(thread).queryByRole("link")).toBeNull();
     expect(within(thread).getByText("a script link")).toBeVisible();
     expect("hacked" in window).toBe(false);
   });
@@ -422,11 +436,17 @@ describe("a reply as it is written", () => {
 
     await act(async () => valve.step());
     await act(async () => valve.step());
-    expect(
-      await within(thread).findByText(FIRST_CHUNK, { exact: false }),
-    ).toBeVisible();
+    // The stored reply holds the same text: the new reply adds a second copy
+    // of its first sentence and none of its last.
+    await waitFor(() =>
+      expect(
+        within(thread).getAllByText(FIRST_CHUNK, { exact: false }),
+      ).toHaveLength(2),
+    );
     expect(within(thread).getAllByText("Searched the web")).toHaveLength(2);
-    expect(thread).not.toHaveTextContent(LAST_CHUNK);
+    expect(
+      within(thread).getAllByText(LAST_CHUNK, { exact: false }),
+    ).toHaveLength(1);
 
     await user.click(stop);
     expect(requests).toContainEqual({ type: "StopSideChatReply", chatId });
@@ -437,7 +457,12 @@ describe("a reply as it is written", () => {
         "You stopped this reply before it was finished.",
       ),
     ).toBeVisible();
-    expect(thread).not.toHaveTextContent(LAST_CHUNK);
+    expect(
+      within(thread).getAllByText(LAST_CHUNK, { exact: false }),
+    ).toHaveLength(1);
+    expect(
+      within(thread).getAllByText(FIRST_CHUNK, { exact: false }),
+    ).toHaveLength(2);
     expect(within(panel).queryByRole("button", { name: "Stop" })).toBeNull();
     expect(within(panel).getByRole("button", { name: "Send" })).toBeVisible();
     expect(
@@ -516,6 +541,8 @@ describe("a reply as it is written", () => {
   });
 
   it("at the plan's limit it says so, when it resets, and offers Manage usage", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(startedAt));
     const { panel, requests, user } = await renderPanel({
       scenario: "plan-limit",
     });

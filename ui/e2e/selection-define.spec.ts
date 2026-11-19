@@ -120,7 +120,12 @@ for (const width of widths) {
 
         await page.keyboard.press("Escape");
         await expect(popover).toBeHidden();
-        const term = article.getByRole("button", { name: "subduction" });
+        // Exact: a citation chip in the article is named "Source 2:
+        // Subduction zones, …", which a substring match would find too.
+        const term = article.getByRole("button", {
+          name: "subduction",
+          exact: true,
+        });
         await expect(term).toBeFocused();
 
         await page.keyboard.press("Enter");

@@ -1,17 +1,34 @@
 //! Sign in with ChatGPT: PKCE with a callback on `127.0.0.1`, the issued
 //! client id, token exchange, refresh and revocation (ADR-0002).
 //!
-//! Tokens live only in the secret store and inside the core: none of these
-//! types serialises, and none is reachable from the protocol.
+//! Tokens and the issued client id live only in the secret store and inside
+//! the core: they are serialised only into the secret store's records, and
+//! none is reachable from the protocol.
+
+mod callback;
+mod flow;
+mod host_id;
+mod id_token;
+mod oauth;
+mod refresh;
+mod sign_out;
+mod stored;
+
+pub use flow::PendingSignIn;
 
 use std::fmt;
-use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
 use chrono::{DateTime, Utc};
-use url::Url;
 
 use crate::ports::{Browser, BrowserError, Clock, Endpoints, SecretError, SecretStore};
+use stored::StoredLogin;
+
+/// The lifetime assumed for an access token whose answer names none.
+const DEFAULT_LIFETIME_SECONDS: i64 = 3600;
+/// How long a request to the authorisation server may take.
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// A bearer token for the plan route. Its `Debug` output hides it.
 #[derive(Clone, PartialEq, Eq)]
@@ -73,14 +90,6 @@ pub struct Identity {
 /// every sign-in.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HostId(pub String);
-
-impl HostId {
-    /// The host id kept in the file at `path`, generated and written there the
-    /// first time.
-    pub fn load_or_create(_path: &Path) -> std::io::Result<Self> {
-        unimplemented!("host id")
-    }
-}
 
 /// What the sign-in needs from its host.
 pub struct PlanAuthDeps {
@@ -178,50 +187,70 @@ pub enum RefreshError {
 /// The plan login's OAuth mechanics.
 #[derive(Clone)]
 pub struct PlanAuth {
-    _deps: Arc<PlanAuthDeps>,
+    inner: Arc<Inner>,
+}
+
+struct Inner {
+    http: reqwest::Client,
+    endpoints: Endpoints,
+    secrets: Arc<dyn SecretStore>,
+    browser: Arc<dyn Browser>,
+    clock: Arc<dyn Clock>,
+    host_id: HostId,
+    /// Held while the tokens are refreshed, replaced or cleared.
+    refresh_lock: tokio::sync::Mutex<()>,
+}
+
+impl Inner {
+    fn expires_at(&self, expires_in: Option<i64>) -> DateTime<Utc> {
+        self.clock.now() + chrono::Duration::seconds(expires_in.unwrap_or(DEFAULT_LIFETIME_SECONDS))
+    }
 }
 
 impl PlanAuth {
     pub fn new(deps: PlanAuthDeps) -> Self {
+        let http = reqwest::Client::builder()
+            .timeout(REQUEST_TIMEOUT)
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .expect("the HTTP client builds");
         Self {
-            _deps: Arc::new(deps),
+            inner: Arc::new(Inner {
+                http,
+                endpoints: deps.endpoints,
+                secrets: deps.secrets,
+                browser: deps.browser,
+                clock: deps.clock,
+                host_id: deps.host_id,
+                refresh_lock: tokio::sync::Mutex::new(()),
+            }),
         }
     }
 
     /// Opens the browser on the authorisation page with a listener waiting
-    /// for its callback.
-    pub async fn start(&self, _mode: SignInMode) -> Result<PendingSignIn, AuthError> {
-        unimplemented!("start")
+    /// for its callback on `127.0.0.1`.
+    pub async fn start(&self, mode: SignInMode) -> Result<PendingSignIn, AuthError> {
+        flow::start(self.inner.clone(), mode).await
     }
 
+    /// The saved login, without its tokens.
     pub fn login(&self) -> Result<Option<Login>, AuthError> {
-        unimplemented!("login")
+        Ok(StoredLogin::read(&*self.inner.secrets)?.map(|login| login.login()))
     }
 
+    /// The saved access token, for the core's token source.
     pub fn access_token(&self) -> Result<Option<AccessToken>, AuthError> {
-        unimplemented!("access token")
+        Ok(StoredLogin::read(&*self.inner.secrets)?.map(|login| login.access_token()))
     }
 
+    /// Exchanges the refresh token for new tokens. Concurrent callers share
+    /// one request.
     pub async fn refresh(&self) -> Result<AccessToken, RefreshError> {
-        unimplemented!("refresh")
+        refresh::refresh(&self.inner).await
     }
 
+    /// Revokes the refresh token, then clears the tokens.
     pub async fn sign_out(&self) -> Result<SignedOut, AuthError> {
-        unimplemented!("sign out")
-    }
-}
-
-/// A sign-in attempt waiting for its callback. Dropping it cancels it.
-pub struct PendingSignIn {
-    redirect_uri: Url,
-}
-
-impl PendingSignIn {
-    pub fn redirect_uri(&self) -> &Url {
-        &self.redirect_uri
-    }
-
-    pub async fn finish(self) -> Result<Login, AuthError> {
-        unimplemented!("finish")
+        sign_out::sign_out(&self.inner).await
     }
 }

@@ -3,6 +3,7 @@
 // pattern's effort menu is left out.
 import { ChevronDownIcon } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -10,7 +11,6 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { InputGroupButton } from "@/components/ui/input-group";
 
 export interface ModelOption {
   slug: string;
@@ -26,14 +26,15 @@ export function ModelSelector({
   value: string;
   onValueChange: (slug: string) => void;
 }) {
-  const selected = models.find((model) => model.slug === value);
+  const name =
+    models.find((model) => model.slug === value)?.displayName ?? value;
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <InputGroupButton size="sm">
-          {selected?.displayName ?? value}
+        <Button variant="ghost" aria-label={`Model: ${name}`}>
+          {name}
           <ChevronDownIcon />
-        </InputGroupButton>
+        </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start">
         <DropdownMenuRadioGroup value={value} onValueChange={onValueChange}>

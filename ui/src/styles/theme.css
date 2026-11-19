@@ -68,13 +68,18 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
 
+  /* Corners: controls 6, inputs and option rows 8, fields 10, panels,
+     figures and popovers 12. No pills. */
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-xl: calc(var(--radius) * 1.2);
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* The one soft shadow, under floating surfaces only. */
+  --shadow-float: var(--atlas-float);
 }
 
 @theme {
@@ -158,6 +163,19 @@
    again. */
 [data-surface] {
   --popover: var(--atlas-canvas);
+}
+
+/* The soft shadow in the theme's darkest ink. Declared on the theme scope
+   only, so a raised surface inherits it as its page computed it. */
+[data-theme="dark"] {
+  --atlas-float:
+    0 2px 32px color-mix(in oklab, var(--atlas-canvas) 25%, transparent),
+    0 8px 24px color-mix(in oklab, var(--atlas-canvas) 35%, transparent);
+}
+[data-theme="light"] {
+  --atlas-float:
+    0 2px 32px color-mix(in oklab, var(--atlas-heading) 8%, transparent),
+    0 8px 24px color-mix(in oklab, var(--atlas-heading) 10%, transparent);
 }
 
 @layer base {

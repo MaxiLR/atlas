@@ -21,6 +21,7 @@ export function PersonMessage({ children }: { children: ReactNode }) {
   );
 }
 
+/** The reply is set in Typeset at the side panel's 15 px. */
 export function AgentMessage({
   children,
   actions,
@@ -31,8 +32,12 @@ export function AgentMessage({
   return (
     <Message>
       <MessageContent className="gap-2">
-        {children}
-        {actions !== undefined && <MessageFooter>{actions}</MessageFooter>}
+        <div className="typeset [--typeset-flow:0.75em] [--typeset-leading:1.6] [--typeset-size:0.9375rem]">
+          {children}
+        </div>
+        {actions !== undefined && (
+          <MessageFooter className="px-0">{actions}</MessageFooter>
+        )}
       </MessageContent>
     </Message>
   );

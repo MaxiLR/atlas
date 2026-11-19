@@ -1,60 +1,39 @@
 // AI Elements: Sources (https://ui.shadcn.com/docs/ai-elements/radix/sources).
-// The links the agent used for a reply.
-import { ArrowUpRightIcon, GlobeIcon } from "lucide-react";
-
-import {
-  Trace,
-  TraceCollapsible,
-  TraceCollapsibleContent,
-  TraceCollapsibleTrigger,
-  TraceIcon,
-  TraceLine,
-  TraceTitle,
-} from "@/components/ui/trace";
+// The sources a section or a reply used, numbered as their citations are.
 
 export interface Source {
   url: string;
   title?: string;
+  /** Who published it; the link's host name when unknown. */
+  site?: string;
 }
 
 export function Sources({ sources }: { sources: Source[] }) {
   return (
-    <Trace>
-      <TraceCollapsible>
-        <TraceCollapsibleTrigger>
-          <TraceLine>
-            <TraceIcon>
-              <GlobeIcon />
-            </TraceIcon>
-            <TraceTitle>Used {sources.length} sources</TraceTitle>
-          </TraceLine>
-        </TraceCollapsibleTrigger>
-        <TraceCollapsibleContent>
-          <Trace>
-            {sources.map((source) => (
+    <ol className="grid gap-2 text-13 text-muted-foreground">
+      {sources.map((source, index) => {
+        const site = source.site ?? new URL(source.url).hostname;
+        return (
+          <li
+            key={source.url}
+            className="grid grid-cols-[1.5rem_minmax(0,1fr)] tabular-nums"
+          >
+            <span aria-hidden="true">{index + 1}</span>
+            <span>
               <a
-                key={source.url}
                 href={source.url}
                 target="_blank"
                 rel="noreferrer"
+                className="rounded-sm text-body underline decoration-edge-strong underline-offset-3 transition-colors outline-none hover:text-heading hover:decoration-current focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus focus-visible:outline-solid"
               >
-                <TraceLine>
-                  <TraceIcon>
-                    <GlobeIcon />
-                  </TraceIcon>
-                  <TraceTitle>
-                    {source.title ?? new URL(source.url).hostname}
-                    <span className="sr-only"> (opens in a new tab)</span>
-                  </TraceTitle>
-                  <TraceIcon>
-                    <ArrowUpRightIcon />
-                  </TraceIcon>
-                </TraceLine>
+                {source.title ?? site}
+                <span className="sr-only"> (opens in a new tab)</span>
               </a>
-            ))}
-          </Trace>
-        </TraceCollapsibleContent>
-      </TraceCollapsible>
-    </Trace>
+              {source.title !== undefined && <>, {site}</>}
+            </span>
+          </li>
+        );
+      })}
+    </ol>
   );
 }

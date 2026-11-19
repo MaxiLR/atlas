@@ -57,7 +57,7 @@ export function Library() {
             {courses.map((course) => (
               <li key={course.id}>
                 <Button
-                  variant="link"
+                  variant="ghost"
                   onClick={() =>
                     send({ type: "OpenCourse", courseId: course.id }).catch(
                       failureInStore,

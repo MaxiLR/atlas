@@ -50,7 +50,7 @@ export function Reader({ course }: { course: CourseView }) {
                 {chapter.sections.map((section) => (
                   <li key={section.id}>
                     <Button
-                      variant="link"
+                      variant="ghost"
                       aria-current={
                         section.id === sectionId ? "page" : undefined
                       }

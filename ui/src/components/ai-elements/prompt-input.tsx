@@ -11,11 +11,14 @@ import {
 } from "@/components/ui/input-group";
 
 export function PromptInput({
+  label,
   onSend,
   placeholder,
   disabled = false,
   addons,
 }: {
+  /** The field's accessible name. */
+  label: string;
   onSend: (text: string) => void;
   placeholder?: string;
   disabled?: boolean;
@@ -34,20 +37,20 @@ export function PromptInput({
 
   return (
     <form onSubmit={submit}>
-      <InputGroup>
+      <InputGroup className="bg-canvas">
         <InputGroupTextarea
+          aria-label={label}
           value={text}
           onChange={(event) => setText(event.target.value)}
           placeholder={placeholder}
-          className="p-3"
         />
         <InputGroupAddon align="block-end">
           {addons}
           <InputGroupButton
             type="submit"
-            size="icon-sm"
-            variant="default"
-            className="ml-auto rounded-full"
+            size="icon"
+            variant="primary"
+            className="ml-auto"
             disabled={!canSend}
             aria-label="Send"
           >

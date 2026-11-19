@@ -55,7 +55,38 @@ describe.each(schemes)("in the %s theme", (scheme) => {
     await applyStyles(scheme);
 
     const question = screen.getByText(/Is slab pull the main thing/);
+    // Cannot pass and must stay as written: wash-strong and edge share a value, and tokenOf names the first match, edge.
     expect(tokenOf(paintOf(question).background, question)).toBe("wash-strong");
+    expect(sameColor(paintOf(question).color, token(question, "heading"))).toBe(
+      true,
+    );
+    expect(getComputedStyle(question).borderTopLeftRadius).toBe("10px");
+
+    const reply = screen.getByText(/slab pull is the larger force/);
+    expect(reply.closest(".typeset")).not.toBeNull();
+    expect(sameColor(paintOf(reply).color, token(reply, "body"))).toBe(true);
+    expect(literalColorsIn(document.body)).toEqual([]);
+  });
+
+  it("Message: the candidate's bubble is filled with the strong wash, compared by value, and the reply is Typeset prose", async () => {
+    render(
+      <>
+        <PersonMessage>
+          Is slab pull the main thing that moves plates?
+        </PersonMessage>
+        <AgentMessage>
+          <p>
+            For plates with a subducting edge, slab pull is the larger force.
+          </p>
+        </AgentMessage>
+      </>,
+    );
+    await applyStyles(scheme);
+
+    const question = screen.getByText(/Is slab pull the main thing/);
+    expect(
+      sameColor(paintOf(question).background, token(question, "wash-strong")),
+    ).toBe(true);
     expect(sameColor(paintOf(question).color, token(question, "heading"))).toBe(
       true,
     );

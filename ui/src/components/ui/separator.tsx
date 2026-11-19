@@ -1,7 +1,8 @@
 import * as React from "react";
-import { cn } from "cn";
+import { cn } from "@/lib/utils";
 import { Separator as SeparatorPrimitive } from "radix-ui";
 
+/** A hairline. */
 function Separator({
   className,
   orientation = "horizontal",
@@ -14,7 +15,7 @@ function Separator({
       decorative={decorative}
       orientation={orientation}
       className={cn(
-        "shrink-0 bg-border data-horizontal:h-px data-horizontal:w-full data-vertical:w-px data-vertical:self-stretch",
+        "shrink-0 bg-edge data-horizontal:h-px data-horizontal:w-full data-vertical:w-px data-vertical:self-stretch",
         className,
       )}
       {...props}

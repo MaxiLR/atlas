@@ -1360,7 +1360,9 @@ async fn requests_for_features_not_built_yet_answer_unavailable_naming_the_featu
         "DeleteCourse",
         "OpenSection",
         "Next",
+        "Define",
         "LookupWikipedia",
+        "ListGlossary",
         "GetUsage",
         "ConnectUsage",
         "CancelConnectUsage",
@@ -1384,7 +1386,7 @@ async fn requests_for_features_not_built_yet_answer_unavailable_naming_the_featu
         );
     }
 
-    assert_eq!(unbuilt, 13);
+    assert_eq!(unbuilt, 11);
     assert!(provider.requests().is_empty());
     assert_eq!(events.take(), []);
     // The thin loop still answers beside them.

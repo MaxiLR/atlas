@@ -32,7 +32,11 @@ export type { MarkProps } from "./prose";
 export interface Passage {
   /** The prose block it lies in. */
   block: number;
-  /** The selected text as it reads. */
+  /**
+   * The selected text as it reads, formulas as their TeX source and
+   * citation markers left out: given back as a mark's quote, it marks the
+   * same passage.
+   */
   text: string;
 }
 
@@ -236,6 +240,37 @@ function Complete({
   }
 }
 
+/**
+ * The text `range` covers, read as marks read it: a formula it touches as
+ * its TeX source, a citation marker not at all.
+ */
+function textIn(range: Range): string {
+  const container = range.commonAncestorContainer;
+  const scope =
+    container instanceof Element ? container : container.parentElement;
+  if (scope === null) return "";
+  const formulas = new Set<Element>();
+  let text = "";
+  const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+    if (!range.intersectsNode(node) || node.parentElement === null) continue;
+    if (node.parentElement.closest("[data-citation]") !== null) continue;
+    const formula = node.parentElement.closest("[data-formula]");
+    if (formula !== null) {
+      if (!formulas.has(formula)) {
+        formulas.add(formula);
+        text += formula.getAttribute("data-formula");
+      }
+      continue;
+    }
+    const value = node.nodeValue ?? "";
+    const from = node === range.startContainer ? range.startOffset : 0;
+    const to = node === range.endContainer ? range.endOffset : value.length;
+    text += value.slice(from, to);
+  }
+  return text;
+}
+
 /** Prose selected within one prose block of `root`; null otherwise. */
 function passageIn(root: Element, selection: Selection | null): Passage | null {
   if (selection === null || selection.isCollapsed) return null;
@@ -248,7 +283,7 @@ function passageIn(root: Element, selection: Selection | null): Passage | null {
   };
   const block = blockOf(selection.anchorNode);
   if (block === null || block !== blockOf(selection.focusNode)) return null;
-  const text = selection.toString();
+  const text = textIn(selection.getRangeAt(0));
   return text.trim() === "" ? null : { block: Number(block), text };
 }
 

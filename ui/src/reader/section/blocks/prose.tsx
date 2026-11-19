@@ -24,8 +24,8 @@ import type { Citation } from "@/core/generated/Citation";
 import type { Source } from "@/core/generated/Source";
 
 import {
+  rehypeFormulas,
   rehypeMarks,
-  rehypeMathErrors,
   rehypeProseBlock,
   remarkCitations,
   type Mark,
@@ -150,7 +150,7 @@ export const Prose = memo(function Prose({
   const rehypePlugins = useMemo<Options["rehypePlugins"]>(
     () => [
       [rehypeKatex, KATEX],
-      [rehypeMathErrors, { streaming }],
+      [rehypeFormulas, { streaming }],
       [rehypeMarks, { marks }],
       [rehypeProseBlock, { block }],
     ],
@@ -168,7 +168,9 @@ export const Prose = memo(function Prose({
           ({ number }) => number === Number(node?.properties.dataSource),
         );
         return source === undefined ? null : (
-          <RegistryEntry type="citation" props={{ ...source }} />
+          <span data-citation="">
+            <RegistryEntry type="citation" props={{ ...source }} />
+          </span>
         );
       },
       mark: ({ node, children }: { node?: Element; children?: ReactNode }) => (

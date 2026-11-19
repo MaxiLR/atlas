@@ -1391,3 +1391,46 @@ async fn no_response_or_event_contains_a_token() {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// The model list follows the session
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn a_sign_in_with_plan_usage_off_reports_an_empty_model_list_without_reading_it() {
+    let harness = Harness::plan().await;
+    harness.server.knobs(|knobs| knobs.grant_plan_scope = false);
+
+    assert_eq!(harness.sign_in().await, signed_in(PlanUsage::Off));
+
+    let lists = || {
+        harness
+            .events
+            .all()
+            .into_iter()
+            .filter_map(|event| match event {
+                CoreEvent::ModelsChanged { list } => Some(list),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while lists().is_empty() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the sign-in reports the model list");
+    assert_eq!(
+        lists(),
+        [atlas_core::protocol::ModelList {
+            models: Vec::new(),
+            current: None,
+        }],
+        "without plan usage the plan login lists no model"
+    );
+    assert!(
+        harness.plan.presented().is_empty(),
+        "the plan route is not read without plan usage"
+    );
+}

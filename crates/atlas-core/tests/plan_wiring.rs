@@ -704,3 +704,89 @@ async fn a_not_allowed_refusal_keeps_the_session_signed_in_as_not_allowed() {
         "later plan requests are refused before the provider"
     );
 }
+
+// ---------------------------------------------------------------------------
+// The model list follows the session out
+// ---------------------------------------------------------------------------
+
+/// The list a session with no plan to read reports.
+fn no_list() -> ModelList {
+    ModelList {
+        models: Vec::new(),
+        current: None,
+    }
+}
+
+/// The model lists reported after the first event that matches `from`.
+fn lists_after(events: &[CoreEvent], from: impl Fn(&CoreEvent) -> bool) -> Vec<ModelList> {
+    let start = events
+        .iter()
+        .position(from)
+        .expect("the starting event is reported");
+    events[start..]
+        .iter()
+        .filter_map(|event| match event {
+            CoreEvent::ModelsChanged { list } => Some(list.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn signing_out_reports_an_empty_model_list_without_reading_the_plan() {
+    let harness = Harness::start().await;
+    harness.signed_in().await;
+    let reads = harness.server.bearers(MODELS).len();
+
+    harness
+        .core
+        .handle(CoreRequest::SignOut)
+        .await
+        .expect("the sign-out succeeds");
+
+    let out = Session::SignedOut {
+        reason: Some(SignedOutReason::SignedOut),
+    };
+    assert_eq!(
+        lists_after(&harness.events(), |event| event
+            == &CoreEvent::SessionChanged {
+                session: out.clone()
+            }),
+        [no_list()],
+        "the old account's list is replaced once the session is out"
+    );
+    assert_eq!(
+        harness.server.bearers(MODELS).len(),
+        reads,
+        "a signed-out session reads nothing from the plan route"
+    );
+    assert_eq!(
+        harness.core.handle(CoreRequest::ListModels).await,
+        Err(CoreError::SignInRequired)
+    );
+}
+
+#[tokio::test]
+async fn an_ended_login_reports_an_empty_model_list() {
+    let harness = Harness::start().await;
+    harness.signed_in().await;
+    let refused = Reply::json(401, &fixture_error("detail-401.json"));
+    harness.server.answer_responses([refused.clone(), refused]);
+
+    assert_eq!(harness.generate().await, Err(CoreError::SignInRequired));
+
+    harness
+        .event(|event| event == &CoreEvent::ModelsChanged { list: no_list() })
+        .await;
+    let ended = Session::SignedOut {
+        reason: Some(SignedOutReason::LoginEnded),
+    };
+    assert_eq!(
+        lists_after(&harness.events(), |event| event
+            == &CoreEvent::SessionChanged {
+                session: ended.clone()
+            }),
+        [no_list()],
+        "the ended login's list is replaced after the session is out"
+    );
+}

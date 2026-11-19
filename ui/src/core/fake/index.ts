@@ -75,6 +75,46 @@ interface StoredCourse {
   stored: Map<string, SectionView>;
 }
 
+type Built =
+  "ListCourses" | "CreateCourse" | "OpenCourse" | "OpenSection" | "Next";
+
+/** The feature folder that answers each request the core does not build yet. */
+const features: Record<Exclude<CoreRequest["type"], Built>, string> = {
+  GetSession: "session",
+  SignIn: "session",
+  CancelSignIn: "session",
+  EnablePlanUsage: "session",
+  SignOut: "session",
+  OpenManageUsage: "external",
+  OpenExternal: "external",
+  ListModels: "models",
+  SelectModel: "models",
+  DeleteCourse: "library",
+  SubmitSelfRating: "placement",
+  AnswerPlacement: "placement",
+  RetryPlacementStep: "placement",
+  StopGeneration: "sections",
+  RetrySection: "sections",
+  ExplainDifferently: "versions",
+  SelectVersion: "versions",
+  AnswerCheck: "checks",
+  GoDeeper: "deep_dives",
+  Define: "define",
+  LookupWikipedia: "wikipedia",
+  ListGlossary: "define",
+  ListSideChats: "side_chats",
+  StartSideChat: "side_chats",
+  OpenSideChat: "side_chats",
+  SendSideChatMessage: "side_chats",
+  StopSideChatReply: "side_chats",
+  GetUsage: "usage",
+  ConnectUsage: "usage",
+  CancelConnectUsage: "usage",
+  SetWindowFocused: "usage",
+  GetExportDocument: "export",
+  ExportPdf: "export",
+};
+
 /**
  * An in-memory core that answers like the real one, for tests and for Vite's
  * `fake` mode. It is never part of the production bundle.
@@ -238,7 +278,7 @@ export function createFakeCore(options: FakeCoreOptions = {}): CoreClient {
         };
       }
       default:
-        return fail({ type: "Unavailable", feature: request.type });
+        return fail({ type: "Unavailable", feature: features[request.type] });
     }
   }
 

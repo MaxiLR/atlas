@@ -1,0 +1,179 @@
+/*
+ * The theme as Tailwind and shadcn/ui see it.
+ *
+ * The colour values are not here: the theme generator (src/theme) computes
+ * them at build time and the atlas-theme Vite plugin puts them in the page
+ * head as `--atlas-*` variables under `[data-theme="light"]` and
+ * `[data-theme="dark"]`, with re-derived values for `[data-surface="raised"]`
+ * subtrees. This file maps those variables to Tailwind utilities and to the
+ * shadcn semantic variables. Use tokens, never literal colours.
+ */
+
+@import "@fontsource-variable/inter";
+@import "@fontsource/ibm-plex-mono";
+
+/* A `[data-theme="light"]` subtree inside a dark page is not dark. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *):not(:where([data-theme="light"], [data-theme="light"] *)));
+
+@theme inline {
+  /* Atlas tokens. Muted text is `text-muted-foreground`. */
+  --color-canvas: var(--atlas-canvas);
+  --color-panel: var(--atlas-panel);
+  --color-raised: var(--atlas-raised);
+  --color-heading: var(--atlas-heading);
+  --color-body: var(--atlas-body);
+  --color-faint: var(--atlas-faint);
+  --color-edge: var(--atlas-edge);
+  --color-edge-strong: var(--atlas-edge-strong);
+  --color-wash: var(--atlas-wash);
+  --color-wash-strong: var(--atlas-wash-strong);
+  --color-accent: var(--atlas-accent);
+  --color-accent-wash: var(--atlas-accent-wash);
+  --color-focus: var(--atlas-focus);
+  --color-green: var(--atlas-green);
+  --color-amber: var(--atlas-amber);
+  --color-red: var(--atlas-red);
+
+  /* shadcn/ui semantic colours, resolved per scope below. */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+@theme {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-sans--font-feature-settings: "cv01", "ss03";
+  --font-heading: var(--font-sans);
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+
+  /* Two weights only: never bold. */
+  --font-weight-normal: 400;
+  --font-weight-medium: 510;
+
+  /* The type scale: interface 12 and 13, inputs and lists 15, prose 16,
+     section headings 20, section titles 28. */
+  --text-12: 0.75rem;
+  --text-12--line-height: 1.4;
+  --text-13: 0.8125rem;
+  --text-13--line-height: 1.5;
+  --text-15: 0.9375rem;
+  --text-15--line-height: 1.5;
+  --text-15--letter-spacing: -0.011em;
+  --text-16: 1rem;
+  --text-16--line-height: 1.65;
+  --text-16--letter-spacing: -0.011em;
+  --text-20: 1.25rem;
+  --text-20--line-height: 1.4;
+  --text-20--letter-spacing: -0.012em;
+  --text-28: 1.75rem;
+  --text-28--line-height: 2.125rem;
+  --text-28--letter-spacing: -0.022em;
+
+  /* Motion: state changes run 150 ms ease-out. */
+  --ease-out: ease-out;
+  --default-transition-duration: 150ms;
+  --default-transition-timing-function: ease-out;
+}
+
+/* Every theme scope and every derived surface resolves the shadcn variables
+   against its own tokens. */
+[data-theme],
+[data-surface] {
+  --background: var(--atlas-canvas);
+  --foreground: var(--atlas-body);
+  --card: var(--atlas-panel);
+  --card-foreground: var(--atlas-body);
+  --popover: var(--atlas-raised);
+  --popover-foreground: var(--atlas-body);
+  --primary: var(--atlas-primary-fill);
+  --primary-foreground: var(--atlas-primary-text);
+  --secondary: var(--atlas-wash);
+  --secondary-foreground: var(--atlas-heading);
+  --muted: var(--atlas-wash);
+  --muted-foreground: var(--atlas-muted);
+  --accent: var(--atlas-accent);
+  --accent-foreground: var(--atlas-canvas);
+  --destructive: var(--atlas-red);
+  --border: var(--atlas-edge);
+  --input: var(--atlas-edge-strong);
+  --ring: var(--atlas-focus);
+  --chart-1: var(--atlas-accent);
+  --chart-2: var(--atlas-green);
+  --chart-3: var(--atlas-amber);
+  --chart-4: var(--atlas-red);
+  --chart-5: var(--atlas-muted);
+  --sidebar: var(--atlas-panel);
+  --sidebar-foreground: var(--atlas-body);
+  --sidebar-primary: var(--atlas-primary-fill);
+  --sidebar-primary-foreground: var(--atlas-primary-text);
+  --sidebar-accent: var(--atlas-wash-strong);
+  --sidebar-accent-foreground: var(--atlas-heading);
+  --sidebar-border: var(--atlas-edge);
+  --sidebar-ring: var(--atlas-focus);
+  --radius: 0.625rem;
+}
+
+/* A raised surface is its own ground: a popover inside it is not lifted
+   again. */
+[data-surface] {
+  --popover: var(--atlas-canvas);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    -webkit-font-smoothing: antialiased;
+    scrollbar-color: var(--atlas-edge-strong) transparent;
+  }
+  ::selection {
+    background-color: var(--atlas-accent-wash);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    transition: none !important;
+  }
+}

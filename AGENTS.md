@@ -95,3 +95,9 @@ version that produced it.
 - shadcn/ui components live in `ui/src/components/ui/` (added with
   `npx shadcn@latest add`), AI Elements patterns in
   `ui/src/components/ai-elements/`, Typeset in `ui/src/typeset.css`.
+- Colours come only from the theme tokens. The generator in `ui/src/theme/`
+  computes both themes at build time and the `atlas-theme` Vite plugin puts
+  them in the page head as `--atlas-*` variables; `ui/src/styles/theme.css`
+  maps them to Tailwind utilities and the shadcn variables. A
+  `data-surface="raised"` subtree re-derives its tokens from its own ground; a
+  `data-theme` subtree (`ThemeScope`) forces one theme.

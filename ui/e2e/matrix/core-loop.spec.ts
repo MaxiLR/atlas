@@ -41,7 +41,35 @@ test("first launch, sign in, topic, placement, index, a streamed section, then N
   }
 
   const index = page.getByRole("navigation", { name: "Index" });
-  await expect(index.getByRole("button")).toHaveCount(7);
+  // Three chapter rows and the five sections of the first two chapters; the
+  // chapter further along is a station with its section count.
+  await expect(index.getByRole("button")).toHaveCount(8);
+  for (const chapter of [
+    "The solid Earth",
+    "Plates and their boundaries",
+    "What moves the plates",
+  ]) {
+    await expect(
+      index.getByRole("button", { name: chapter, exact: true }),
+    ).toHaveAccessibleDescription(/^Chapter, \d+ sections$/);
+  }
+  for (const section of [
+    "Layers by composition",
+    "Lithosphere and asthenosphere",
+    "Divergent boundaries",
+    "Convergent boundaries",
+    "Transform boundaries",
+  ]) {
+    await expect(
+      index.getByRole("button", { name: section, exact: true }),
+    ).toBeVisible();
+  }
+  await expect(
+    index.getByRole("button", { name: "What moves the plates" }),
+  ).toHaveAccessibleDescription("Chapter, 2 sections");
+  await expect(
+    index.getByRole("button", { name: "Mantle convection" }),
+  ).toHaveCount(0);
 
   await index.getByRole("button", { name: "Layers by composition" }).click();
   const first = page.getByRole("article", { name: "Layers by composition" });

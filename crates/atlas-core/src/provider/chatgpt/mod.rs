@@ -31,6 +31,20 @@ use errors::Failure;
 /// How long a connection may take to be established.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 
+/// How long an answer may stay silent, before its head or between two reads
+/// of its body, before the attempt is given up as a network failure. Long
+/// reasoning can leave a stream silent for minutes; this is the idle timeout
+/// Codex uses on the same route.
+const IDLE_TIMEOUT: Duration = Duration::from_secs(300);
+
+fn client(idle: Duration) -> Client {
+    Client::builder()
+        .connect_timeout(CONNECT_TIMEOUT)
+        .read_timeout(idle)
+        .build()
+        .expect("the HTTP client builds")
+}
+
 /// The provider for the plan route, built from the endpoints, the plan login's
 /// token source and the clock that paces its retries.
 ///
@@ -50,12 +64,8 @@ pub struct ChatGptProvider {
 
 impl ChatGptProvider {
     pub fn new(endpoints: &Endpoints, tokens: Arc<dyn TokenSource>, clock: Arc<dyn Clock>) -> Self {
-        let client = Client::builder()
-            .connect_timeout(CONNECT_TIMEOUT)
-            .build()
-            .expect("the HTTP client builds");
         Self {
-            client,
+            client: client(IDLE_TIMEOUT),
             responses: responses_url(&endpoints.api),
             models: models_url(&endpoints.api),
             tokens,
@@ -64,8 +74,13 @@ impl ChatGptProvider {
         }
     }
 
-    pub fn with_idle_timeout(self, _idle: Duration) -> Self {
-        self
+    /// The same provider giving up on an answer silent for `idle` instead of
+    /// five minutes.
+    pub fn with_idle_timeout(self, idle: Duration) -> Self {
+        Self {
+            client: client(idle),
+            ..self
+        }
     }
 
     fn attempts(&self) -> Attempts {
@@ -124,20 +139,18 @@ impl ModelProvider for ChatGptProvider {
             .map_err(unbuildable)?;
         let mut attempts = self.attempts();
         loop {
-            match attempts.send(&request).await {
+            let failure = match attempts.send(&request).await {
                 Ok(response) => {
                     let request_id = request_id(response.headers());
-                    let body = response.text().await.map_err(|_| ProviderError::Failed {
-                        message: "the model list could not be read".to_owned(),
-                        request_id,
-                    })?;
-                    return parse_models(&body);
-                }
-                Err(failure) => {
-                    if let Some(pause) = attempts.recover(failure).await? {
-                        self.clock.sleep(pause).await;
+                    match response.text().await {
+                        Ok(body) => return parse_models(&body),
+                        Err(_) => Failure::interrupted(request_id),
                     }
                 }
+                Err(failure) => failure,
+            };
+            if let Some(pause) = attempts.recover(failure).await? {
+                self.clock.sleep(pause).await;
             }
         }
     }
@@ -195,11 +208,14 @@ impl Exchange {
                     Err(failure) => self.recover(failure).await,
                 },
                 Step::Read(mut reading) => {
-                    // A connection lost mid-stream ends it like a stream
-                    // without a terminal event: broken.
                     let (events, open) = match reading.response.chunk().await {
                         Ok(Some(chunk)) => (reading.parser.feed(&chunk), true),
-                        Ok(None) | Err(_) => (std::mem::take(&mut reading.parser).finish(), false),
+                        // Without a terminal event, the ended stream is broken.
+                        Ok(None) => (std::mem::take(&mut reading.parser).finish(), false),
+                        Err(_) => {
+                            self.recover(Failure::interrupted(reading.request_id)).await;
+                            continue;
+                        }
                     };
                     let mut ended = false;
                     for event in events {

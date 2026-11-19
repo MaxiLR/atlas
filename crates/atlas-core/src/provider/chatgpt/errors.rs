@@ -28,6 +28,15 @@ pub(super) enum Failure {
 }
 
 impl Failure {
+    /// An answer whose connection was cut or went silent after it opened: a
+    /// network failure, so the attempt starts over.
+    pub(super) fn interrupted(request_id: Option<String>) -> Self {
+        Self::Temporary {
+            unreachable: false,
+            request_id,
+        }
+    }
+
     /// The error when nothing recovers the request: a temporary failure
     /// fails, a refused token requires sign-in.
     pub(super) fn settled(self) -> ProviderError {

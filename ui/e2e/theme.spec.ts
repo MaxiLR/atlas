@@ -243,6 +243,17 @@ async function groundsOf(page: Page, scope: string) {
   });
 }
 
+/** The ground a scope shows: its own fill or the nearest painted ancestor's. */
+async function groundOf(page: Page, scope: string) {
+  return page.locator(scope).evaluate((element) => {
+    for (let node: Element | null = element; node; node = node.parentElement) {
+      const background = getComputedStyle(node).backgroundColor;
+      if (background !== "rgba(0, 0, 0, 0)") return background;
+    }
+    throw new Error("Nothing paints the page");
+  });
+}
+
 async function tokenOf(page: Page, scope: string, name: string) {
   return page
     .locator(scope)
@@ -271,7 +282,7 @@ for (const scheme of ["light", "dark"] as const) {
       );
       await page.locator(`${scope} #row`).focus();
 
-      const ground = (await styleOf(page, scope)).background;
+      const ground = await groundOf(page, scope);
       const row = await styleOf(page, `${scope} #row`);
       const fill = over(row.background, ground);
       expect(distance(fill, ground)).toBeGreaterThan(0.01);
@@ -318,7 +329,7 @@ for (const scheme of ["light", "dark"] as const) {
         `<div class="typeset"><p>Slab pull is the <mark>larger force</mark>.</p></div>`,
       );
 
-      const ground = (await styleOf(page, scope)).background;
+      const ground = await groundOf(page, scope);
       const mark = await styleOf(page, `${scope} mark`);
       const wash = await tokenOf(page, scope, "--atlas-accent-wash");
       const fill = over(mark.background, ground);
@@ -348,7 +359,7 @@ for (const scheme of ["light", "dark"] as const) {
         `<div class="${className}"><div id="content" data-slot="bubble-content">Why does slab pull win?</div></div>`,
       );
 
-      const ground = (await styleOf(page, scope)).background;
+      const ground = await groundOf(page, scope);
       const content = await styleOf(page, `${scope} #content`);
       const wash = await tokenOf(page, scope, "--atlas-accent-wash");
       const fill = over(content.background, ground);

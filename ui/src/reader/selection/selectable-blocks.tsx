@@ -436,41 +436,45 @@ export function SelectableBlocks({
         }}
       >
         <PopoverAnchor virtualRef={menuAnchor} />
-        <PopoverContent
-          role="toolbar"
-          aria-label="Selection"
-          aria-orientation="horizontal"
-          side="top"
-          align="start"
-          sideOffset={6}
-          collisionPadding={8}
-          className="w-auto flex-row gap-0.5 rounded-lg p-[3px]"
-          onOpenAutoFocus={(event) => event.preventDefault()}
-          onCloseAutoFocus={(event) => event.preventDefault()}
-          onPointerDownOutside={(event) => event.preventDefault()}
-          onFocusOutside={(event) => event.preventDefault()}
-          // Pressing the menu keeps the selection and the focus where they are.
-          onMouseDown={(event) => event.preventDefault()}
-        >
-          <Button
-            variant="ghost"
-            className="text-body"
-            aria-keyshortcuts="D"
-            onClick={() => selected !== null && define(selected)}
+        {/* Unmounted, not animated out, once closed: a closing layer would
+            take the next Escape, which belongs to the side panel. */}
+        {menuOpen && (
+          <PopoverContent
+            role="toolbar"
+            aria-label="Selection"
+            aria-orientation="horizontal"
+            side="top"
+            align="start"
+            sideOffset={6}
+            collisionPadding={8}
+            className="w-auto flex-row gap-0.5 rounded-lg p-[3px]"
+            onOpenAutoFocus={(event) => event.preventDefault()}
+            onCloseAutoFocus={(event) => event.preventDefault()}
+            onPointerDownOutside={(event) => event.preventDefault()}
+            onFocusOutside={(event) => event.preventDefault()}
+            // Pressing the menu keeps the selection and the focus where they are.
+            onMouseDown={(event) => event.preventDefault()}
           >
-            Define
-            <Kbd aria-hidden>D</Kbd>
-          </Button>
-          <Button
-            variant="ghost"
-            className="text-body"
-            aria-keyshortcuts="A"
-            onClick={() => selected !== null && askAbout(selected)}
-          >
-            Ask
-            <Kbd aria-hidden>A</Kbd>
-          </Button>
-        </PopoverContent>
+            <Button
+              variant="ghost"
+              className="text-body"
+              aria-keyshortcuts="D"
+              onClick={() => selected !== null && define(selected)}
+            >
+              Define
+              <Kbd aria-hidden>D</Kbd>
+            </Button>
+            <Button
+              variant="ghost"
+              className="text-body"
+              aria-keyshortcuts="A"
+              onClick={() => selected !== null && askAbout(selected)}
+            >
+              Ask
+              <Kbd aria-hidden>A</Kbd>
+            </Button>
+          </PopoverContent>
+        )}
       </Popover>
 
       <Popover
@@ -480,33 +484,34 @@ export function SelectableBlocks({
         }}
       >
         <PopoverAnchor virtualRef={doubtAnchor} />
-        <PopoverContent
-          ref={card}
-          aria-label={`Definition of ${doubtEntry?.term ?? doubt?.anchor.quote ?? ""}`}
-          aria-busy={busy}
-          side="bottom"
-          align="start"
-          sideOffset={8}
-          collisionPadding={8}
-          className="w-90 gap-0 overflow-hidden p-0"
-          onOpenAutoFocus={(event) => {
-            event.preventDefault();
-            card.current?.focus();
-          }}
-          // Escape hands focus back to the term in the text, or to the
-          // passage while it is not defined yet; a press elsewhere leaves it
-          // where it went.
-          onEscapeKeyDown={() => {
-            const term = termOf(doubtEntry?.id);
-            if (term != null) {
-              term.focus();
-            } else if (doubt?.range != null && frame.current !== null) {
-              focusPassage(frame.current, doubt.range, doubt.anchor.block);
-            }
-          }}
-          onCloseAutoFocus={(event) => event.preventDefault()}
-        >
-          {doubt !== null && (
+        {/* Unmounted, not animated out, once closed, like the menu. */}
+        {doubt !== null && (
+          <PopoverContent
+            ref={card}
+            aria-label={`Definition of ${doubtEntry?.term ?? doubt.anchor.quote}`}
+            aria-busy={busy}
+            side="bottom"
+            align="start"
+            sideOffset={8}
+            collisionPadding={8}
+            className="w-90 gap-0 overflow-hidden p-0"
+            onOpenAutoFocus={(event) => {
+              event.preventDefault();
+              card.current?.focus();
+            }}
+            // Escape hands focus back to the term in the text, or to the
+            // passage while it is not defined yet; a press elsewhere leaves
+            // it where it went.
+            onEscapeKeyDown={() => {
+              const term = termOf(doubtEntry?.id);
+              if (term != null) {
+                term.focus();
+              } else if (doubt.range !== null && frame.current !== null) {
+                focusPassage(frame.current, doubt.range, doubt.anchor.block);
+              }
+            }}
+            onCloseAutoFocus={(event) => event.preventDefault()}
+          >
             <DefinitionBody
               courseId={courseId}
               anchor={doubt.anchor}
@@ -525,8 +530,8 @@ export function SelectableBlocks({
                 ask(entry.anchor);
               }}
             />
-          )}
-        </PopoverContent>
+          </PopoverContent>
+        )}
       </Popover>
     </MarksContext>
   );

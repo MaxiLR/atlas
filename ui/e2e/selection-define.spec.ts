@@ -196,3 +196,27 @@ for (const width of widths) {
     });
   }
 }
+
+test("Escape closes the side panel at once after Ask, and after Define's popover closed", async ({
+  page,
+}) => {
+  const article = await openSection(page, { width: 1440, colorScheme: "dark" });
+  const panel = page.getByRole("complementary", { name: "Side panel" });
+
+  await select(page, article, PASSAGE, "mouse");
+  await menu(page).getByRole("button", { name: "Ask" }).click();
+  await page.keyboard.press("Escape");
+  await expect(panel).toBeHidden();
+
+  await page.getByRole("button", { name: /side chat on “Oceanic/i }).focus();
+  await page.keyboard.press("Enter");
+  await expect(panel).toBeVisible();
+  await select(page, article, "subduction", "mouse");
+  await page.keyboard.press("d");
+  const popover = definition(page, "subduction");
+  await expect(popover).toContainText("Subduction is a geological process");
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  await expect(popover).toBeHidden();
+  await expect(panel).toBeHidden();
+});

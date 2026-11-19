@@ -1,0 +1,33 @@
+{
+  "root": "question",
+  "elements": {
+    "question": {
+      "type": "check-question",
+      "props": {
+        "rung": 2,
+        "stem": "A young, warm oceanic plate meets an old, cold one. Which sinks?",
+        "options": [
+          {
+            "text": "The old, cold plate",
+            "misconception": null
+          },
+          {
+            "text": "The young, warm plate",
+            "misconception": "Thinks warmth makes a plate softer and so more likely to sink"
+          },
+          {
+            "text": "Neither: they build mountains",
+            "misconception": "Confuses ocean-ocean with continent-continent convergence"
+          },
+          {
+            "text": "They slide past each other",
+            "misconception": "Confuses convergent with transform boundaries"
+          }
+        ],
+        "key": 0,
+        "explanation": "Oceanic lithosphere grows denser as it ages and cools, so the older plate sinks."
+      },
+      "children": []
+    }
+  }
+}

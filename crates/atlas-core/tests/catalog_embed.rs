@@ -1,0 +1,107 @@
+//! The catalog the core embeds: its prompt text and the validator compiled
+//! from its generated JSON schema, held against fixture specs.
+//!
+//! `fixtures/catalog/valid/` holds one valid spec per catalog entry, named
+//! after the entry; `fixtures/catalog/invalid/` holds specs each broken in one
+//! way.
+
+use std::fs;
+use std::path::PathBuf;
+
+use atlas_core::harness::catalog;
+use serde_json::Value;
+
+/// The catalog's entries, as the ticket names them.
+const ENTRIES: [&str; 10] = [
+    "concept-map",
+    "layered-figure",
+    "timeline",
+    "step-through",
+    "comparison",
+    "callout",
+    "mermaid-diagram",
+    "figure",
+    "check-question",
+    "citation",
+];
+
+fn fixture(kind: &str, name: &str) -> Value {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/catalog")
+        .join(kind)
+        .join(format!("{name}.json"));
+    let text = fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("cannot read {}: {error}", path.display()));
+    serde_json::from_str(&text)
+        .unwrap_or_else(|error| panic!("{} is not JSON: {error}", path.display()))
+}
+
+fn reasons_for(name: &str) -> String {
+    match catalog::validate(&fixture("invalid", name)) {
+        Ok(()) => panic!("the invalid fixture {name} passed"),
+        Err(error) => error.to_string(),
+    }
+}
+
+#[test]
+fn the_catalog_names_every_entry() {
+    let mut names = catalog::component_names();
+    names.sort_unstable();
+    let mut expected = ENTRIES.to_vec();
+    expected.sort_unstable();
+    assert_eq!(names, expected);
+}
+
+#[test]
+fn one_valid_spec_per_entry_passes() {
+    for name in ENTRIES {
+        let spec = fixture("valid", name);
+        assert_eq!(
+            spec["elements"][spec["root"].as_str().unwrap()]["type"],
+            name,
+            "the fixture {name} is a spec of the entry it is named after"
+        );
+        if let Err(error) = catalog::validate(&spec) {
+            panic!("the valid fixture {name} failed: {error}");
+        }
+    }
+}
+
+#[test]
+fn an_unknown_component_fails_naming_it() {
+    let reasons = reasons_for("unknown-component");
+    assert!(reasons.contains("bar-chart"), "{reasons}");
+}
+
+#[test]
+fn a_missing_required_prop_fails_naming_it() {
+    let reasons = reasons_for("missing-prop");
+    assert!(reasons.contains("\"body\""), "{reasons}");
+    assert!(reasons.contains("required"), "{reasons}");
+}
+
+#[test]
+fn a_prop_of_the_wrong_type_fails_naming_where_and_what() {
+    let reasons = reasons_for("wrong-type");
+    assert!(reasons.contains("/props/title"), "{reasons}");
+    assert!(reasons.contains("string"), "{reasons}");
+}
+
+#[test]
+fn a_spec_whose_root_names_no_element_fails() {
+    let mut spec = fixture("valid", "callout");
+    spec["root"] = Value::from("missing");
+    let error = catalog::validate(&spec).expect_err("a dangling root passed");
+    assert!(error.to_string().contains("missing"), "{error}");
+}
+
+#[test]
+fn the_prompt_describes_every_entry_without_front_matter() {
+    let prompt = catalog::prompt();
+    assert!(!prompt.starts_with("---"), "{prompt}");
+    assert!(!prompt.contains("version:"), "{prompt}");
+    for name in ENTRIES {
+        assert!(prompt.contains(name), "the prompt does not name {name}");
+    }
+    assert!(catalog::version() >= 1);
+}

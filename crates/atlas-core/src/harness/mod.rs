@@ -1,6 +1,7 @@
 //! The harness: prompts, tasks, and the parsing and checking of what the model
 //! returns.
 
+pub mod catalog;
 pub mod chat_context;
 pub mod citations;
 pub mod context;

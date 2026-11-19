@@ -1,0 +1,13 @@
+{
+  "root": "flow",
+  "elements": {
+    "flow": {
+      "type": "mermaid-diagram",
+      "props": {
+        "source": "flowchart LR\n  A[Oceanic plate] --> B[Trench]\n  B --> C[Mantle]",
+        "caption": "Where the sinking plate goes"
+      },
+      "children": []
+    }
+  }
+}

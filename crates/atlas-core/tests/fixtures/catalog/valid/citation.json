@@ -1,0 +1,14 @@
+{
+  "root": "source",
+  "elements": {
+    "source": {
+      "type": "citation",
+      "props": {
+        "number": 1,
+        "title": "Understanding plate motions",
+        "url": "https://pubs.usgs.gov/gip/dynamic/understanding.html"
+      },
+      "children": []
+    }
+  }
+}

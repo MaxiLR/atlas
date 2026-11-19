@@ -1,0 +1,13 @@
+{
+  "root": "chart",
+  "elements": {
+    "chart": {
+      "type": "bar-chart",
+      "props": {
+        "caption": "Plate speeds",
+        "bars": [1, 2, 3]
+      },
+      "children": []
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "root": "history",
+  "elements": {
+    "history": {
+      "type": "timeline",
+      "props": {
+        "caption": "How plate tectonics was accepted",
+        "events": [
+          {
+            "date": "1912",
+            "label": "Wegener proposes continental drift"
+          },
+          {
+            "date": "1960s",
+            "label": "Sea-floor spreading is mapped",
+            "note": "Magnetic stripes either side of the ridges"
+          }
+        ]
+      },
+      "children": []
+    }
+  }
+}

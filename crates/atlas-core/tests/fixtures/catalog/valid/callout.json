@@ -1,0 +1,13 @@
+{
+  "root": "note",
+  "elements": {
+    "note": {
+      "type": "callout",
+      "props": {
+        "title": "Convergent does not mean a crash",
+        "body": "Nothing collides at speed: plates move about as fast as fingernails grow."
+      },
+      "children": []
+    }
+  }
+}

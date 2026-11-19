@@ -1,0 +1,13 @@
+{
+  "root": "note",
+  "elements": {
+    "note": {
+      "type": "callout",
+      "props": {
+        "title": 42,
+        "body": "Nothing collides at speed."
+      },
+      "children": []
+    }
+  }
+}

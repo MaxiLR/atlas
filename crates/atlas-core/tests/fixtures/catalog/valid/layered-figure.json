@@ -1,0 +1,26 @@
+{
+  "root": "layers",
+  "elements": {
+    "layers": {
+      "type": "layered-figure",
+      "props": {
+        "caption": "The layers under a continent",
+        "layers": [
+          {
+            "label": "Crust",
+            "note": "Thin, cold and brittle"
+          },
+          {
+            "label": "Lithospheric mantle",
+            "note": "Rigid, moves with the crust"
+          },
+          {
+            "label": "Asthenosphere",
+            "note": "Hot enough to flow slowly"
+          }
+        ]
+      },
+      "children": []
+    }
+  }
+}

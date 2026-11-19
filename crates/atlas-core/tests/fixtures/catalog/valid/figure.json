@@ -1,0 +1,13 @@
+{
+  "root": "drawing",
+  "elements": {
+    "drawing": {
+      "type": "figure",
+      "props": {
+        "svg": "<svg viewBox=\"0 0 100 40\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M0 20H100\" stroke=\"currentColor\"/><text x=\"4\" y=\"16\">SEA LEVEL</text></svg>",
+        "caption": "Sea level, not to scale"
+      },
+      "children": []
+    }
+  }
+}

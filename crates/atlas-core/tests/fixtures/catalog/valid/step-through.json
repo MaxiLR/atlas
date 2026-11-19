@@ -1,0 +1,26 @@
+{
+  "root": "steps",
+  "elements": {
+    "steps": {
+      "type": "step-through",
+      "props": {
+        "caption": "How a volcanic arc forms",
+        "steps": [
+          {
+            "label": "The slab sinks",
+            "note": "The denser plate descends into the mantle"
+          },
+          {
+            "label": "Water is released",
+            "note": "Heat drives water out of the slab"
+          },
+          {
+            "label": "Rock melts",
+            "note": "Water lowers the melting point of the mantle above"
+          }
+        ]
+      },
+      "children": []
+    }
+  }
+}

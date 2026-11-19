@@ -307,3 +307,109 @@ fn the_main_window_is_at_least_720_wide_with_an_overlaid_title_bar() {
     assert_eq!(window["titleBarStyle"], json!("Overlay"));
     assert_eq!(window["hiddenTitle"], json!(true));
 }
+
+/// Every file under `dir`, at any depth.
+fn files_under(dir: &Path) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    let mut pending = vec![dir.to_path_buf()];
+    while let Some(dir) = pending.pop() {
+        let entries = std::fs::read_dir(&dir)
+            .unwrap_or_else(|error| panic!("could not list {}: {error}", dir.display()));
+        for entry in entries {
+            let path = entry.expect("a readable entry").path();
+            if path.is_dir() {
+                pending.push(path);
+            } else {
+                files.push(path);
+            }
+        }
+    }
+    files
+}
+
+/// The built interface the shell embeds, which `npm --prefix ui run build`
+/// leaves before the shell compiles.
+fn frontend_dist() -> PathBuf {
+    let dist = config()["build"]["frontendDist"]
+        .as_str()
+        .expect("the shell embeds a built folder")
+        .to_owned();
+    shell_dir().join(dist)
+}
+
+fn files_with_extension(dir: &Path, extension: &str) -> Vec<PathBuf> {
+    files_under(dir)
+        .into_iter()
+        .filter(|path| path.extension().is_some_and(|found| found == extension))
+        .collect()
+}
+
+#[test]
+fn the_configuration_lives_in_one_file() {
+    // tauri-build merges `tauri.<platform>.conf.json[5]` and
+    // `Tauri.<platform>.toml` over the main file, and reads
+    // `tauri.conf.json5` or `Tauri.toml` in its place: any of them could
+    // replace the policy or add a capability that the tests above never read.
+    let others: Vec<String> = std::fs::read_dir(shell_dir())
+        .expect("the shell folder is readable")
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|name| {
+            let lower = name.to_lowercase();
+            lower.starts_with("tauri.")
+                && [".json", ".json5", ".toml"]
+                    .iter()
+                    .any(|extension| lower.ends_with(extension))
+                && name != "tauri.conf.json"
+        })
+        .collect();
+    assert!(
+        others.is_empty(),
+        "tauri.conf.json is the only configuration file, found {others:?}"
+    );
+}
+
+#[test]
+fn the_served_pages_keep_inline_styles_allowed() {
+    // Tauri gives every `<style>` element of a page a nonce and adds it to
+    // `style-src`; a browser that sees a nonce ignores `'unsafe-inline'`, so
+    // the styles KaTeX, Mermaid and the dialogs add at run time would be
+    // refused. The isolation pattern adds a style hash with the same effect.
+    let config = config();
+    assert_ne!(
+        config["app"]["security"]["pattern"]["use"],
+        json!("isolation"),
+        "the isolation pattern adds a hash to style-src"
+    );
+    let pages = files_with_extension(&frontend_dist(), "html");
+    assert!(!pages.is_empty(), "the interface is built");
+    for page in pages {
+        let html = std::fs::read_to_string(&page).unwrap().to_lowercase();
+        assert!(
+            !html.contains("<style"),
+            "{} has an inline style element, so Tauri's nonce disables 'unsafe-inline'",
+            page.display()
+        );
+    }
+}
+
+#[test]
+fn the_built_stylesheets_load_fonts_only_from_the_app() {
+    // `font-src` allows the app's own files; a font inlined as a data: URL is
+    // refused and falls back to another typeface.
+    let stylesheets = files_with_extension(&frontend_dist(), "css");
+    assert!(!stylesheets.is_empty(), "the interface is built");
+    for stylesheet in stylesheets {
+        let css = std::fs::read_to_string(&stylesheet).unwrap().to_lowercase();
+        for inlined in [
+            "data:font/",
+            "data:application/font",
+            "data:application/x-font",
+        ] {
+            assert!(
+                !css.contains(inlined),
+                "{} inlines a font as {inlined}",
+                stylesheet.display()
+            );
+        }
+    }
+}

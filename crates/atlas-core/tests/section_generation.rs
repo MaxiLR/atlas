@@ -1243,3 +1243,242 @@ async fn two_concurrent_opens_share_one_generation() {
         .count();
     assert_eq!(started, 1);
 }
+
+// -- the core built with other ports ---------------------------------------------
+
+/// The sample course laid down like [`Harness::new`], the core answered by
+/// `provider` instead of the scripted one and reading the time from `clock`.
+fn harness_with(
+    provider: Option<Arc<dyn ModelProvider>>,
+    clock: Option<Arc<dyn atlas_core::ports::Clock>>,
+) -> Harness {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("atlas.sqlite3");
+    let ports = FakePorts::default();
+    let scripted = Arc::new(ScriptedProvider::default());
+    let events = Arc::new(RecordingEvents::default());
+    let mut deps = ports.deps(
+        path.clone(),
+        provider.unwrap_or_else(|| scripted.clone()),
+        events.clone(),
+    );
+    if let Some(clock) = clock {
+        deps.clock = clock;
+    }
+    let core = Core::new(deps).expect("core starts");
+    let store = Store::open(&path, ports.clock.clone()).unwrap();
+    let course = store_course(&store, &sample_course());
+    events.take();
+    Harness {
+        _dir: dir,
+        provider: scripted,
+        events,
+        core,
+        store,
+        course,
+    }
+}
+
+// -- activity --------------------------------------------------------------------
+
+mod activity {
+    use super::*;
+    use atlas_core::protocol::Activity;
+
+    fn activities(events: &[GenerationEvent]) -> Vec<Activity> {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                GenerationEvent::Activity { activity } => Some(activity.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Answers a write-section request with a first attempt that breaks off
+    /// after `first`, then a second attempt streaming `then` to completion.
+    struct RetriedOnce {
+        first: String,
+        then: String,
+    }
+
+    #[async_trait]
+    impl ModelProvider for RetriedOnce {
+        async fn stream(&self, request: ProviderRequest) -> Result<ProviderStream, ProviderError> {
+            assert_eq!(
+                request.task,
+                Task::WriteSection,
+                "only the section is asked"
+            );
+            Ok(stream::iter(chunks(&self.first))
+                .chain(stream::iter([Ok(ProviderEvent::Retrying { attempt: 2 })]))
+                .chain(stream::iter(chunks(&self.then)))
+                .chain(stream::iter([Ok(ProviderEvent::Completed)]))
+                .boxed())
+        }
+
+        async fn list_models(&self) -> Result<Vec<Model>, ProviderError> {
+            Ok(vec![Model {
+                slug: MODEL.to_owned(),
+                display_name: "Test model".to_owned(),
+            }])
+        }
+    }
+
+    #[tokio::test]
+    async fn a_section_reports_writing_from_its_start() {
+        let harness = Harness::new();
+        harness
+            .provider
+            .script(Task::WriteSection, Script::Complete(fixture("complete.md")));
+
+        harness.open(WHAT_DRIVES_PLATES).await.expect("written");
+
+        let generation = generation_events(&harness.events.take(), WHAT_DRIVES_PLATES);
+        assert_eq!(
+            generation[..2],
+            [
+                GenerationEvent::Started,
+                GenerationEvent::Activity {
+                    activity: Activity::Writing
+                },
+            ]
+        );
+        assert_eq!(activities(&generation), [Activity::Writing]);
+    }
+
+    #[tokio::test]
+    async fn writing_is_reported_again_once_a_retried_attempt_streams() {
+        let harness = harness_with(
+            Some(Arc::new(RetriedOnce {
+                first: "The plates do not".to_owned(),
+                then: fixture("complete.md"),
+            })),
+            None,
+        );
+
+        harness.open(WHAT_DRIVES_PLATES).await.expect("written");
+
+        let generation = generation_events(&harness.events.take(), WHAT_DRIVES_PLATES);
+        assert_eq!(
+            activities(&generation),
+            [
+                Activity::Writing,
+                Activity::Retrying { attempt: 2 },
+                Activity::Writing,
+            ]
+        );
+        assert_eq!(outcome(&generation), Some(GenerationOutcome::Completed));
+    }
+}
+
+// -- two records fixing one term at once -----------------------------------------
+
+mod concurrent_records {
+    use super::*;
+    use std::sync::Condvar;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
+
+    use atlas_core::ports::Clock;
+    use atlas_core::testing::FakeClock;
+    use chrono::{DateTime, Utc};
+
+    /// "Kinds of boundary", fixing "slab pull" with another meaning than
+    /// `complete.md` does.
+    const OTHER_SLAB_PULL: &str = "Plates meet in three ways: they pull apart, collide or slide \
+        past each other.\n\n```atlas-record\n{\"summary\": \"Plates meet in three ways. They \
+        pull apart, collide or slide past each other.\", \"concepts\": [{\"name\": \"plate \
+        boundary\", \"line\": \"Where two plates meet, they pull apart, collide or slide.\"}], \
+        \"notation\": [], \"terms\": [{\"key\": \"slab pull\", \"meaning\": \"the tearing of a \
+        plate where two boundaries cross\"}], \"examples\": [], \"promises\": []}\n```\n";
+
+    /// Once armed, holds each reading of the time until another thread reads
+    /// it too, or a second has passed: two generations started together then
+    /// reach each write to the store together.
+    #[derive(Default)]
+    struct Lockstep {
+        clock: FakeClock,
+        armed: AtomicBool,
+        /// The readings waiting, and how many pairs went through.
+        waiting: Mutex<(u32, u64)>,
+        turn: Condvar,
+    }
+
+    #[async_trait]
+    impl Clock for Lockstep {
+        fn now(&self) -> DateTime<Utc> {
+            if self.armed.load(Ordering::SeqCst) {
+                let mut state = self.waiting.lock().unwrap();
+                let round = state.1;
+                state.0 += 1;
+                if state.0 == 2 {
+                    *state = (0, round + 1);
+                    self.turn.notify_all();
+                } else {
+                    let (mut state, waited) = self
+                        .turn
+                        .wait_timeout_while(state, Duration::from_secs(1), |state| state.1 == round)
+                        .unwrap();
+                    if waited.timed_out() {
+                        state.0 -= 1;
+                    }
+                }
+            }
+            self.clock.now()
+        }
+
+        async fn sleep(&self, duration: Duration) {
+            self.clock.sleep(duration).await;
+        }
+    }
+
+    #[test]
+    fn two_records_fixing_one_term_at_once_store_one_meaning() {
+        let clock = Arc::new(Lockstep::default());
+        let harness = harness_with(None, Some(clock.clone()));
+        harness
+            .provider
+            .script(Task::WriteSection, Script::Complete(fixture("complete.md")));
+        harness.provider.script(
+            Task::WriteSection,
+            Script::Complete(OTHER_SLAB_PULL.to_owned()),
+        );
+        clock.armed.store(true, Ordering::SeqCst);
+
+        std::thread::scope(|scope| {
+            for section in [WHAT_DRIVES_PLATES, KINDS_OF_BOUNDARY] {
+                let harness = &harness;
+                scope.spawn(move || {
+                    tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .unwrap()
+                        .block_on(harness.open(section))
+                        .expect("written")
+                });
+            }
+        });
+        clock.armed.store(false, Ordering::SeqCst);
+
+        let conventions = harness.store.conventions(harness.course).unwrap();
+        let slab_pull: Vec<_> = conventions
+            .iter()
+            .filter(|convention| convention.key == "slab pull")
+            .collect();
+        assert_eq!(slab_pull.len(), 1, "fixed once: {conventions:?}");
+        for section in [WHAT_DRIVES_PLATES, KINDS_OF_BOUNDARY] {
+            let record = harness
+                .store
+                .current_record(section)
+                .unwrap()
+                .expect("a record");
+            for term in &record.record.terms {
+                assert!(
+                    term.key != "slab pull" || term.meaning == slab_pull[0].meaning,
+                    "the record of {section} contradicts the convention: {term:?}"
+                );
+            }
+        }
+    }
+}

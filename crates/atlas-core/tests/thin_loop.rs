@@ -10,7 +10,7 @@ use atlas_core::harness::index::{ChapterDraft, IndexDraft, SectionDraft};
 use atlas_core::ports::EventSink;
 use atlas_core::protocol::ChapterNode;
 use atlas_core::protocol::{
-    Block, BlockContent, BlockKind, CoreEvent, CoreRequest, CoreResponse, CourseView,
+    Activity, Block, BlockContent, BlockKind, CoreEvent, CoreRequest, CoreResponse, CourseView,
     GenerationEvent, GenerationOutcome, GenerationTarget, Goal, NodeMark, PlacementAnswer,
     PlacementStep, SectionView, SelfRating, VersionStyle,
 };
@@ -247,6 +247,9 @@ async fn opening_a_section_streams_its_deltas_in_order_then_completes() {
         events,
         [
             event(GenerationEvent::Started),
+            event(GenerationEvent::Activity {
+                activity: Activity::Writing,
+            }),
             event(GenerationEvent::BlockOpened {
                 block: 0,
                 kind: BlockKind::Prose,

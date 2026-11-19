@@ -508,24 +508,31 @@ impl Store {
 
     /// The course's conventions, in the order fixed.
     pub fn conventions(&self, course: Uuid) -> Result<Vec<Convention>, StoreError> {
-        let connection = self.connection();
-        let mut statement = connection.prepare(
-            "SELECT kind, key, meaning, origin_version_id FROM conventions
-             WHERE course_id = ?1 AND deleted_at IS NULL ORDER BY created_at, rowid",
-        )?;
-        let conventions = statement
-            .query_map([Id(course)], |row| {
-                Ok(Convention {
-                    kind: row.get(0)?,
-                    key: row.get(1)?,
-                    meaning: row.get(2)?,
-                    origin: match optional_id_at(row, 3)? {
-                        None => ConventionOrigin::Plan,
-                        Some(version) => ConventionOrigin::SectionVersion { version },
-                    },
-                })
-            })?
-            .collect::<Result<_, _>>()?;
-        Ok(conventions)
+        conventions(&self.connection(), course)
     }
+}
+
+/// The course's conventions, in the order fixed.
+pub(super) fn conventions(
+    connection: &Connection,
+    course: Uuid,
+) -> Result<Vec<Convention>, StoreError> {
+    let mut statement = connection.prepare(
+        "SELECT kind, key, meaning, origin_version_id FROM conventions
+         WHERE course_id = ?1 AND deleted_at IS NULL ORDER BY created_at, rowid",
+    )?;
+    let conventions = statement
+        .query_map([Id(course)], |row| {
+            Ok(Convention {
+                kind: row.get(0)?,
+                key: row.get(1)?,
+                meaning: row.get(2)?,
+                origin: match optional_id_at(row, 3)? {
+                    None => ConventionOrigin::Plan,
+                    Some(version) => ConventionOrigin::SectionVersion { version },
+                },
+            })
+        })?
+        .collect::<Result<_, _>>()?;
+    Ok(conventions)
 }

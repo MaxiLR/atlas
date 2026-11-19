@@ -340,7 +340,9 @@ impl Feature {
     }
 
     /// Streams the section through the splitter, resolving each shown block
-    /// as it closes, then resolves the record.
+    /// as it closes, then resolves the record. What the agent is doing is
+    /// reported as it changes: writing from the start and whenever text
+    /// arrives again after a search or a retry.
     async fn stream(
         &self,
         plan: &Plan,
@@ -350,7 +352,16 @@ impl Feature {
         let mut stream = self.provider.stream(plan.request.clone()).await?;
         let mut splitter = Splitter::new();
         let mut section = Section::default();
-        let mut searching = false;
+        let mut activity = None;
+        let mut report = |now: Activity| {
+            if activity.as_ref() != Some(&now) {
+                emit.event(GenerationEvent::Activity {
+                    activity: now.clone(),
+                });
+                activity = Some(now);
+            }
+        };
+        report(Activity::Writing);
         loop {
             let event = stream
                 .next()
@@ -358,29 +369,16 @@ impl Feature {
                 .unwrap_or(Err(ProviderError::Incomplete { request_id: None }))?;
             match event {
                 ProviderEvent::TextDelta(text) => {
-                    if std::mem::take(&mut searching) {
-                        emit.event(GenerationEvent::Activity {
-                            activity: Activity::Writing,
-                        });
-                    }
+                    report(Activity::Writing);
                     for split in splitter.push(text.as_bytes()) {
                         self.take(plan, emit, &mut section, split, stopped).await;
                     }
                 }
-                ProviderEvent::Searching => {
-                    if !std::mem::replace(&mut searching, true) {
-                        emit.event(GenerationEvent::Activity {
-                            activity: Activity::Searching,
-                        });
-                    }
-                }
+                ProviderEvent::Searching => report(Activity::Searching),
                 ProviderEvent::Retrying { attempt } => {
-                    searching = false;
                     splitter = Splitter::new();
                     section = Section::default();
-                    emit.event(GenerationEvent::Activity {
-                        activity: Activity::Retrying { attempt },
-                    });
+                    report(Activity::Retrying { attempt });
                 }
                 // Citations are not kept yet.
                 ProviderEvent::Citation(_) => {}
@@ -511,39 +509,44 @@ impl Feature {
     }
 
     /// Stores the version with its record and the conventions the record
-    /// newly fixes, in one transaction; the record's entries that conflict
-    /// with a convention already fixed are left out of both.
+    /// newly fixes, in one transaction that also reads the conventions
+    /// already fixed; the record's entries that conflict with one are left
+    /// out of both.
     fn store_version(
         &self,
         plan: &Plan,
         written: Written,
     ) -> Result<StoredSectionVersion, CoreError> {
         let id = Uuid::new_v4();
-        let existing = self.store.conventions(plan.course)?;
-        let applied = apply_conventions(
-            written.record.record,
-            &existing,
-            ConventionOrigin::SectionVersion { version: id },
-        );
-        self.store.insert_version(
-            &NewSectionVersion {
+        let Written {
+            blocks,
+            checks,
+            record,
+        } = written;
+        self.store.insert_version_with(plan.node, |existing| {
+            let applied = apply_conventions(
+                record.record,
+                existing,
+                ConventionOrigin::SectionVersion { version: id },
+            );
+            let version = NewSectionVersion {
                 id,
                 node: plan.node,
                 style: plan.style,
-                blocks: written.blocks,
-                checks: written.checks,
+                blocks,
+                checks,
                 citations: Vec::new(),
                 sources: Vec::new(),
                 written_without_search: false,
                 record: StoredRecord {
                     record: applied.record,
-                    status: written.record.status,
+                    status: record.status,
                 },
                 model: plan.request.model.clone(),
                 prompt: prompts::WRITE_SECTION.id(),
-            },
-            &applied.fixed,
-        )?;
+            };
+            (version, applied.fixed)
+        })?;
         self.store
             .version(id)?
             .ok_or_else(|| super::not_found(plan.node))

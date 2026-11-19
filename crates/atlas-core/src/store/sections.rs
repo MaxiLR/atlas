@@ -2,11 +2,11 @@
 //! check answers.
 
 use chrono::{DateTime, Utc};
-use rusqlite::{Connection, OptionalExtension, Row, params};
+use rusqlite::{Connection, OptionalExtension, Row, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::index::{ConventionOutcome, insert_convention};
+use super::index::{ConventionOutcome, conventions, insert_convention};
 use super::{
     Id, Store, StoreError, Time, changed_one, id_at, json, json_at, optional_json_at, time_at,
 };
@@ -138,6 +138,20 @@ pub(super) struct VersionRow<'a> {
     pub prompt: &'a str,
 }
 
+/// The course of the live section `node`; `NotFound` unless there is one.
+fn section_course(connection: &Connection, node: Uuid) -> Result<Uuid, StoreError> {
+    let course: Id = connection
+        .query_row(
+            "SELECT course_id FROM index_nodes
+             WHERE id = ?1 AND kind = 'section' AND deleted_at IS NULL",
+            [Id(node)],
+            |row| row.get(0),
+        )
+        .optional()?
+        .ok_or_else(|| StoreError::NotFound(format!("section {node}")))?;
+    Ok(course.0)
+}
+
 /// Inserts a version and makes it its node's current one; fails with
 /// `NotFound` unless the node is a live section. Returns the section's course.
 pub(super) fn insert_version_row(
@@ -145,15 +159,7 @@ pub(super) fn insert_version_row(
     now: DateTime<Utc>,
     version: &VersionRow<'_>,
 ) -> Result<Uuid, StoreError> {
-    let course: Id = connection
-        .query_row(
-            "SELECT course_id FROM index_nodes
-             WHERE id = ?1 AND kind = 'section' AND deleted_at IS NULL",
-            [Id(version.node)],
-            |row| row.get(0),
-        )
-        .optional()?
-        .ok_or_else(|| StoreError::NotFound(format!("section {}", version.node)))?;
+    let course = section_course(connection, version.node)?;
     connection.execute(
         "INSERT INTO section_versions
             (id, node_id, style, blocks, checks, citations, sources, written_without_search,
@@ -182,7 +188,38 @@ pub(super) fn insert_version_row(
         "UPDATE index_nodes SET current_version_id = ?2, updated_at = ?3 WHERE id = ?1",
         params![Id(version.node), Id(version.id), Time(now)],
     )?;
-    Ok(course.0)
+    Ok(course)
+}
+
+/// Inserts a version with its record and the conventions it newly fixes,
+/// and makes it current.
+fn insert_with_conventions(
+    connection: &Connection,
+    now: DateTime<Utc>,
+    version: &NewSectionVersion,
+    conventions: &[Convention],
+) -> Result<Vec<ConventionOutcome>, StoreError> {
+    let course = insert_version_row(
+        connection,
+        now,
+        &VersionRow {
+            id: version.id,
+            node: version.node,
+            style: version.style,
+            blocks: &version.blocks,
+            checks: &version.checks,
+            citations: &version.citations,
+            sources: &version.sources,
+            written_without_search: version.written_without_search,
+            record: Some(&version.record),
+            model: version.model.as_deref(),
+            prompt: &version.prompt,
+        },
+    )?;
+    conventions
+        .iter()
+        .map(|convention| insert_convention(connection, now, course, convention))
+        .collect()
 }
 
 impl Store {
@@ -197,27 +234,33 @@ impl Store {
         let now = self.now();
         let mut connection = self.connection();
         let transaction = connection.transaction()?;
-        let course = insert_version_row(
-            &transaction,
-            now,
-            &VersionRow {
-                id: version.id,
-                node: version.node,
-                style: version.style,
-                blocks: &version.blocks,
-                checks: &version.checks,
-                citations: &version.citations,
-                sources: &version.sources,
-                written_without_search: version.written_without_search,
-                record: Some(&version.record),
-                model: version.model.as_deref(),
-                prompt: &version.prompt,
-            },
-        )?;
-        let outcomes = conventions
-            .iter()
-            .map(|convention| insert_convention(&transaction, now, course, convention))
-            .collect::<Result<_, _>>()?;
+        let outcomes = insert_with_conventions(&transaction, now, version, conventions)?;
+        transaction.commit()?;
+        Ok(outcomes)
+    }
+
+    /// Stores a version of the section `node` like [`Store::insert_version`],
+    /// built from the conventions of its course as they stand inside the same
+    /// transaction: `build` returns the version and the conventions it newly
+    /// fixes, so a convention fixed by a version stored meanwhile is never
+    /// missed.
+    pub fn insert_version_with(
+        &self,
+        node: Uuid,
+        build: impl FnOnce(&[Convention]) -> (NewSectionVersion, Vec<Convention>),
+    ) -> Result<Vec<ConventionOutcome>, StoreError> {
+        let now = self.now();
+        let mut connection = self.connection();
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let fixed = conventions(&transaction, section_course(&transaction, node)?)?;
+        let (version, new) = build(&fixed);
+        if version.node != node {
+            return Err(StoreError::NotFound(format!(
+                "version {} of section {node}",
+                version.id
+            )));
+        }
+        let outcomes = insert_with_conventions(&transaction, now, &version, &new)?;
         transaction.commit()?;
         Ok(outcomes)
     }

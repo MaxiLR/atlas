@@ -20,8 +20,10 @@ const styleNames: Record<VersionStyle, string> = {
 };
 
 /**
- * The version switch: nothing while a section has one version; with more, a
- * menu of them, oldest first, that shows the chosen one.
+ * The version switch: nothing while a section has one version; with more,
+ * the current version and its position, and a menu of them, oldest first,
+ * that shows the chosen one. A generation that runs, stopped or failed
+ * leaves the current version as it was; while one runs the switch waits.
  */
 export function VersionSwitch({
   courseId,
@@ -32,17 +34,20 @@ export function VersionSwitch({
 }) {
   const { send } = useAtlasStore();
   const display = useAtlas((state) => selectSection(state, sectionId));
+  const currentId = useAtlas(
+    (state) => state.sections.byId[sectionId]?.currentVersionId ?? null,
+  );
   if (display === null || display.versions.length < 2) return null;
 
-  const { versions, versionId } = display;
-  const at = versions.findIndex((version) => version.id === versionId);
-  const name = at === -1 ? "Not saved" : styleNames[versions[at].style];
-  const position =
-    at === -1 ? `${versions.length} saved` : `${at + 1} of ${versions.length}`;
+  const { versions } = display;
+  const at = versions.findIndex((version) => version.id === currentId);
+  if (at === -1) return null;
+  const name = styleNames[versions[at].style];
+  const position = `${at + 1} of ${versions.length}`;
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
+      <DropdownMenuTrigger asChild disabled={display.status === "streaming"}>
         <Button aria-label={`Version: ${name}, ${position}`}>
           {/* The header's container: a column the side panel narrows. */}
           <span className="max-lg:hidden @max-xl:hidden">{name}</span>
@@ -54,7 +59,7 @@ export function VersionSwitch({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuRadioGroup
-          value={versionId ?? ""}
+          value={versions[at].id}
           onValueChange={(chosen) =>
             send({
               type: "SelectVersion",

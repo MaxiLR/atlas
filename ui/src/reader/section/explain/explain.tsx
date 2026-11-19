@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useId, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import type { ExplainStyle } from "@/core/generated/ExplainStyle";
@@ -9,13 +9,22 @@ const styles: [ExplainStyle, string][] = [
   ["MoreExamples", "More examples"],
 ];
 
-/** Explain this section differently: three styles, each a new version. */
+/**
+ * Explain this section differently: three styles, each a new version. Once
+ * one is chosen, none can be until the request it starts settles.
+ */
 export function Explain({
   onExplain,
 }: {
-  onExplain: (style: ExplainStyle) => void;
+  onExplain: (style: ExplainStyle) => Promise<unknown>;
 }) {
   const labelId = useId();
+  const [pending, setPending] = useState(false);
+  const settle = () => setPending(false);
+  const explain = (style: ExplainStyle) => {
+    setPending(true);
+    onExplain(style).then(settle, settle);
+  };
   return (
     <div
       role="group"
@@ -26,7 +35,7 @@ export function Explain({
         Explain this section differently
       </span>
       {styles.map(([style, label]) => (
-        <Button key={style} onClick={() => onExplain(style)}>
+        <Button key={style} disabled={pending} onClick={() => explain(style)}>
           {label}
         </Button>
       ))}

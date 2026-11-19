@@ -44,7 +44,8 @@ export function VersionSwitch({
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button aria-label={`Version: ${name}, ${position}`}>
-          <span className="max-lg:hidden">{name}</span>
+          {/* The header's container: a column the side panel narrows. */}
+          <span className="max-lg:hidden @max-xl:hidden">{name}</span>
           <em className="font-normal text-muted-foreground not-italic tabular-nums">
             {position}
           </em>

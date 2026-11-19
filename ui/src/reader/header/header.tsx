@@ -1,4 +1,8 @@
-import { TextAlignStartIcon } from "lucide-react";
+import {
+  BookAIcon,
+  MessagesSquareIcon,
+  TextAlignStartIcon,
+} from "lucide-react";
 import type { ReactNode, Ref } from "react";
 
 import {
@@ -27,6 +31,10 @@ function Count({ children }: { children: number }) {
  * switch, Glossary and Side chats with their counts, which open the side
  * panel on their tab, and the course menu. Below 1024 px a button at its
  * start opens the index titles over the column.
+ *
+ * When the side panel narrows the column below 576 px, Glossary and Side
+ * chats show an icon and their count, their names kept for assistive
+ * technology, so every control stays in the column beside the panel.
  */
 export function ReaderHeader({
   course,
@@ -60,6 +68,10 @@ export function ReaderHeader({
   // The chapter and parent sections give way to the open section's title in
   // a narrow window or a column narrowed by the side panel.
   const upward = "max-lg:hidden @max-xl:hidden";
+  // In a column narrowed by the side panel a button's name gives way to its
+  // icon.
+  const name = "@max-xl:sr-only";
+  const icon = "@xl:hidden";
 
   return (
     <header
@@ -102,13 +114,17 @@ export function ReaderHeader({
         aria-pressed={tab === "glossary"}
         onClick={(event) => onPanelButton("glossary", event.currentTarget)}
       >
-        Glossary <Count>{course.glossaryCount}</Count>
+        <BookAIcon aria-hidden className={icon} />
+        <span className={name}>Glossary</span>{" "}
+        <Count>{course.glossaryCount}</Count>
       </Button>
       <Button
         aria-pressed={tab === "sideChats"}
         onClick={(event) => onPanelButton("sideChats", event.currentTarget)}
       >
-        Side chats <Count>{course.sideChatCount}</Count>
+        <MessagesSquareIcon aria-hidden className={icon} />
+        <span className={name}>Side chats</span>{" "}
+        <Count>{course.sideChatCount}</Count>
       </Button>
       {menu}
     </header>

@@ -414,6 +414,7 @@ export function SelectableBlocks({
       <div ref={frame} className="relative">
         <Blocks
           blocks={blocks}
+          versionId={versionId}
           citations={citations}
           sources={sources}
           marks={marks}

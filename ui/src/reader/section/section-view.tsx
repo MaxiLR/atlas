@@ -57,7 +57,6 @@ export function SectionView({
             courseId={course.id}
             versionId={display.versionId}
             blocks={display.blocks}
-            versionId={display.versionId}
             citations={display.citations}
             sources={display.sources}
           />

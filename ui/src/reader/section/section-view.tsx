@@ -4,9 +4,9 @@ import { failureInStore, useAtlas, useAtlasStore } from "@/app/store";
 import { CitationScope } from "@/catalog/components/citation/citation";
 import type { CourseView } from "@/core/generated/CourseView";
 import { placeOf } from "@/reader/course-tree";
+import { SelectableBlocks } from "@/reader/selection/selectable-blocks";
 import { selectSection } from "@/store";
 
-import { Blocks } from "./blocks/blocks";
 import { Explain } from "./explain/explain";
 import { SectionStatus } from "./status/section-status";
 import { Sources } from "./sources/sources";
@@ -53,7 +53,9 @@ export function SectionView({
       <SectionStatus courseId={course.id} sectionId={sectionId} />
       {display !== null && (
         <CitationScope>
-          <Blocks
+          <SelectableBlocks
+            courseId={course.id}
+            versionId={display.versionId}
             blocks={display.blocks}
             versionId={display.versionId}
             citations={display.citations}

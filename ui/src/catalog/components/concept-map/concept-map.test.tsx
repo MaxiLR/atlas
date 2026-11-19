@@ -147,10 +147,13 @@ describe("the concept map", () => {
     ),
   ])(
     "keeps the node labels of %s apart, each inside its face",
+    // @ts-expect-error -- vitest cannot type a table mixing mutable and readonly rows
     (_, spec, labels) => {
       const { svg } = drawVisual(spec);
+      // @ts-expect-error -- `labels` is untyped for the same reason
       const faces = nodeBoxes(svg, [...labels]);
       expect(overlapping(faces)).toEqual([]);
+      // @ts-expect-error -- `labels` is untyped for the same reason
       labels.forEach((label, index) => {
         const text = groupTitled(svg, label).querySelector("text")!;
         for (const line of linesOf(text)) {
@@ -188,6 +191,7 @@ describe("the concept map", () => {
         ],
       ),
     ],
+    // @ts-expect-error -- vitest cannot type a table mixing mutable and readonly rows
   ])("keeps %s inside the frame", (_, spec) => {
     expectAllInside(drawVisual(spec).svg);
   });

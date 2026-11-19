@@ -123,7 +123,10 @@ export function CourseRow({
         </DropdownMenuContent>
       </DropdownMenu>
       <AlertDialog open={confirming} onOpenChange={setConfirming}>
+        {/* Enters by scale alone: a fade would show the warning below its
+            contrast while it appears. */}
         <AlertDialogContent
+          className="data-open:fade-in-100"
           onCloseAutoFocus={(event) => {
             event.preventDefault();
             menuButton.current?.focus();

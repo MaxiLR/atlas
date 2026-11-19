@@ -418,4 +418,87 @@ impl Store {
             .collect::<Result<_, _>>()?;
         Ok(questions)
     }
+
+    /// Deletes a course permanently, in one transaction: every row under it
+    /// is tombstoned and its content erased, so nothing of it can be read
+    /// back while its ids and times remain for a later sync to pass the
+    /// deletion on. A row tombstoned before keeps its deletion time and has
+    /// its content erased too, except a section version, which the database
+    /// lets change only as it is tombstoned. Nothing is deleted if any part
+    /// fails.
+    pub fn delete_course(&self, course: Uuid) -> Result<(), StoreError> {
+        let now = Time(self.now());
+        let mut connection = self.connection();
+        let transaction = connection.transaction()?;
+        require_course(&transaction, course)?;
+        for (table, erase, owned) in COURSE_ROWS {
+            transaction.execute(
+                &format!(
+                    "UPDATE {table} SET {erase}
+                         deleted_at = COALESCE(deleted_at, ?2), updated_at = ?2
+                     WHERE {owned}"
+                ),
+                params![Id(course), now],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(())
+    }
 }
+
+/// Every table holding a course's records: the assignments that erase a
+/// row's content (each ending in a comma), and the rows that belong to the
+/// course `?1`.
+const COURSE_ROWS: [(&str, &str, &str); 15] = [
+    (
+        "side_chat_messages",
+        "text = '', citations = '', sources = '',",
+        "chat_id IN (SELECT id FROM side_chats WHERE course_id = ?1)",
+    ),
+    (
+        "side_chats",
+        "quote = CASE WHEN quote IS NULL THEN NULL ELSE '' END,",
+        "course_id = ?1",
+    ),
+    (
+        "glossary_entries",
+        "quote = '', term = '', definition = '', wikipedia = NULL,",
+        "course_id = ?1",
+    ),
+    (
+        "check_answers",
+        "",
+        "version_id IN (SELECT version.id FROM section_versions version
+                        JOIN index_nodes node ON node.id = version.node_id
+                        WHERE node.course_id = ?1)",
+    ),
+    (
+        "section_versions",
+        "blocks = '', checks = '', citations = '', sources = '', record = NULL,
+         record_status = NULL,",
+        "deleted_at IS NULL
+         AND node_id IN (SELECT id FROM index_nodes WHERE course_id = ?1)",
+    ),
+    ("conventions", "key = '', meaning = '',", "course_id = ?1"),
+    (
+        "map_entry_concepts",
+        "",
+        "entry_id IN (SELECT id FROM map_entries WHERE course_id = ?1)",
+    ),
+    ("map_entries", "", "course_id = ?1"),
+    ("concepts", "name = '',", "course_id = ?1"),
+    ("index_nodes", "title = '', summary = '',", "course_id = ?1"),
+    (
+        "placement_questions",
+        "question = '', answer = NULL,",
+        "course_id = ?1",
+    ),
+    ("misconceptions", "text = '',", "course_id = ?1"),
+    ("profile_rungs", "", "course_id = ?1"),
+    ("ladder_rungs", "concept = '',", "course_id = ?1"),
+    (
+        "courses",
+        "topic = '', self_rating = NULL, goal = NULL,",
+        "id = ?1",
+    ),
+];

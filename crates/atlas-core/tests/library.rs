@@ -459,6 +459,8 @@ type Rows = BTreeMap<RowKey, BTreeMap<String, Value>>;
 
 /// Every row of `tables`, keyed by table and record id (by position in a
 /// table without ids), column by column.
+// `column_names` already yields an iterator; the `into_iter` is redundant.
+#[allow(clippy::useless_conversion)]
 fn dump(connection: &Connection, tables: &[String]) -> Rows {
     let mut rows = Rows::new();
     for table in tables {

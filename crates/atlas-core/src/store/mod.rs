@@ -166,6 +166,9 @@ impl Store {
     pub fn open(path: &Path, clock: Arc<dyn Clock>) -> Result<Self, StoreError> {
         let mut connection = Connection::open(path)?;
         connection.pragma_update(None, "foreign_keys", true)?;
+        // Content a write replaces or frees is overwritten with zeros, so an
+        // erased course cannot be read back from the file.
+        connection.pragma_update(None, "secure_delete", true)?;
         migrate(&mut connection)?;
         Ok(Self {
             connection: Mutex::new(connection),

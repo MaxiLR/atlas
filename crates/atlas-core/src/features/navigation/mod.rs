@@ -1,6 +1,5 @@
-//! Next: the section that follows in the course, by the index tree's rules.
-//!
-//! For now the thin loop: the following section of the broad pass, opened.
+//! Next: where the course goes from a node, by the index tree's rules. It
+//! only answers; the interface then opens the section.
 
 use std::sync::Arc;
 
@@ -8,6 +7,7 @@ use uuid::Uuid;
 
 use super::Features;
 use crate::CoreDeps;
+use crate::index_tree;
 use crate::protocol::{CoreError, CoreResponse};
 use crate::store::Store;
 
@@ -18,28 +18,28 @@ impl Feature {
         Ok(Self)
     }
 
+    /// The section that follows `node` (a section at any depth, or a
+    /// chapter), or the end of the course after its last section.
     pub(crate) async fn next(
         &self,
         cx: &Features,
         course_id: Uuid,
-        section_id: Uuid,
+        node: Uuid,
     ) -> Result<CoreResponse, CoreError> {
-        let course = cx.library.course(course_id)?;
-        let mut sections = course
-            .chapters
-            .iter()
-            .flat_map(|chapter| &chapter.sections)
-            .skip_while(|section| section.id != section_id);
-        if sections.next().is_none() {
+        let tree = cx.library.tree(course_id)?;
+        let in_index = tree.chapters.iter().any(|chapter| chapter.id == node)
+            || index_tree::state(&tree, node).is_some();
+        if !in_index {
             return Err(CoreError::NotFound {
-                what: format!("section {section_id}"),
+                what: format!("section {node} in course {course_id}"),
             });
         }
-        match sections.next() {
-            Some(following) => Ok(CoreResponse::Section {
-                section: cx.sections.open(cx, course_id, following.id).await?,
-            }),
-            None => Ok(CoreResponse::EndOfCourse { course_id }),
-        }
+        Ok(match index_tree::next(&tree, node) {
+            Some(section_id) => CoreResponse::NextSection {
+                course_id,
+                section_id,
+            },
+            None => CoreResponse::EndOfCourse { course_id },
+        })
     }
 }

@@ -37,23 +37,25 @@ impl Feature {
     }
 
     /// Answers from the store, or generates the section, streaming it as
-    /// events, and stores it once the provider reports completion.
+    /// events, and stores it once the provider reports completion. Either
+    /// way the section is now read and the course resumes at it.
     pub(crate) async fn open(
         &self,
         cx: &Features,
         course_id: Uuid,
         section_id: Uuid,
     ) -> Result<SectionView, CoreError> {
-        let section = self.section(course_id, section_id)?;
-        if let Some(version) = &section.latest {
-            return Ok(view(&section, version));
+        let mut section = self.section(course_id, section_id)?;
+        if section.latest.is_none() {
+            cx.session.require_plan(cx).await?;
+            self.generate(cx, &section).await?;
+            section = self.section(course_id, section_id)?;
         }
-        cx.session.require_plan(cx).await?;
-        self.generate(cx, &section).await?;
-        let section = self.section(course_id, section_id)?;
         let version = section.latest.as_ref().ok_or_else(|| CoreError::Store {
             message: format!("section {section_id} was not stored"),
         })?;
+        self.store.mark_read(section_id)?;
+        self.store.set_last_read(course_id, section_id)?;
         Ok(view(&section, version))
     }
 

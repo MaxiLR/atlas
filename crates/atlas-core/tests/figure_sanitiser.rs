@@ -9,7 +9,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use atlas_core::sanitise::{sanitise, SanitisedSvg};
+use atlas_core::sanitise::SanitisedSvg;
+use atlas_core::sanitise::sanitise;
 use quick_xml::events::Event;
 use quick_xml::{Reader, XmlVersion};
 
@@ -657,7 +658,22 @@ fn a_sanitised_figure_read_back_from_json_is_sanitised_again() {
     check_inert(svg.as_str()).unwrap();
     assert_eq!(svg, sanitise(hostile).unwrap());
 
+    // A stored figure that draws nothing still loads, with nothing hostile left.
     let nothing_drawable = r#"<svg onload="alert(1)"><script>alert(2)</script></svg>"#;
     let json = serde_json::to_string(nothing_drawable).unwrap();
-    assert!(serde_json::from_str::<SanitisedSvg>(&json).is_err());
+    let svg: SanitisedSvg = serde_json::from_str(&json).unwrap();
+    check_inert(svg.as_str()).unwrap();
+    assert!(!svg.as_str().contains("alert"), "{}", svg.as_str());
+
+    for refused in [
+        "<html><script>alert(1)</script></html>",
+        "<svg><rect width=\"1\" height=\"1\">",
+        "plain text",
+    ] {
+        let json = serde_json::to_string(refused).unwrap();
+        assert!(
+            serde_json::from_str::<SanitisedSvg>(&json).is_err(),
+            "{refused}"
+        );
+    }
 }

@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use atlas_core::sanitise::sanitise;
+use atlas_core::sanitise::{sanitise, SanitisedSvg};
 use quick_xml::events::Event;
 use quick_xml::{Reader, XmlVersion};
 
@@ -631,4 +631,33 @@ fn colours_of_their_own_become_current_color_and_failing_gradients_go() {
     let path = all.iter().find(|element| element.name == "path").unwrap();
     assert_eq!(path.attribute("stroke"), Some("currentColor"));
     assert!(root.attribute("color").is_none());
+}
+
+#[test]
+fn whitespace_character_references_survive_a_second_pass() {
+    for input in [
+        r#"<svg xmlns="http://www.w3.org/2000/svg" aria-label="a&#10;b"><rect width="1" height="1"/></svg>"#,
+        r#"<svg xmlns="http://www.w3.org/2000/svg" aria-label="a&#9;b&#13;c"><rect width="1" height="1"/></svg>"#,
+        r#"<svg xmlns="http://www.w3.org/2000/svg"><rect width="1&#10;" height="1"/></svg>"#,
+        r#"<svg xmlns="http://www.w3.org/2000/svg"><polyline points="0,0&#10;1,1&#9;2,2"/></svg>"#,
+        r#"<svg xmlns="http://www.w3.org/2000/svg"><text>a&#13;b&#13;&#10;c</text></svg>"#,
+    ] {
+        let first = sanitise(input).unwrap_or_else(|rejected| panic!("{input}: {rejected}"));
+        let second = sanitise(first.as_str())
+            .unwrap_or_else(|rejected| panic!("{input}: second pass {rejected}"));
+        assert_eq!(second, first, "{input}");
+    }
+}
+
+#[test]
+fn a_sanitised_figure_read_back_from_json_is_sanitised_again() {
+    let hostile = r#"<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"><script>alert(2)</script><rect width="1" height="1" fill="red"/></svg>"#;
+    let json = serde_json::to_string(hostile).unwrap();
+    let svg: SanitisedSvg = serde_json::from_str(&json).unwrap();
+    check_inert(svg.as_str()).unwrap();
+    assert_eq!(svg, sanitise(hostile).unwrap());
+
+    let nothing_drawable = r#"<svg onload="alert(1)"><script>alert(2)</script></svg>"#;
+    let json = serde_json::to_string(nothing_drawable).unwrap();
+    assert!(serde_json::from_str::<SanitisedSvg>(&json).is_err());
 }

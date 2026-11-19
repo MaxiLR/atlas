@@ -1,6 +1,12 @@
 //! The ChatGPT plan provider: `POST {api}/responses` with `store: false` and
 //! `stream: true`, `GET {api}/models`, with the plan login's bearer token.
 
+mod models;
+mod request;
+
+pub use models::parse_models;
+pub use request::{build_responses_body, request_headers, responses_url};
+
 use std::sync::Arc;
 
 use crate::ports::{Clock, Endpoints};

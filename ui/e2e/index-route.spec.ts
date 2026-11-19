@@ -94,7 +94,41 @@ test("at 1440 the open section's row is current and the arrow keys move along th
   await expect(index.locator('[aria-current="page"]')).toHaveCount(1);
 });
 
+// This test is skipped with test.fixme because it cannot pass: it expects Tab
+// from Library to land on The solid Earth, the first row, which holds only
+// while no section is open. A course opened from the library resumes at
+// Convergent boundaries, and the list's one tab stop is the open section's
+// row. Its text is otherwise unchanged. The twin "selecting a chapter by
+// keyboard opens its first section, from the open section's row" asserts the
+// behaviour. Only the engineer may correct this test.
 test("selecting a chapter by keyboard opens its first section", async ({
+  page,
+}) => {
+  test.fixme(
+    true,
+    "Expects Tab to land on the first row; a resumed course's tab stop is its open section. Its corrected twin follows.",
+  );
+  await openApp(page, { width: 1440 });
+  const index = await openCourse(page, "Plate tectonics");
+
+  await page.getByRole("button", { name: "Library" }).focus();
+  await page.keyboard.press("Tab");
+  await expect(row(index, "The solid Earth")).toBeFocused();
+  for (let step = 0; step < 3; step += 1)
+    await page.keyboard.press("ArrowDown");
+  await expect(row(index, "Plates and their boundaries")).toBeFocused();
+  await page.keyboard.press("Enter");
+
+  await expect(
+    page.getByRole("article", { name: "Divergent boundaries" }),
+  ).toBeVisible();
+  await expect(row(index, "Divergent boundaries")).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+});
+
+test("selecting a chapter by keyboard opens its first section, from the open section's row", async ({
   page,
 }) => {
   await openApp(page, { width: 1440 });
@@ -102,6 +136,8 @@ test("selecting a chapter by keyboard opens its first section", async ({
 
   await page.getByRole("button", { name: "Library" }).focus();
   await page.keyboard.press("Tab");
+  await expect(row(index, "Convergent boundaries")).toBeFocused();
+  await page.keyboard.press("Home");
   await expect(row(index, "The solid Earth")).toBeFocused();
   for (let step = 0; step < 3; step += 1)
     await page.keyboard.press("ArrowDown");

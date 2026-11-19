@@ -38,5 +38,26 @@ pub enum SplitEvent {
         block: Option<u32>,
         kind: ReservedKind,
         payload: String,
+        description: Option<String>,
     },
+    /// The input ended.
+    Finished { record_seen: bool },
+}
+
+/// The incremental splitter.
+#[derive(Debug, Default)]
+pub struct Splitter {}
+
+impl Splitter {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn push(&mut self, _chunk: &[u8]) -> Vec<SplitEvent> {
+        Vec::new()
+    }
+
+    pub fn finish(self) -> Vec<SplitEvent> {
+        Vec::new()
+    }
 }

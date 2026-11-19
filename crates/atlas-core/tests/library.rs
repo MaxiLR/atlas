@@ -40,6 +40,12 @@ use support::sample_course::{
 use tempfile::TempDir;
 use uuid::Uuid;
 
+use async_trait::async_trait;
+use atlas_core::protocol::Model;
+use atlas_core::provider::{ModelProvider, ProviderError, ProviderRequest, ProviderStream};
+use atlas_core::store::RecordKind;
+use tokio::sync::Notify;
+
 // Strings stored once each in the course that is deleted.
 const SECTION_SENTINEL: &str = "sentinel-in-a-section-4c1d";
 const RECORD_SENTINEL: &str = "sentinel-in-a-record-9e27";
@@ -1048,6 +1054,175 @@ async fn a_deletion_that_fails_part_way_deletes_nothing() {
     assert_eq!(harness.courses().await, listed);
     assert_eq!(harness.events.take(), vec![]);
     assert_eq!(harness.open(doomed).await.id, doomed);
+}
+
+#[tokio::test]
+async fn deleting_a_course_erases_a_version_tombstoned_before() {
+    let harness = Harness::new();
+    let doomed = store_doomed_course(&harness.store);
+    let tombstoned_at = harness.advance();
+    assert!(
+        harness
+            .store
+            .delete(RecordKind::SectionVersion, LAYERS_V1)
+            .unwrap()
+    );
+    let raw = harness.raw();
+    assert!(
+        sentinels_in_tables(&raw).is_superset(&BTreeSet::from([SECTION_SENTINEL, RECORD_SENTINEL])),
+        "a tombstoned version still holds its text and record"
+    );
+    let deleted_at = harness.advance();
+
+    assert_eq!(
+        harness
+            .send(CoreRequest::DeleteCourse { course_id: doomed })
+            .await,
+        Ok(CoreResponse::Done)
+    );
+
+    let after = dump(&raw, &course_tables());
+    let earlier = ("section_versions".to_owned(), LAYERS_V1.to_string());
+    let owned = owned_rows(&raw, doomed);
+    assert!(owned.contains(&earlier));
+    for key in &owned {
+        let row = &after[key];
+        let tombstone = if *key == earlier {
+            tombstoned_at
+        } else {
+            deleted_at
+        };
+        assert_eq!(
+            time(&row["deleted_at"]),
+            tombstone,
+            "{key:?} keeps its first deletion time"
+        );
+        assert_eq!(
+            time(&row["updated_at"]),
+            deleted_at,
+            "{key:?}: the deletion is its last update"
+        );
+        for &column in content(&key.0) {
+            assert!(
+                is_empty(&row[column]),
+                "{key:?}.{column} is erased: {:?}",
+                row[column]
+            );
+        }
+    }
+    assert_eq!(sentinels_in_tables(&raw), BTreeSet::new());
+}
+
+/// A string only a section generated after its course was deleted holds.
+const LATE_SENTINEL: &str = "sentinel-in-a-late-section-5d80";
+
+/// A provider that holds each stream until released, and tells when it holds
+/// one.
+struct HeldProvider {
+    inner: Arc<FakeProvider>,
+    held: Notify,
+    release: Notify,
+}
+
+#[async_trait]
+impl ModelProvider for HeldProvider {
+    async fn stream(&self, request: ProviderRequest) -> Result<ProviderStream, ProviderError> {
+        self.held.notify_one();
+        self.release.notified().await;
+        self.inner.stream(request).await
+    }
+
+    async fn list_models(&self) -> Result<Vec<Model>, ProviderError> {
+        self.inner.list_models().await
+    }
+}
+
+impl Harness {
+    /// A harness whose core asks `provider`; `self.provider` is its fake.
+    fn holding(provider: Arc<HeldProvider>) -> Self {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("atlas.sqlite3");
+        let ports = FakePorts::default();
+        let events = Arc::new(RecordingEvents::default());
+        let core = Core::new(ports.deps(path.clone(), provider.clone(), events.clone()))
+            .expect("core starts");
+        let store = Store::open(&path, ports.clock.clone()).unwrap();
+        Self {
+            _dir: dir,
+            path,
+            ports,
+            provider: provider.inner.clone(),
+            events,
+            core,
+            store,
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_section_written_after_its_course_is_deleted_is_not_stored() {
+    let provider = Arc::new(HeldProvider {
+        inner: Arc::new(FakeProvider::new(FakeScript {
+            section_deltas: vec![format!("Written too late. {LATE_SENTINEL}")],
+            ..FakeScript::sample()
+        })),
+        held: Notify::new(),
+        release: Notify::new(),
+    });
+    let harness = Harness::holding(provider.clone());
+    let doomed = store_small_course(&harness.store, "Volcanoes", true);
+    let unwritten = doomed.sections[1];
+
+    // The section is being written when the course is deleted.
+    let (opened, ()) = tokio::join!(
+        harness.send(CoreRequest::OpenSection {
+            course_id: doomed.id,
+            section_id: unwritten,
+        }),
+        async {
+            provider.held.notified().await;
+            assert_eq!(
+                harness
+                    .send(CoreRequest::DeleteCourse {
+                        course_id: doomed.id
+                    })
+                    .await,
+                Ok(CoreResponse::Done)
+            );
+            provider.release.notify_one();
+        }
+    );
+
+    assert!(
+        matches!(opened, Err(CoreError::NotFound { .. })),
+        "{opened:?}"
+    );
+    assert_eq!(
+        harness.provider.requests().len(),
+        1,
+        "the section was written"
+    );
+    let raw = harness.raw();
+    let rows = dump(&raw, &course_tables());
+    for key in owned_rows(&raw, doomed.id) {
+        let row = &rows[&key];
+        assert!(!is_empty(&row["deleted_at"]), "{key:?} is tombstoned");
+        for &column in content(&key.0) {
+            assert!(
+                is_empty(&row[column]),
+                "{key:?}.{column} is erased: {:?}",
+                row[column]
+            );
+        }
+    }
+    let everything = dump(&raw, &every_table(&raw));
+    assert!(
+        !everything
+            .values()
+            .flat_map(BTreeMap::values)
+            .any(|value| matches!(value, Value::Text(text) if text.contains(LATE_SENTINEL))),
+        "the late section is stored"
+    );
 }
 
 // -- Next ------------------------------------------------------------------------

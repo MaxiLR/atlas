@@ -24,7 +24,8 @@
 //! one repair request ([`prompts::REPAIR_BLOCK`]) with the payload, the reason
 //! and the format, whose answer is validated again; still invalid, or the
 //! repair failed, the text fallback with the block's `alt:` description. An
-//! unclosed block, or one from a stopped generation, is not repaired.
+//! unclosed block is never shown: it is the text fallback, unrepaired. An
+//! invalid block from a stopped generation is not repaired either.
 //!
 //! The section record is not a shown block: `harness::record` validates and
 //! repairs it, and [`RawBlock`] refuses to hold it.
@@ -278,8 +279,10 @@ pub fn validate(raw: &RawBlock, ladder: &Ladder) -> Result<ValidBlock, BlockFaul
 
 /// Resolves a block: valid, it is the block; invalid, one repair request on
 /// `model` (the provider's default when `None`), validated again; still
-/// invalid, or the request failed, the text fallback. An unclosed block, or
-/// one whose generation was `stopped`, gets no repair request.
+/// invalid, or the request failed, the text fallback. An unclosed block is
+/// never shown, even when its cut-off prefix passes its rules: it is the text
+/// fallback, without a repair request. An invalid block whose generation was
+/// `stopped` gets no repair request either.
 pub async fn resolve(
     raw: &RawBlock,
     ladder: &Ladder,
@@ -287,11 +290,14 @@ pub async fn resolve(
     model: Option<&str>,
     stopped: &AtomicBool,
 ) -> Resolved {
+    if !raw.closed {
+        return raw.fallback();
+    }
     let fault = match validate(raw, ladder) {
         Ok(block) => return valid(raw, block),
         Err(fault) => fault,
     };
-    if !raw.closed || stopped.load(Ordering::Acquire) {
+    if stopped.load(Ordering::Acquire) {
         return raw.fallback();
     }
     let request = ProviderRequest {

@@ -705,6 +705,27 @@ async fn an_unclosed_block_is_not_repaired() {
 }
 
 #[tokio::test]
+async fn an_unclosed_block_whose_prefix_passes_its_rules_still_falls_back() {
+    let raw = RawBlock::unclosed(
+        ReservedKind::Mermaid,
+        "flowchart LR\n  A[Oceanic plate] --> B[Tre",
+        Some(DESCRIPTION.to_owned()),
+    )
+    .unwrap();
+    let fake = provider().answer(Task::RepairBlock, [ok(MERMAID)]);
+
+    let resolved = resolved(&raw, &fake).await;
+
+    assert_eq!(
+        resolved,
+        Resolved::Fallback {
+            description: DESCRIPTION.to_owned()
+        }
+    );
+    assert!(fake.requests().is_empty(), "{:#?}", fake.requests());
+}
+
+#[tokio::test]
 async fn no_repair_is_requested_once_the_generation_was_stopped() {
     let raw = closed(ReservedKind::Mermaid, "");
     let fake = provider().answer(Task::RepairBlock, [ok(MERMAID)]);

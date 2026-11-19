@@ -36,14 +36,16 @@ function readStoredMode(): ThemeMode {
   }
 }
 
+// A host without media queries (jsdom) reports a light system that never
+// changes.
 function subscribeToSystem(onChange: () => void) {
-  const query = matchMedia(SYSTEM_DARK_QUERY);
-  query.addEventListener("change", onChange);
-  return () => query.removeEventListener("change", onChange);
+  const query = window.matchMedia?.(SYSTEM_DARK_QUERY);
+  query?.addEventListener("change", onChange);
+  return () => query?.removeEventListener("change", onChange);
 }
 
 function systemScheme(): Scheme {
-  return matchMedia(SYSTEM_DARK_QUERY).matches ? "dark" : "light";
+  return window.matchMedia?.(SYSTEM_DARK_QUERY).matches ? "dark" : "light";
 }
 
 /** Swaps the page's theme without letting transitions animate the swap. */

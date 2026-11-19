@@ -12,10 +12,11 @@ import { describeError } from "@/core/client";
 import { Reader } from "@/reader/reader";
 import { Library } from "@/screens/library/library";
 import { Placement } from "@/screens/Placement";
-import { Settings } from "@/screens/Settings";
+import { Settings } from "@/screens/settings/settings";
 import { SignIn } from "@/screens/sign-in/sign-in";
 import { selectOpenCourse } from "@/store";
 import { unknownTag } from "@/store/unknown-tag";
+import { ThemeProvider } from "@/theme/provider";
 
 /** The screen the store's navigation names. */
 function Screen() {
@@ -85,9 +86,11 @@ function Session() {
 
 export function App() {
   return (
-    <AtlasStoreProvider>
-      <WindowFocus />
-      <Session />
-    </AtlasStoreProvider>
+    <ThemeProvider>
+      <AtlasStoreProvider>
+        <WindowFocus />
+        <Session />
+      </AtlasStoreProvider>
+    </ThemeProvider>
   );
 }

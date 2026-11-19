@@ -5,6 +5,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { CatalogVisual } from "@/catalog/catalog-visual";
 import { CaptionInFrame } from "@/catalog/frame-context";
 import { Figure } from "@/components/ui/figure";
+import { Blocks } from "@/reader/section/blocks/blocks";
 import { applyStyles, clearStyles, schemes, tokensAt } from "@/test/styles";
 
 /**
@@ -240,5 +241,66 @@ describe("a Mermaid diagram that tries to act", () => {
       /syntax|parse|error|expecting|line \d/i,
     );
     expect(document.body.querySelectorAll("svg")).toHaveLength(0);
+  });
+});
+
+describe("an unparsable diagram in the section's blocks", () => {
+  const UNPARSABLE = "flowchart LR\n  A[Trench] -->";
+  const DESCRIPTION =
+    "A flowchart: the oceanic plate meets the trench and sinks into the mantle.";
+
+  it("shows a visual block's own description, not only the diagram's caption", async () => {
+    await applyStyles("light");
+    render(
+      <Blocks
+        blocks={[
+          {
+            state: "complete",
+            index: 0,
+            content: {
+              type: "Visual",
+              spec: diagram(UNPARSABLE),
+              description: DESCRIPTION,
+            },
+          },
+        ]}
+      />,
+    );
+    const frame = screen.getByRole("figure");
+
+    expect(
+      await within(frame).findByText(DESCRIPTION, {}, { timeout: 10_000 }),
+    ).toBeVisible();
+    expect(within(frame).getByText(CAPTION)).toBeVisible();
+    expect(frame.querySelector("svg")).toBeNull();
+    expect(document.body).not.toHaveTextContent(
+      /syntax|parse|error|expecting|line \d/i,
+    );
+  });
+
+  it("points to no description when the block has none", async () => {
+    await applyStyles("dark");
+    render(
+      <Blocks
+        blocks={[
+          {
+            state: "complete",
+            index: 0,
+            content: { type: "Mermaid", source: UNPARSABLE, description: null },
+          },
+        ]}
+      />,
+    );
+    const frame = screen.getByRole("figure");
+
+    expect(
+      await within(frame).findByText(
+        /could not be drawn/,
+        {},
+        { timeout: 10_000 },
+      ),
+    ).toBeVisible();
+    expect(frame).not.toHaveTextContent(/description/i);
+    expect(frame.querySelector("svg")).toBeNull();
   });
 });

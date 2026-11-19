@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { differenceEuclidean, wcagContrast } from "culori";
+import type { Locator } from "@playwright/test";
 
 import { openApp } from "./support/app.ts";
 
@@ -77,6 +78,39 @@ test("in a dark app the export route renders in the light theme", async ({
   expect(pageScheme).toBe("dark");
   expect(distance(ground, LIGHT_CANVAS)).toBeLessThan(0.01);
   expect(wcagContrast(ink, ground)).toBeGreaterThan(10);
+});
+
+/** A text's colour and the ground it shows on. */
+async function inkOn(locator: Locator) {
+  return locator.evaluate((element) => {
+    let ground = "";
+    for (let node: Element | null = element; node; node = node.parentElement) {
+      const background = getComputedStyle(node).backgroundColor;
+      if (background !== "rgba(0, 0, 0, 0)") {
+        ground = background;
+        break;
+      }
+    }
+    return { ground, ink: getComputedStyle(element).color };
+  });
+}
+
+test("in a dark app the lesson text of the export reads dark on light", async ({
+  page,
+}) => {
+  await openExport(page);
+
+  const section = page.getByRole("article", { name: "Convergent boundaries" });
+  for (const text of [
+    section.getByText(/^Which plate goes under is decided by density\./),
+    section.getByText(/^A plate carrying young, warm ocean floor/),
+    section.getByText("The old plate sinks beneath the young one."),
+    section.getByRole("heading", { name: "Check question" }),
+  ]) {
+    const { ground, ink } = await inkOn(text);
+    expect(distance(ground, LIGHT_CANVAS)).toBeLessThan(0.01);
+    expect(wcagContrast(ink, ground)).toBeGreaterThan(7);
+  }
 });
 
 test("the contents list every index entry in index order", async ({ page }) => {

@@ -10,6 +10,8 @@ import { WindowFocus } from "@/app/window-focus";
 import { Button } from "@/components/ui/button";
 import { describeError } from "@/core/client";
 import { Reader } from "@/reader/reader";
+import { ExportScreen } from "@/screens/export/export-screen";
+import { useExportedCourse } from "@/screens/export/route";
 import { Library } from "@/screens/library/library";
 import { Placement } from "@/screens/placement/placement";
 import { Settings } from "@/screens/settings/settings";
@@ -84,12 +86,23 @@ function Session() {
   );
 }
 
+/**
+ * The app, or at the export route the course as it is printed: the shell
+ * loads that route on its own to make a PDF, without session or screens.
+ */
 export function App() {
+  const exported = useExportedCourse();
   return (
     <ThemeProvider>
       <AtlasStoreProvider>
-        <WindowFocus />
-        <Session />
+        {exported === null ? (
+          <>
+            <WindowFocus />
+            <Session />
+          </>
+        ) : (
+          <ExportScreen key={exported} courseId={exported} />
+        )}
       </AtlasStoreProvider>
     </ThemeProvider>
   );

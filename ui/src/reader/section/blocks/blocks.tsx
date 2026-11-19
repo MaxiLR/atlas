@@ -161,10 +161,14 @@ function captionOf(spec: unknown, description: string | null): string {
   return description ?? "";
 }
 
-/** Where the check block sits: its stored version (null while written) and index. */
+/**
+ * Where the check block sits: its stored version (null while written) and
+ * index, and whether its questions can be answered there.
+ */
 interface CheckBlock {
   versionId: string | null;
   block: number;
+  answerable: boolean;
 }
 
 function Check({
@@ -185,6 +189,7 @@ function CheckEntry({
   question,
   versionId,
   block,
+  answerable,
 }: CheckBlock & { question: CheckQuestion }) {
   const { stem, options, index, answer } = question;
   const props = useMemo(
@@ -195,6 +200,10 @@ function CheckEntry({
     () => ({ versionId, block, question: index, answer }),
     [versionId, block, index, answer],
   );
+  // Outside a place to answer it, the registry shows the stem and options.
+  if (!answerable) {
+    return <RegistryEntry type="check-question" props={props} />;
+  }
   return (
     <CheckPlaceContext value={place}>
       <RegistryEntry type="check-question" props={props} />
@@ -337,7 +346,8 @@ function byBlock<T extends { block: number }>(items: T[]): Map<number, T[]> {
  * A section's blocks in order, keyed by block: prose as Markdown in
  * Typeset, visuals, figures and diagrams through the catalog's registry in
  * the figure frame with running numbers, check questions through the
- * registry, and a placeholder of fixed height for a block still arriving.
+ * registry (answerable unless `answerable` is false), and a placeholder of
+ * fixed height for a block still arriving.
  * Every block owns only the space above it, so a block that arrives or
  * grows never moves the ones before it.
  */
@@ -349,6 +359,7 @@ export function Blocks({
   marks = nothing,
   markComponent,
   onSelection,
+  answerable = true,
 }: {
   blocks: ShownBlock[];
   /** The stored version shown, whose check questions can be answered. */
@@ -361,6 +372,8 @@ export function Blocks({
   markComponent?: ComponentType<MarkProps>;
   /** Called with what a selection covers whenever the selection changes. */
   onSelection?: (passage: Passage | null) => void;
+  /** False shows check questions with their options, not to be answered. */
+  answerable?: boolean;
 }) {
   const root = useRef<HTMLDivElement>(null);
   const labels = useMemo(() => labelsOf(blocks), [blocks]);
@@ -400,7 +413,7 @@ export function Blocks({
                 content={block.content}
                 label={labels.get(block.index)}
                 prose={(text) => prose(text, false)}
-                at={{ versionId, block: block.index }}
+                at={{ versionId, block: block.index, answerable }}
               />
             ) : block.kind === "Prose" ? (
               prose(block.text, true)

@@ -279,8 +279,12 @@ describe("the export route", () => {
 
   it("waits for the fonts before it signals ready", async () => {
     const loading = Promise.withResolvers<void>();
+    // The stub's `ready` resolves to the stub itself, as a FontFaceSet's
+    // does, so its type cannot be inferred from its own initializer.
+    // @ts-expect-error -- the stub is untyped on purpose
     const fonts = {
       status: "loading",
+      // @ts-expect-error -- resolves to the untyped stub above
       ready: loading.promise.then(() => fonts),
     };
     Object.defineProperty(document, "fonts", {

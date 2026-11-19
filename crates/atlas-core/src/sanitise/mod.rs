@@ -14,20 +14,32 @@ mod rules;
 use quick_xml::escape::escape;
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::{Reader, XmlVersion};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use ts_rs::TS;
 
 use rules::{Definitions, Kind};
 
 /// SVG that passed the sanitiser. Inside the core it is made only by the
 /// sanitiser; the interface receives it as a string.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[serde(transparent)]
 pub struct SanitisedSvg(String);
 
 impl SanitisedSvg {
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+}
+
+// Deserialising a stored or synced figure runs the allow-list again, so the
+// type never carries markup that has not passed it. Only the rule that a new
+// figure must draw something is left to `sanitise`: it judges the model's
+// output, not whether a figure is safe to show.
+impl<'de> Deserialize<'de> for SanitisedSvg {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let input = String::deserialize(deserializer)?;
+        let root = inert(&input).map_err(serde::de::Error::custom)?;
+        Ok(serialise(&root, input.len()))
     }
 }
 
@@ -51,18 +63,28 @@ pub const MAX_ELEMENTS: usize = 2000;
 /// exceeds [`MAX_BYTES`], [`MAX_DEPTH`] or [`MAX_ELEMENTS`], or that has
 /// nothing drawable left once sanitised.
 pub fn sanitise(input: &str) -> Result<SanitisedSvg, Rejected> {
+    let root = inert(input)?;
+    if !drawable(&root) {
+        return Err(rejected("nothing drawable is left".to_owned()));
+    }
+    Ok(serialise(&root, input.len()))
+}
+
+/// Parses `input` into the tree the allow-list keeps, within the limits.
+fn inert(input: &str) -> Result<Element, Rejected> {
     if input.len() > MAX_BYTES {
         return Err(rejected(format!("it is larger than {MAX_BYTES} bytes")));
     }
     let mut root = parse(input)?;
     let definitions = definitions(&mut root);
     clean(&mut root, &definitions);
-    if !drawable(&root) {
-        return Err(rejected("nothing drawable is left".to_owned()));
-    }
-    let mut output = String::with_capacity(input.len());
-    write(&root, true, &mut output);
-    Ok(SanitisedSvg(output))
+    Ok(root)
+}
+
+fn serialise(root: &Element, capacity: usize) -> SanitisedSvg {
+    let mut output = String::with_capacity(capacity);
+    write(root, true, &mut output);
+    SanitisedSvg(output)
 }
 
 fn rejected(reason: String) -> Rejected {
@@ -316,7 +338,9 @@ fn write(element: &Element, root: bool, output: &mut String) {
         output.push(' ');
         output.push_str(key);
         output.push_str("=\"");
-        output.push_str(&escape(value.as_str()));
+        // Whitespace other than a space is written as a reference, which a
+        // parser's attribute-value normalisation leaves alone.
+        push_escaped(value, &['\t', '\n', '\r'], output);
         output.push('"');
     }
     if element.children.is_empty() {
@@ -327,10 +351,26 @@ fn write(element: &Element, root: bool, output: &mut String) {
     for child in &element.children {
         match child {
             Node::Element(child) => write(child, false, output),
-            Node::Text(text) => output.push_str(&escape(text.as_str())),
+            // A raw carriage return would come back as a line feed.
+            Node::Text(text) => push_escaped(text, &['\r'], output),
         }
     }
     output.push_str("</");
     output.push_str(element.name);
     output.push('>');
+}
+
+/// Writes `text` escaped for XML, with each of `references` written as a
+/// character reference.
+fn push_escaped(text: &str, references: &[char], output: &mut String) {
+    for part in text.split_inclusive(references) {
+        let mut chars = part.chars();
+        match chars.next_back() {
+            Some(ch) if references.contains(&ch) => {
+                output.push_str(&escape(chars.as_str()));
+                output.push_str(&format!("&#{};", u32::from(ch)));
+            }
+            _ => output.push_str(&escape(part)),
+        }
+    }
 }

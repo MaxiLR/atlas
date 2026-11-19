@@ -212,6 +212,19 @@ pub fn build(
     }
 }
 
+/// The provider for `choice` as the app builds it: the plan provider takes
+/// its tokens from the session's plan login once the core is built.
+pub fn for_session(
+    choice: ProviderChoice,
+    endpoints: &Endpoints,
+    clock: Arc<dyn Clock>,
+) -> Arc<dyn ModelProvider> {
+    match choice {
+        ProviderChoice::Plan => Arc::new(ChatGptProvider::awaiting_login(endpoints, clock)),
+        ProviderChoice::Fake => Arc::new(FakeProvider::new(FakeScript::sample())),
+    }
+}
+
 pub type ProviderStream = BoxStream<'static, Result<ProviderEvent, ProviderError>>;
 
 #[async_trait]

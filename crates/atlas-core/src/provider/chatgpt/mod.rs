@@ -74,6 +74,11 @@ impl ChatGptProvider {
         }
     }
 
+    /// The provider before any plan login: every call requires sign-in.
+    pub fn awaiting_login(endpoints: &Endpoints, clock: Arc<dyn Clock>) -> Self {
+        Self::new(endpoints, Arc::new(NoLogin), clock)
+    }
+
     /// The same provider giving up on an answer silent for `idle` instead of
     /// five minutes.
     pub fn with_idle_timeout(self, idle: Duration) -> Self {
@@ -102,6 +107,22 @@ impl ChatGptProvider {
         *default = Some(first.clone());
         Ok(first)
     }
+}
+
+/// The token source before a plan login is adopted.
+struct NoLogin;
+
+#[async_trait]
+impl TokenSource for NoLogin {
+    async fn access_token(&self) -> Result<crate::auth::AccessToken, ProviderError> {
+        Err(ProviderError::SignInRequired { request_id: None })
+    }
+
+    async fn refresh(&self) -> Result<crate::auth::AccessToken, ProviderError> {
+        Err(ProviderError::SignInRequired { request_id: None })
+    }
+
+    async fn rejected(&self) {}
 }
 
 fn unbuildable(_: reqwest::Error) -> ProviderError {

@@ -1,5 +1,10 @@
 //! The desktop shell: one window, one command into the core, one event out.
 
+mod keychain;
+mod navigation;
+#[cfg(test)]
+mod tests;
+
 use std::sync::Arc;
 
 use atlas_core::ports::{Endpoints, EventSink, SystemClock};
@@ -15,6 +20,13 @@ pub const CORE_EVENT: &str = "core-event";
 
 /// The database file inside the app's data folder.
 const DATABASE_FILE: &str = "atlas.sqlite3";
+
+/// Set to `1`, the core runs the fake provider instead of the plan.
+pub const FAKE_PROVIDER: &str = "";
+
+fn provider_choice(_value: Option<&std::ffi::OsStr>) -> atlas_core::provider::ProviderChoice {
+    todo!()
+}
 
 /// The Tauri context compiled from `tauri.conf.json`.
 pub fn context() -> tauri::Context<tauri::Wry> {

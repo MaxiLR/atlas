@@ -28,7 +28,8 @@ export function WindowBar({
 
 /**
  * A screen outside a course: the window bar over one centred column, 760 px
- * for lists and 640 px for a single task.
+ * for lists and 640 px for a single task. The bar stays put; the column
+ * scrolls under it.
  */
 export function WindowFrame({
   bar,
@@ -40,13 +41,13 @@ export function WindowFrame({
   children: ReactNode;
 }) {
   return (
-    <div className="grid min-h-svh grid-rows-[auto_minmax(0,1fr)]">
+    <div className="grid h-svh grid-rows-[auto_minmax(0,1fr)]">
       <header className="border-b border-edge">
         <WindowBar>{bar}</WindowBar>
       </header>
       <main
         className={cn(
-          "min-w-0 px-5 pt-10 pb-8 min-[761px]:px-6 min-[761px]:pb-16",
+          "min-w-0 overflow-y-auto px-5 pt-10 pb-8 min-[761px]:px-6 min-[761px]:pb-16",
           width === "list" ? "min-[761px]:pt-20" : "min-[761px]:pt-24",
         )}
       >

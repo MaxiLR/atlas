@@ -1002,6 +1002,99 @@ async fn only_a_new_explicit_sign_in_clears_not_allowed() {
     assert!(harness.create_course().await.is_ok());
 }
 
+impl Harness {
+    /// Closes the app and opens it again over the same secret store, database
+    /// and clock, with a new plan provider. `offline` leaves the
+    /// authorisation server out of reach.
+    async fn relaunch(&mut self, offline: bool) {
+        let endpoints = if offline {
+            let listener = TcpListener::bind("127.0.0.1:0")
+                .await
+                .expect("bind a free port");
+            let address = listener.local_addr().expect("the bound address");
+            drop(listener);
+            Endpoints::local(&Url::parse(&format!("http://{address}/")).expect("a valid URL"))
+        } else {
+            self.server.endpoints()
+        };
+        let plan = Arc::new(PlanProvider::new());
+        self.core = Core::new(CoreDeps {
+            database_path: self._dir.path().join("atlas.sqlite3"),
+            provider: plan.clone(),
+            events: self.events.clone(),
+            clock: self.clock.clone(),
+            secrets: self.secrets.clone(),
+            browser: self.browser.clone(),
+            pdf: Arc::new(FakePdfExporter::default()),
+            endpoints,
+        })
+        .expect("the core starts again");
+        self.plan = plan;
+    }
+}
+
+#[tokio::test]
+async fn not_allowed_is_remembered_with_the_login_across_a_relaunch() {
+    let mut harness = Harness::plan().await;
+    harness.sign_in().await;
+    harness.plan.refuse([Refusal::NotAllowed]);
+    assert!(harness.create_course().await.is_err());
+
+    harness.relaunch(false).await;
+
+    assert_eq!(harness.session().await, signed_in(PlanUsage::NotAllowed));
+    assert_eq!(
+        harness.create_course().await,
+        Err(CoreError::PlanNotAllowed)
+    );
+    assert!(
+        harness.plan.presented().is_empty(),
+        "the guard refuses before the provider"
+    );
+    assert_eq!(
+        harness.authorizations().len(),
+        1,
+        "no sign-in is started automatically"
+    );
+
+    assert_eq!(harness.sign_in().await, signed_in(PlanUsage::On));
+    assert!(harness.create_course().await.is_ok());
+}
+
+#[tokio::test]
+async fn an_expired_token_with_the_token_endpoint_out_of_reach_is_offline() {
+    let mut harness = Harness::plan().await;
+    harness.sign_in().await;
+    harness.clock.advance(Duration::from_secs(3600));
+
+    harness.relaunch(true).await;
+
+    assert_eq!(harness.create_course().await, Err(CoreError::Offline));
+    assert!(
+        harness.plan.presented().is_empty(),
+        "no stale token is sent"
+    );
+    assert_eq!(harness.session().await, signed_in(PlanUsage::On));
+    assert!(harness.secrets.get(SecretRecord::PlanLogin).is_some());
+}
+
+#[tokio::test]
+async fn a_token_about_to_expire_is_still_used_when_the_token_endpoint_is_out_of_reach() {
+    let mut harness = Harness::plan().await;
+    harness.sign_in().await;
+    let first = harness.server.access_tokens();
+    harness.clock.advance(Duration::from_secs(3590));
+
+    harness.relaunch(true).await;
+
+    harness
+        .create_course()
+        .await
+        .expect("the still valid token is used");
+    assert_eq!(harness.plan.presented(), first);
+    assert_eq!(harness.session().await, signed_in(PlanUsage::On));
+}
+
 // ---------------------------------------------------------------------------
 // Signing out
 // ---------------------------------------------------------------------------

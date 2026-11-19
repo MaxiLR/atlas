@@ -217,13 +217,9 @@ fn insert_entries(
 const INTRODUCES: &str = "introduces";
 const RELIES_ON: &str = "relies_on";
 
-/// A convention's key as compared: without surrounding space, in lower case.
-fn normalised_key(key: &str) -> String {
-    key.trim().to_lowercase()
-}
-
 /// Stores a convention unless its normalised key is already fixed for the
-/// course and kind; the database's unique index decides.
+/// course and kind; the database normalises the key and its unique index
+/// decides.
 pub(super) fn insert_convention(
     connection: &Connection,
     now: DateTime<Utc>,
@@ -236,16 +232,14 @@ pub(super) fn insert_convention(
     };
     let changed = connection.execute(
         "INSERT INTO conventions
-            (id, course_id, kind, key, normalised_key, meaning, origin_version_id,
-             created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)
+            (id, course_id, kind, key, meaning, origin_version_id, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)
          ON CONFLICT DO NOTHING",
         params![
             Id(Uuid::new_v4()),
             Id(course),
             convention.kind,
             convention.key,
-            normalised_key(&convention.key),
             convention.meaning,
             origin,
             Time(now)

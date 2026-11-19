@@ -56,14 +56,31 @@ ALTER TABLE section_versions_full RENAME TO section_versions;
 CREATE INDEX section_versions_by_node ON section_versions (node_id, created_at);
 
 -- A stored version never changes. The one update allowed is its deletion:
--- setting the tombstone, which may erase the content with it.
+-- setting the tombstone, which may erase the content with it. A row is never
+-- removed, and a write that would replace one (on its id or its row id) is
+-- refused before SQLite removes the old row, which it does without firing
+-- delete triggers.
 CREATE TRIGGER section_versions_are_immutable
 BEFORE UPDATE ON section_versions
 WHEN NOT (OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL
-          AND NEW.id = OLD.id AND NEW.node_id = OLD.node_id
+          AND NEW.id = OLD.id AND NEW.rowid = OLD.rowid AND NEW.node_id = OLD.node_id
           AND NEW.created_at = OLD.created_at)
 BEGIN
     SELECT RAISE(ABORT, 'a section version is immutable; only its tombstone can be set');
+END;
+
+CREATE TRIGGER section_versions_are_never_replaced
+BEFORE INSERT ON section_versions
+WHEN EXISTS (SELECT 1 FROM section_versions version
+             WHERE version.id = NEW.id OR version.rowid = NEW.rowid)
+BEGIN
+    SELECT RAISE(ABORT, 'a section version is immutable; it cannot be replaced');
+END;
+
+CREATE TRIGGER section_versions_are_never_removed
+BEFORE DELETE ON section_versions
+BEGIN
+    SELECT RAISE(ABORT, 'a section version is immutable; set its tombstone instead');
 END;
 
 -- Index nodes: when a section was first read and which version is current.
@@ -201,14 +218,18 @@ CREATE TABLE map_entry_concepts (
 CREATE INDEX map_entry_concepts_by_entry ON map_entry_concepts (entry_id, role, position);
 
 -- Conventions: the first fixing holds. A key is unique per course and kind
--- once case and surrounding space are normalised; the store writes the
--- normalised key beside the key as given.
+-- once case and surrounding space are normalised. The database computes the
+-- normalised key, so no writer can supply its own: the key without the
+-- surrounding Unicode white space (the characters Rust's `trim` removes),
+-- with SQLite's `lower` (ASCII letters) applied.
 CREATE TABLE conventions (
     id TEXT PRIMARY KEY NOT NULL,
     course_id TEXT NOT NULL REFERENCES courses (id),
     kind TEXT NOT NULL CHECK (kind IN ('notation', 'terminology', 'running_example')),
     key TEXT NOT NULL,
-    normalised_key TEXT NOT NULL,
+    normalised_key TEXT NOT NULL GENERATED ALWAYS AS (lower(trim(key, char(
+        9, 10, 11, 12, 13, 32, 133, 160, 5760, 8192, 8193, 8194, 8195, 8196, 8197, 8198,
+        8199, 8200, 8201, 8202, 8232, 8233, 8239, 8287, 12288)))) STORED,
     meaning TEXT NOT NULL,
     -- Where it was first fixed: the version whose record fixed it, or NULL
     -- for the plan made with the index.

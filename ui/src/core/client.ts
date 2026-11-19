@@ -14,6 +14,19 @@ export interface CoreClient {
   subscribe(listener: (event: CoreEvent) => void): () => void;
 }
 
+/** The untyped channel a client is built over: Tauri's command, or the fake core. */
+export interface CoreTransport {
+  request(request: CoreRequest): Promise<CoreResponse>;
+  subscribe(listener: (event: CoreEvent) => void): () => void;
+}
+
+export function createCoreClient(transport: CoreTransport): CoreClient {
+  return {
+    call: (request) => transport.request(request),
+    subscribe: (listener) => transport.subscribe(listener),
+  };
+}
+
 /** Narrows a response to the variant a request promises; anything else is a bug. */
 export function expectResponse<T extends CoreResponse["type"]>(
   response: CoreResponse,

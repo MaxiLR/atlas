@@ -72,8 +72,9 @@ export function navigate(
 }
 
 /**
- * Signed out leads to sign-in, whatever was open; signed in leads from
- * sign-in to the library.
+ * Signed out leads to sign-in, whatever was open. Signed in with plan usage
+ * on leads from sign-in to the library; with plan usage off or not allowed,
+ * sign-in stays to say so until the candidate moves on.
  */
 export function sessionNavigated(
   nav: NavigationSlice,
@@ -85,7 +86,9 @@ export function sessionNavigated(
     case "SigningIn":
       return nav;
     case "SignedIn":
-      return nav.screen === "signIn" ? { ...nav, screen: "library" } : nav;
+      return nav.screen === "signIn" && session.planUsage === "On"
+        ? { ...nav, screen: "library" }
+        : nav;
     default:
       return unknownTag(session);
   }

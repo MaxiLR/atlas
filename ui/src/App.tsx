@@ -13,7 +13,7 @@ import { Reader } from "@/reader/reader";
 import { Library } from "@/screens/library/library";
 import { Placement } from "@/screens/Placement";
 import { Settings } from "@/screens/Settings";
-import { SignIn } from "@/screens/SignIn";
+import { SignIn } from "@/screens/sign-in/sign-in";
 import { selectOpenCourse } from "@/store";
 import { unknownTag } from "@/store/unknown-tag";
 

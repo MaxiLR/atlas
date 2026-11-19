@@ -121,6 +121,47 @@ describe("the session", () => {
     expect(back.navigation.screen).toBe("library");
     expect(back.library.courses).toEqual(courses);
   });
+
+  it("stays on sign-in when the sign-in returns without plan usage on", () => {
+    for (const planUsage of ["Off", "NotAllowed"] as const) {
+      const signingIn = applyEvent(
+        applyEvent(initialState, {
+          type: "SessionChanged",
+          session: { type: "SignedOut", reason: null },
+        }),
+        { type: "SessionChanged", session: { type: "SigningIn" } },
+      );
+
+      const back = applyEvent(signingIn, {
+        type: "SessionChanged",
+        session: { ...signedIn, planUsage },
+      });
+
+      expect(back.navigation.screen).toBe("signIn");
+      expect(back.session.session).toEqual({ ...signedIn, planUsage });
+    }
+  });
+
+  it("keeps a finished sign-in when the reply that started it arrives late", () => {
+    const signedOut = applyEvent(initialState, {
+      type: "SessionChanged",
+      session: { type: "SignedOut", reason: null },
+    });
+    const asked = applyRequest(signedOut, { type: "SignIn" });
+    const back = applyEvent(asked, {
+      type: "SessionChanged",
+      session: { ...signedIn, planUsage: "Off" },
+    });
+
+    const late = applyResponse(
+      back,
+      { type: "SignIn" },
+      { type: "Session", session: { type: "SigningIn" } },
+    );
+
+    expect(late.session.session).toEqual({ ...signedIn, planUsage: "Off" });
+    expect(late.navigation.screen).toBe("signIn");
+  });
 });
 
 describe("asking for the session", () => {

@@ -392,7 +392,13 @@ export function applyResponse(
 ): AtlasState {
   switch (response.type) {
     case "Session":
-      return sessionChanged(state, response.session);
+      // SignIn answers SigningIn; when the browser came back first, the
+      // session it reported is newer than that answer.
+      return request.type === "SignIn" &&
+        response.session.type === "SigningIn" &&
+        state.session.session?.type === "SignedIn"
+        ? state
+        : sessionChanged(state, response.session);
     case "Models":
       return { ...state, models: { list: response.list } };
     case "Courses":

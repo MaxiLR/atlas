@@ -32,7 +32,7 @@ import type { PanelTab } from "@/store";
  * that opened it.
  *
  * A section that opens starts at the top of the column with focus on its
- * title, except that Next keeps focus, so it can be pressed again. The
+ * title, except that Next and Go deeper keep focus where it was pressed. The
  * rail's first stop skips to the column.
  */
 export function Reader({ course }: { course: CourseView }) {
@@ -48,7 +48,6 @@ export function Reader({ course }: { course: CourseView }) {
   const sidePanel = useRef<HTMLElement>(null);
   const indexToggle = useRef<HTMLButtonElement>(null);
   const panelOpener = useRef<HTMLButtonElement | null>(null);
-  const nextButton = useRef<HTMLButtonElement>(null);
   // Set when an action opens a region whose first control takes focus.
   const focusIndex = useRef(false);
   const focusPanel = useRef(false);
@@ -72,11 +71,11 @@ export function Reader({ course }: { course: CourseView }) {
     const scroller = column.current;
     if (scroller === null) return;
     scroller.scrollTop = 0;
-    // Next keeps focus, so it can be pressed again; the side panel keeps it
-    // while the candidate works there.
+    // The foot's controls keep focus, so Next can be pressed again; the
+    // side panel keeps it while the candidate works there.
     const focused = document.activeElement;
     if (
-      (focused !== null && focused === nextButton.current) ||
+      focused?.closest("main > footer") != null ||
       sidePanel.current?.contains(focused) === true
     ) {
       return;
@@ -305,11 +304,7 @@ export function Reader({ course }: { course: CourseView }) {
             />
           )}
         </div>
-        <ReaderFoot
-          courseId={course.id}
-          sectionId={sectionId}
-          nextRef={nextButton}
-        />
+        <ReaderFoot courseId={course.id} sectionId={sectionId} />
       </main>
 
       {panel.open && (

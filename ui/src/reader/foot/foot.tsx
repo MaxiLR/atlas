@@ -1,11 +1,4 @@
-import {
-  useEffect,
-  useId,
-  useRef,
-  useState,
-  type Ref,
-  type RefObject,
-} from "react";
+import { useEffect, useId, useRef, useState, type RefObject } from "react";
 
 import { failureInStore, useAtlas, useAtlasStore } from "@/app/store";
 import { Button } from "@/components/ui/button";
@@ -227,18 +220,14 @@ interface Refusal {
  *
  * Next is unavailable while the section is generating, Go deeper until it is
  * complete. Go deeper asks for the deep dives, then opens the first unread
- * one. A refused request says so, and its control tries again. `nextRef`
- * reaches the Next button, which the reader leaves focused on the section
- * it opens.
+ * one. A refused request says so, and its control tries again.
  */
 export function ReaderFoot({
   courseId,
   sectionId,
-  nextRef,
 }: {
   courseId: string;
   sectionId: string | null;
-  nextRef?: Ref<HTMLButtonElement>;
 }) {
   const { send } = useAtlasStore();
   const { course, status, nextFrom, ended } = useAtlas((state) => ({
@@ -360,7 +349,6 @@ export function ReaderFoot({
         </Button>
         {next !== null && (
           <Button
-            ref={nextRef}
             variant="primary"
             aria-describedby={refused?.type === "Next" ? branchId : nextId}
             aria-disabled={nextUnavailable || undefined}

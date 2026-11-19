@@ -175,7 +175,6 @@ fn reading(mark: NodeMark, read: bool) -> Option<ReadingState> {
 }
 
 #[test]
-#[ignore = "expects 14 sections where the sample tree holds 12; the corrected twin is marks_counts_and_the_furthest_read_section_count_twelve_sections"]
 fn marks_counts_and_the_furthest_read_section_follow_reading() {
     use NodeMark::{Branch, Read, Unread};
     let mut tree = sample();
@@ -201,8 +200,9 @@ fn marks_counts_and_the_furthest_read_section_follow_reading() {
     for (node, want) in before {
         assert_eq!(state(&tree, node), want, "state of {node}");
     }
-    // Six broad-pass sections and eight deep dives present.
-    assert_eq!(progress(&tree), Progress { read: 5, total: 14 });
+    // Six broad-pass sections (A1, A2, B1, B2, C1, C2) and six deep dives
+    // (D1 to D3, N1 to N3) present.
+    assert_eq!(progress(&tree), Progress { read: 5, total: 12 });
     // A2 is unread, but the line is bright up to the furthest read B2.
     assert_eq!(furthest_read(&tree), Some(B2));
     assert_eq!(first_section(&tree), Some(A1));
@@ -224,7 +224,7 @@ fn marks_counts_and_the_furthest_read_section_follow_reading() {
     assert_eq!(state(&tree, N3), reading(Read, true));
     assert_eq!(state(&tree, D2), reading(Branch, true));
     assert_eq!(state(&tree, A2), reading(Unread, false));
-    assert_eq!(progress(&tree), Progress { read: 8, total: 14 });
+    assert_eq!(progress(&tree), Progress { read: 8, total: 12 });
     assert_eq!(furthest_read(&tree), Some(C1));
     // A deep dive read does not move the bright part of the line.
     assert!(mark_read(&mut tree, D3));
@@ -232,7 +232,6 @@ fn marks_counts_and_the_furthest_read_section_follow_reading() {
 }
 
 #[test]
-#[ignore = "expects 14 sections where the sample tree holds 12; the corrected twin is an_unread_course_counts_nothing_read"]
 fn an_unread_course_starts_dark() {
     let mut tree = sample();
     for chapter in &mut tree.chapters {
@@ -245,7 +244,7 @@ fn an_unread_course_starts_dark() {
         clear(&mut chapter.sections);
     }
     assert_eq!(furthest_read(&tree), None);
-    assert_eq!(progress(&tree), Progress { read: 0, total: 14 });
+    assert_eq!(progress(&tree), Progress { read: 0, total: 12 });
     assert_eq!(first_section(&IndexTree { chapters: vec![] }), None);
 }
 
@@ -259,7 +258,6 @@ fn deep_dive() -> Vec<TreeSection> {
 }
 
 #[test]
-#[ignore = "expects 18 sections where the deepened sample tree holds 16; the corrected twin is inserting_children_keeps_the_rest_of_the_tree_and_counts_sixteen_sections"]
 fn inserting_children_keeps_their_order_and_the_rest_of_the_tree() {
     use NodeMark::{Branch, Unread};
     let mut tree = sample();
@@ -283,7 +281,8 @@ fn inserting_children_keeps_their_order_and_the_rest_of_the_tree() {
 
     assert_eq!(state(&tree, C1), reading(Branch, true));
     assert_eq!(state(&tree, E1), reading(Unread, false));
-    assert_eq!(progress(&tree), Progress { read: 6, total: 18 });
+    // The twelve sections of the sample and the four new deep dives.
+    assert_eq!(progress(&tree), Progress { read: 6, total: 16 });
     assert_eq!(furthest_read(&tree), Some(C1));
 
     assert_eq!(next(&tree, C1), Some(C2));
@@ -337,109 +336,6 @@ fn inserting_children_refuses_and_changes_nothing() {
         assert_eq!(insert_children(&mut tree, parent, children), Err(error));
         assert_eq!(tree, sample());
     }
-}
-
-// The sample holds six broad-pass sections (A1, A2, B1, B2, C1, C2) and six
-// deep dives (D1 to D3, N1 to N3): twelve sections present, sixteen once C1
-// is deepened with four.
-#[test]
-fn marks_counts_and_the_furthest_read_section_count_twelve_sections() {
-    use NodeMark::{Branch, Read, Unread};
-    let mut tree = sample();
-
-    let before = [
-        (A1, reading(Read, true)),
-        (A2, reading(Unread, false)),
-        (B1, reading(Read, true)),
-        (B2, reading(Branch, true)),
-        (D1, reading(Read, true)),
-        (D2, reading(Branch, false)),
-        (N1, reading(Read, true)),
-        (N2, reading(Unread, false)),
-        (N3, reading(Unread, false)),
-        (D3, reading(Unread, false)),
-        (C1, reading(Unread, false)),
-        (C2, reading(Unread, false)),
-        (CH_A, None),
-        (UNKNOWN, None),
-    ];
-    for (node, want) in before {
-        assert_eq!(state(&tree, node), want, "state of {node}");
-    }
-    assert_eq!(progress(&tree), Progress { read: 5, total: 12 });
-    assert_eq!(furthest_read(&tree), Some(B2));
-    assert_eq!(first_section(&tree), Some(A1));
-    assert_eq!(first_section_of(&tree, CH_A), Some(A1));
-    assert_eq!(first_section_of(&tree, CH_B), Some(B1));
-    assert_eq!(first_section_of(&tree, CH_C), Some(C1));
-    assert_eq!(first_section_of(&tree, B1), None);
-    assert_eq!(first_section_of(&tree, UNKNOWN), None);
-
-    assert!(mark_read(&mut tree, C1));
-    assert!(mark_read(&mut tree, N3));
-    assert!(mark_read(&mut tree, D2));
-    assert!(mark_read(&mut tree, A1));
-    assert!(!mark_read(&mut tree, CH_A));
-    assert!(!mark_read(&mut tree, UNKNOWN));
-
-    assert_eq!(state(&tree, C1), reading(Read, true));
-    assert_eq!(state(&tree, N3), reading(Read, true));
-    assert_eq!(state(&tree, D2), reading(Branch, true));
-    assert_eq!(state(&tree, A2), reading(Unread, false));
-    assert_eq!(progress(&tree), Progress { read: 8, total: 12 });
-    assert_eq!(furthest_read(&tree), Some(C1));
-    assert!(mark_read(&mut tree, D3));
-    assert_eq!(furthest_read(&tree), Some(C1));
-}
-
-#[test]
-fn inserting_children_keeps_the_rest_of_the_tree_and_counts_sixteen_sections() {
-    use NodeMark::{Branch, Unread};
-    let mut tree = sample();
-    mark_read(&mut tree, C1);
-
-    insert_children(&mut tree, C1, deep_dive()).unwrap();
-
-    let mut expected = sample();
-    expected.chapters[2].sections[0] = branch(C1, true, deep_dive());
-    assert_eq!(tree, expected);
-
-    let entries = order(&tree);
-    let ids: Vec<Uuid> = entries.iter().map(|entry| entry.0).collect();
-    assert_eq!(
-        ids,
-        vec![
-            A1, A2, B1, B2, D1, D2, N1, N2, N3, D3, C1, E1, E2, E3, E4, C2
-        ]
-    );
-    assert_eq!(entries[11], (E1, 1, SectionKind::DeepDive, CH_C));
-
-    assert_eq!(state(&tree, C1), reading(Branch, true));
-    assert_eq!(state(&tree, E1), reading(Unread, false));
-    assert_eq!(progress(&tree), Progress { read: 6, total: 16 });
-    assert_eq!(furthest_read(&tree), Some(C1));
-
-    assert_eq!(next(&tree, C1), Some(C2));
-    assert_eq!(next(&tree, E1), Some(E2));
-    assert_eq!(next(&tree, E3), Some(E4));
-    assert_eq!(next(&tree, E4), Some(C2));
-}
-
-#[test]
-fn an_unread_course_counts_nothing_read() {
-    let mut tree = sample();
-    for chapter in &mut tree.chapters {
-        fn clear(sections: &mut [TreeSection]) {
-            for section in sections {
-                section.read = false;
-                clear(&mut section.children);
-            }
-        }
-        clear(&mut chapter.sections);
-    }
-    assert_eq!(furthest_read(&tree), None);
-    assert_eq!(progress(&tree), Progress { read: 0, total: 12 });
-    assert_eq!(first_section(&IndexTree { chapters: vec![] }), None);
 }
 
 /// A small deterministic generator, so the property runs the same each time.

@@ -500,3 +500,19 @@ fn shown_block_indices_do_not_depend_on_a_record_block() {
     assert_eq!(shown_blocks(&split_whole(with_record)), expected);
     assert_eq!(shown_blocks(&split_whole(without_record)), expected);
 }
+
+#[test]
+fn bytes_that_are_not_utf8_become_replacement_characters_wherever_cut() {
+    let input: &[u8] = b"a\xFFb\n```mermaid\nx\xE2\x82\n```\nc\xF0\x9F";
+    let expected = vec![
+        prose(0, "a\u{FFFD}b\n"),
+        opened(Some(1), ReservedKind::Mermaid),
+        closed(Some(1), ReservedKind::Mermaid, "x\u{FFFD}\n", None),
+        prose(2, "c\u{FFFD}"),
+        SplitEvent::Finished { record_seen: false },
+    ];
+    for cut in 0..=input.len() {
+        let (head, tail) = input.split_at(cut);
+        assert_eq!(split_chunks(&[head, tail]), expected, "cut at byte {cut}");
+    }
+}

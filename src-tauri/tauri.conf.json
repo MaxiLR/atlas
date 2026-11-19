@@ -17,17 +17,22 @@
         "width": 1280,
         "height": 832,
         "minWidth": 720,
-        "minHeight": 480
+        "minHeight": 480,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": { "x": 16, "y": 15 }
       }
     ],
+    "withGlobalTauri": false,
     "security": {
       "csp": {
         "default-src": "'self'",
         "script-src": "'self'",
         "style-src": "'self' 'unsafe-inline'",
-        "img-src": "'self' data: blob:",
-        "font-src": "'self' data:",
+        "img-src": "'self' data:",
+        "font-src": "'self'",
         "connect-src": "ipc: http://ipc.localhost",
+        "frame-src": "'none'",
         "object-src": "'none'",
         "base-uri": "'none'",
         "form-action": "'none'"

@@ -31,11 +31,13 @@ describe("the fake core", () => {
   it("is left out of the production bundle", async () => {
     const script = await bundledScript("production");
     expect(script).toContain("core_request");
-    expect(script).not.toContain("It closes with what comes next.");
+    expect(script).not.toContain("about as fast as fingernails grow");
+    expect(script).not.toContain("plan-limit-no-reset");
   });
 
   it("is bundled in fake mode", async () => {
     const script = await bundledScript("fake");
-    expect(script).toContain("It closes with what comes next.");
+    expect(script).toContain("about as fast as fingernails grow");
+    expect(script).toContain("plan-limit-no-reset");
   });
 });

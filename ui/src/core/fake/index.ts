@@ -8,6 +8,12 @@ import type { CourseView } from "../generated/CourseView";
 import type { GenerationEvent } from "../generated/GenerationEvent";
 import type { SectionNode } from "../generated/SectionNode";
 import type { SectionView } from "../generated/SectionView";
+import type { FakeClock } from "./clock";
+
+export { createManualClock, systemClock, type FakeClock } from "./clock";
+
+/** The scenarios found in `scenarios/`, by name. */
+export const scenarioNames: string[] = [];
 
 /** What the fake answers: the index of every new course and the text of every section. */
 export interface FakeScript {
@@ -17,6 +23,8 @@ export interface FakeScript {
 
 export interface FakeCoreOptions {
   script?: FakeScript;
+  scenario?: string;
+  clock?: FakeClock;
   /** Awaited before each streamed delta; sets the pace of generation. */
   pace?: () => Promise<void>;
 }

@@ -1,4 +1,5 @@
 import type { ComponentFn } from "@json-render/react";
+import type { ReactNode } from "react";
 
 import type { AtlasCatalog } from "../../catalog.ts";
 
@@ -8,3 +9,7 @@ export const Citation: ComponentFn<AtlasCatalog, "citation"> = ({ props }) => (
     [{props.number}] <cite>{props.title}</cite>
   </span>
 );
+
+export function CitationScope({ children }: { children: ReactNode }) {
+  return children;
+}

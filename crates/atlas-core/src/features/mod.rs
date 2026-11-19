@@ -50,6 +50,10 @@ pub(crate) struct Features {
 
 impl Features {
     pub(crate) fn new(deps: &CoreDeps, store: &Arc<Store>) -> Result<Self, CoreError> {
+        let usage = usage::Feature::new(deps, store)?;
+        // The other features emit through the usage meter's tap, which reads
+        // usage after every completed generation.
+        let deps = &usage.tap(deps);
         let models = Arc::new(models::Feature::new(deps, store)?);
         Ok(Self {
             session: session::Feature::new(deps, store, &models)?,
@@ -66,7 +70,7 @@ impl Features {
             define: define::Feature::new(deps, store)?,
             wikipedia: wikipedia::Feature::new(deps, store)?,
             side_chats: side_chats::Feature::new(deps, store)?,
-            usage: usage::Feature::new(deps, store)?,
+            usage,
             export: export::Feature::new(deps, store)?,
         })
     }

@@ -877,3 +877,30 @@ async fn opening_a_section_completes_while_the_usage_endpoint_fails() {
     ));
     harness.assert_no_token();
 }
+
+#[tokio::test]
+async fn a_usage_record_it_did_not_write_leaves_the_meter_empty() {
+    let dir = tempfile::tempdir().expect("a temp dir");
+    let ports = FakePorts::default();
+    ports
+        .secrets
+        .write(SecretRecord::UsageLogin, "usage-login-record")
+        .expect("a record is present");
+    let deps: CoreDeps = ports.deps(
+        database(&dir),
+        Arc::new(FakeProvider::new(FakeScript::sample())),
+        Arc::new(RecordingEvents::default()),
+    );
+    let core = Core::new(deps).expect("core starts");
+
+    assert_eq!(
+        core.handle(CoreRequest::GetUsage).await,
+        Ok(CoreResponse::Usage {
+            usage: UsageState::NotConnected
+        })
+    );
+    assert!(matches!(
+        core.handle(CoreRequest::ListCourses).await,
+        Ok(CoreResponse::Courses { .. })
+    ));
+}

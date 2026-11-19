@@ -50,8 +50,13 @@ pub const REPAIR_RECORD: Prompt = Prompt {
     source: include_str!("../../../../prompts/repair-record.md"),
 };
 
+pub const DEFINE: Prompt = Prompt {
+    name: "define",
+    source: include_str!("../../../../prompts/define.md"),
+};
+
 /// Every prompt the core embeds.
-pub const ALL: [Prompt; 7] = [
+pub const ALL: [Prompt; 8] = [
     DRAFT_LADDER,
     PLACEMENT_QUESTION,
     BUILD_INDEX,
@@ -59,6 +64,7 @@ pub const ALL: [Prompt; 7] = [
     REPAIR_STRUCTURED,
     REPAIR_BLOCK,
     REPAIR_RECORD,
+    DEFINE,
 ];
 
 impl Prompt {

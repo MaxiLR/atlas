@@ -869,6 +869,7 @@ async fn a_cancelled_sign_in_returns_to_signed_out_and_exchanges_nothing() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
+#[ignore = "expects one presented token where the first generation of a launch also lists the models with the same token; the corrected twin is an_expired_access_token_is_refreshed_before_a_generation"]
 async fn an_expired_access_token_is_refreshed_before_a_provider_call() {
     let harness = Harness::plan().await;
     harness.sign_in().await;
@@ -893,6 +894,7 @@ async fn an_expired_access_token_is_refreshed_before_a_provider_call() {
 }
 
 #[tokio::test]
+#[ignore = "expects two presented tokens where the first generation of a launch also lists the models with the same token; the corrected twin is concurrent_generations_with_an_expiring_token_share_one_refresh"]
 async fn concurrent_calls_with_an_expiring_token_share_one_refresh() {
     let harness = Harness::plan().await;
     harness.sign_in().await;
@@ -1079,6 +1081,7 @@ async fn an_expired_token_with_the_token_endpoint_out_of_reach_is_offline() {
 }
 
 #[tokio::test]
+#[ignore = "expects one presented token where the first generation of a launch also lists the models with the same token; the corrected twin is a_token_about_to_expire_is_still_used_for_a_generation_when_the_token_endpoint_is_out_of_reach"]
 async fn a_token_about_to_expire_is_still_used_when_the_token_endpoint_is_out_of_reach() {
     let mut harness = Harness::plan().await;
     harness.sign_in().await;
@@ -1092,6 +1095,80 @@ async fn a_token_about_to_expire_is_still_used_when_the_token_endpoint_is_out_of
         .await
         .expect("the still valid token is used");
     assert_eq!(harness.plan.presented(), first);
+    assert_eq!(harness.session().await, signed_in(PlanUsage::On));
+}
+
+impl Harness {
+    /// Reads the launch's model list, so that a later generation is one
+    /// provider call, and answers how many tokens were presented so far.
+    async fn models_listed(&self) -> usize {
+        self.request(CoreRequest::ListModels)
+            .await
+            .expect("the models are listed");
+        self.plan.presented().len()
+    }
+}
+
+#[tokio::test]
+async fn an_expired_access_token_is_refreshed_before_a_generation() {
+    let harness = Harness::plan().await;
+    harness.sign_in().await;
+    let listed = harness.models_listed().await;
+
+    harness.clock.advance(Duration::from_secs(3600));
+    harness
+        .create_course()
+        .await
+        .expect("the course is created");
+
+    assert_eq!(harness.server.refreshes(), 1);
+    let tokens = harness.server.access_tokens();
+    assert_eq!(tokens.len(), 2);
+    let presented = harness.plan.presented();
+    assert_eq!(
+        presented[listed..],
+        [tokens[1].clone()],
+        "the generation presented only the refreshed token"
+    );
+    assert_eq!(harness.session().await, signed_in(PlanUsage::On));
+}
+
+#[tokio::test]
+async fn concurrent_generations_with_an_expiring_token_share_one_refresh() {
+    let harness = Harness::plan().await;
+    harness.sign_in().await;
+    let listed = harness.models_listed().await;
+
+    harness.clock.advance(Duration::from_secs(3590));
+    let (first, second) = tokio::join!(harness.create_course(), harness.create_course());
+    first.expect("the first course is created");
+    second.expect("the second course is created");
+
+    assert_eq!(harness.server.refreshes(), 1);
+    let fresh = harness.server.access_tokens()[1].clone();
+    let presented = harness.plan.presented();
+    assert_eq!(presented[listed..], [fresh.clone(), fresh]);
+}
+
+#[tokio::test]
+async fn a_token_about_to_expire_is_still_used_for_a_generation_when_the_token_endpoint_is_out_of_reach()
+ {
+    let mut harness = Harness::plan().await;
+    harness.sign_in().await;
+    let first = harness.server.access_tokens();
+    harness.clock.advance(Duration::from_secs(3590));
+
+    harness.relaunch(true).await;
+    // The listing itself goes out with the still valid token.
+    let listed = harness.models_listed().await;
+
+    harness
+        .create_course()
+        .await
+        .expect("the still valid token is used");
+    let presented = harness.plan.presented();
+    assert_eq!(presented[..listed], first[..]);
+    assert_eq!(presented[listed..], first[..]);
     assert_eq!(harness.session().await, signed_in(PlanUsage::On));
 }
 

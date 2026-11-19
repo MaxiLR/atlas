@@ -19,6 +19,26 @@ use serde_json::{Value, json};
 use support::server::{RecordedRequest, Reply, Route, TestServer};
 use url::Url;
 
+/// `std`'s `assert_eq!`, except that an empty array literal on the right takes
+/// the element type of the left. The core links `time` (through the ID token
+/// check's `jsonwebtoken`), which adds a second `PartialEq` for
+/// `std::time::Duration`, so a bare `[]` no longer infers its element type.
+macro_rules! assert_eq {
+    ($left:expr, [] $(, $($message:tt)+)?) => {
+        match &$left {
+            left => ::core::assert_eq!(*left, empty_like(left) $(, $($message)+)?),
+        }
+    };
+    ($($arguments:tt)+) => {
+        ::core::assert_eq!($($arguments)+)
+    };
+}
+
+/// An empty array of the slice's element type.
+fn empty_like<T>(_: &[T]) -> [T; 0] {
+    []
+}
+
 const TOKEN: &str = "tok-5d1e-SECRET-a91f";
 const REQUEST_ID: &str = "req_7c2b9e41d0";
 const RESPONSES: &str = "/api/responses";

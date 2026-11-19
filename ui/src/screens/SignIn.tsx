@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { useAtlas, useAtlasStore } from "@/app/store";
+import { WindowFrame } from "@/app/window";
 import { Button } from "@/components/ui/button";
 import { describeError } from "@/core/client";
 import type { CoreRequest } from "@/core/generated/CoreRequest";
@@ -32,8 +33,8 @@ export function SignIn() {
   }
 
   return (
-    <main className="mx-auto flex max-w-xl flex-col gap-6 p-8">
-      <h1 className="text-xl font-medium">Atlas</h1>
+    <WindowFrame width="task">
+      <h1 className="text-20 font-medium text-heading">Atlas</h1>
       <p>
         Learn any topic: the whole territory first, then deep where you choose.
       </p>
@@ -58,6 +59,6 @@ export function SignIn() {
         </Button>
       )}
       {error !== null && <p role="alert">{describeError(error)}</p>}
-    </main>
+    </WindowFrame>
   );
 }

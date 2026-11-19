@@ -1,6 +1,8 @@
+import { ChevronLeftIcon } from "lucide-react";
 import { useState } from "react";
 
 import { useAtlas, useAtlasStore } from "@/app/store";
+import { WindowFrame } from "@/app/window";
 import { Button } from "@/components/ui/button";
 import { describeError } from "@/core/client";
 import type { CoreRequest } from "@/core/generated/CoreRequest";
@@ -24,15 +26,19 @@ export function Settings() {
   }
 
   return (
-    <main className="mx-auto flex max-w-xl flex-col gap-6 p-8">
-      <Button
-        variant="ghost"
-        className="self-start"
-        onClick={() => navigate({ type: "ShowLibrary" })}
-      >
-        Library
-      </Button>
-      <h1 className="text-xl font-medium">Settings</h1>
+    <WindowFrame
+      width="list"
+      bar={
+        <Button
+          variant="ghost"
+          onClick={() => navigate({ type: "ShowLibrary" })}
+        >
+          <ChevronLeftIcon aria-hidden />
+          Library
+        </Button>
+      }
+    >
+      <h1 className="text-20 font-medium text-heading">Settings</h1>
       <section
         aria-labelledby="account-heading"
         className="flex flex-col gap-2"
@@ -56,6 +62,6 @@ export function Settings() {
         <Button onClick={() => request({ type: "SignOut" })}>Sign out</Button>
       </div>
       {error !== null && <p role="alert">{describeError(error)}</p>}
-    </main>
+    </WindowFrame>
   );
 }

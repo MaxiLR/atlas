@@ -1,6 +1,8 @@
+import { SettingsIcon } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 
 import { failureInStore, useAtlas, useAtlasStore } from "@/app/store";
+import { WindowFrame, WindowTitle } from "@/app/window";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { describeError } from "@/core/client";
@@ -31,16 +33,22 @@ export function Library() {
   }
 
   return (
-    <main className="mx-auto flex max-w-xl flex-col gap-8 p-8">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-medium">Atlas</h1>
-        <Button
-          variant="ghost"
-          onClick={() => navigate({ type: "ShowSettings" })}
-        >
-          Settings
-        </Button>
-      </div>
+    <WindowFrame
+      width="list"
+      bar={
+        <>
+          <WindowTitle heading>Atlas</WindowTitle>
+          <span data-tauri-drag-region className="flex-1 self-stretch" />
+          <Button
+            variant="ghost"
+            onClick={() => navigate({ type: "ShowSettings" })}
+          >
+            <SettingsIcon aria-hidden />
+            Settings
+          </Button>
+        </>
+      }
+    >
       {planUsage === "Off" && (
         <div className="flex flex-col gap-2">
           <p role="status">
@@ -111,6 +119,6 @@ export function Library() {
           </ul>
         </section>
       )}
-    </main>
+    </WindowFrame>
   );
 }

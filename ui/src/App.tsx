@@ -6,11 +6,12 @@ import {
   useAtlas,
   useAtlasStore,
 } from "@/app/store";
+import { WindowFocus } from "@/app/window-focus";
 import { Button } from "@/components/ui/button";
 import { describeError } from "@/core/client";
+import { Reader } from "@/reader/reader";
 import { Library } from "@/screens/Library";
 import { Placement } from "@/screens/Placement";
-import { Reader } from "@/screens/Reader";
 import { Settings } from "@/screens/Settings";
 import { SignIn } from "@/screens/SignIn";
 import { selectOpenCourse } from "@/store";
@@ -85,6 +86,7 @@ function Session() {
 export function App() {
   return (
     <AtlasStoreProvider>
+      <WindowFocus />
       <Session />
     </AtlasStoreProvider>
   );

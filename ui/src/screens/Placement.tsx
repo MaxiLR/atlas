@@ -1,6 +1,8 @@
+import { ChevronLeftIcon } from "lucide-react";
 import { useState, type FormEvent, type ReactNode } from "react";
 
 import { useAtlas, useAtlasStore } from "@/app/store";
+import { WindowFrame, WindowTitle } from "@/app/window";
 import { Button } from "@/components/ui/button";
 import { describeError } from "@/core/client";
 import type { CoreRequest } from "@/core/generated/CoreRequest";
@@ -173,16 +175,24 @@ export function Placement({ course }: { course: CourseView }) {
 
   const step = placement?.step;
   return (
-    <main className="mx-auto flex max-w-xl flex-col gap-6 p-8">
-      <Button
-        variant="ghost"
-        className="self-start"
-        onClick={() => navigate({ type: "ShowLibrary" })}
-      >
-        Library
-      </Button>
-      <h1 className="text-xl font-medium">{course.topic}</h1>
-      <p className="text-sm">Placement</p>
+    <WindowFrame
+      width="task"
+      bar={
+        <>
+          <Button
+            variant="ghost"
+            onClick={() => navigate({ type: "ShowLibrary" })}
+          >
+            <ChevronLeftIcon aria-hidden />
+            Library
+          </Button>
+          <WindowTitle heading>{course.topic}</WindowTitle>
+          <span data-tauri-drag-region className="max-[760px]:hidden">
+            Placement
+          </span>
+        </>
+      }
+    >
       {step?.type === "ChooseRating" && (
         <RatingForm
           busy={busy}
@@ -238,6 +248,6 @@ export function Placement({ course }: { course: CourseView }) {
         </div>
       )}
       {error !== null && <p role="alert">{describeError(error)}</p>}
-    </main>
+    </WindowFrame>
   );
 }

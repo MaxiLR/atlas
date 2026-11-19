@@ -336,6 +336,65 @@ fn inserting_children_refuses_and_changes_nothing() {
     }
 }
 
+// The sample holds six broad-pass sections (A1, A2, B1, B2, C1, C2) and six
+// deep dives (D1 to D3, N1 to N3): twelve sections present, sixteen once C1
+// is deepened with four.
+#[test]
+fn counts_cover_the_broad_pass_and_every_deep_dive_present() {
+    use NodeMark::{Branch, Read, Unread};
+    let mut tree = sample();
+    assert_eq!(progress(&tree), Progress { read: 5, total: 12 });
+    assert_eq!(furthest_read(&tree), Some(B2));
+    assert_eq!(first_section(&tree), Some(A1));
+    assert_eq!(first_section_of(&tree, CH_A), Some(A1));
+    assert_eq!(first_section_of(&tree, CH_B), Some(B1));
+    assert_eq!(first_section_of(&tree, CH_C), Some(C1));
+    assert_eq!(first_section_of(&tree, B1), None);
+    assert_eq!(first_section_of(&tree, UNKNOWN), None);
+
+    assert!(mark_read(&mut tree, C1));
+    assert!(mark_read(&mut tree, N3));
+    assert!(mark_read(&mut tree, D2));
+    assert!(mark_read(&mut tree, A1));
+    assert!(!mark_read(&mut tree, CH_A));
+    assert!(!mark_read(&mut tree, UNKNOWN));
+    assert_eq!(state(&tree, C1), reading(Read, true));
+    assert_eq!(state(&tree, N3), reading(Read, true));
+    assert_eq!(state(&tree, D2), reading(Branch, true));
+    assert_eq!(state(&tree, A2), reading(Unread, false));
+    assert_eq!(progress(&tree), Progress { read: 8, total: 12 });
+    assert_eq!(furthest_read(&tree), Some(C1));
+    assert!(mark_read(&mut tree, D3));
+    assert_eq!(furthest_read(&tree), Some(C1));
+
+    insert_children(&mut tree, C1, deep_dive()).unwrap();
+    assert_eq!(state(&tree, C1), reading(Branch, true));
+    assert_eq!(state(&tree, E1), reading(Unread, false));
+    assert_eq!(progress(&tree), Progress { read: 9, total: 16 });
+    assert_eq!(furthest_read(&tree), Some(C1));
+    assert_eq!(next(&tree, C1), Some(C2));
+    assert_eq!(next(&tree, E1), Some(E2));
+    assert_eq!(next(&tree, E3), Some(E4));
+    assert_eq!(next(&tree, E4), Some(C2));
+}
+
+#[test]
+fn an_unread_course_counts_nothing_read() {
+    let mut tree = sample();
+    for chapter in &mut tree.chapters {
+        fn clear(sections: &mut [TreeSection]) {
+            for section in sections {
+                section.read = false;
+                clear(&mut section.children);
+            }
+        }
+        clear(&mut chapter.sections);
+    }
+    assert_eq!(furthest_read(&tree), None);
+    assert_eq!(progress(&tree), Progress { read: 0, total: 12 });
+    assert_eq!(first_section(&IndexTree { chapters: vec![] }), None);
+}
+
 /// A small deterministic generator, so the property runs the same each time.
 struct Rng(u64);
 

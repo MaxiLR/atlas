@@ -32,8 +32,9 @@ pub enum ResponsesEvent {
 }
 
 impl ResponsesEvent {
-    /// The event as a provider stream item: failed and broken streams are
-    /// errors, the rest are provider events.
+    /// The event as a provider stream item when nothing retries the request:
+    /// a failure is the error state its code maps to, a broken stream is
+    /// incomplete, the rest are provider events.
     pub fn into_provider(self) -> Result<ProviderEvent, ProviderError> {
         match self {
             Self::TextDelta(text) => Ok(ProviderEvent::TextDelta(text)),
@@ -41,13 +42,7 @@ impl ResponsesEvent {
             Self::Citation(citation) => Ok(ProviderEvent::Citation(citation)),
             Self::Completed => Ok(ProviderEvent::Completed),
             Self::Incomplete { reason } => Ok(ProviderEvent::Incomplete { reason }),
-            Self::Failed(failure) => Err(ProviderError::Failed {
-                message: format!(
-                    "the response failed with {}",
-                    failure.code.as_deref().unwrap_or("no error code"),
-                ),
-                request_id: failure.request_id,
-            }),
+            Self::Failed(failure) => Err(super::errors::response_failure(failure).settled()),
             Self::Broken => Err(ProviderError::Incomplete { request_id: None }),
         }
     }

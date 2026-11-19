@@ -62,10 +62,19 @@ pub fn request_headers(token: &AccessToken) -> HeaderMap {
 
 /// `{api}/responses`, whether or not the base ends in a slash.
 pub fn responses_url(api: &Url) -> Url {
+    under(api, "responses")
+}
+
+/// `{api}/models`, whether or not the base ends in a slash.
+pub fn models_url(api: &Url) -> Url {
+    under(api, "models")
+}
+
+fn under(api: &Url, segment: &str) -> Url {
     let mut url = api.clone();
     url.path_segments_mut()
         .expect("the API base is a hierarchical URL")
         .pop_if_empty()
-        .push("responses");
+        .push(segment);
     url
 }

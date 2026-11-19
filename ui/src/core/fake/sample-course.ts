@@ -379,7 +379,7 @@ export function styled(
   };
 }
 
-/** The questions placement asks for any new course. */
+/** The questions placement asks for any new course, as many as it asks. */
 export const plateTectonicsQuestions: PlacementDraft[] = [
   {
     stem: "An oceanic plate and a continental plate are moving toward each other. What happens where they meet?",
@@ -415,6 +415,24 @@ export const plateTectonicsQuestions: PlacementDraft[] = [
       "It stays still until it boils, as the mantle stays still until an eruption.",
       "It flows only at the surface, as only the crust moves.",
       "It cools from below, as the mantle cools from the core outward.",
+    ],
+  },
+  {
+    stem: "Two plates slide past each other sideways, and their edges catch. What happens when the strain is released?",
+    options: [
+      "The edges slip suddenly, and the ground shakes in an earthquake.",
+      "The plates melt along the fault and fuse into one plate.",
+      "A volcano opens along the fault to let the pressure out.",
+      "The plates reverse direction and slide back.",
+    ],
+  },
+  {
+    stem: "A string of volcanic islands grows older the further it lies from one active volcano. What does the pattern show?",
+    options: [
+      "The plate is moving over a fixed hot spot in the mantle.",
+      "The hot spot is moving under a fixed plate.",
+      "The oldest island erupted last, after the others cooled.",
+      "Each island formed at a separate plate boundary.",
     ],
   },
 ];

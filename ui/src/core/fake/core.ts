@@ -396,8 +396,15 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
   }
 
   /** Why a placement step fails in this world, if it does. */
-  function stepError(): CoreError | null {
+  function stepError(
+    step: "PreparingQuestions" | "BuildingIndex",
+  ): CoreError | null {
     if (world.offline) return { type: "Offline" };
+    const once = world.placementFailure;
+    if (once?.step === step) {
+      world.placementFailure = null;
+      return once.error;
+    }
     return world.fault?.type === "Fail" ? world.fault.error : null;
   }
 
@@ -426,7 +433,7 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
   ): Promise<PlacementState> {
     const step = { type: "PreparingQuestions" } as const;
     progress(course, placement, placementState(step));
-    const error = stepError();
+    const error = stepError(step.type);
     if (error !== null) {
       return progress(course, placement, placementState(step, error));
     }
@@ -440,7 +447,7 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
   ): Promise<PlacementState> {
     const step = { type: "BuildingIndex" } as const;
     progress(course, placement, placementState(step));
-    const error = stepError();
+    const error = stepError(step.type);
     if (error !== null) {
       return progress(course, placement, placementState(step, error));
     }
@@ -558,7 +565,7 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
         const course = newCourse(world, topic, "Placement");
         course.placement = {
           state: placementState({ type: "ChooseRating" }),
-          questions: plateTectonicsQuestions,
+          questions: plateTectonicsQuestions.slice(0, world.placementQuestions),
           rating: null,
           goal: null,
           answers: [],
@@ -625,7 +632,7 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
           type: "Placement",
           courseId: course.id,
           placement:
-            placement.answers.length >= placement.state.minQuestions
+            placement.answers.length >= placement.questions.length
               ? await buildIndex(course, placement)
               : askNext(course, placement),
         };

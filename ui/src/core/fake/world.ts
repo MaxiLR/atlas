@@ -65,6 +65,7 @@ export interface FakeSection {
 
 export interface FakePlacement {
   state: PlacementState;
+  /** The questions it asks, in order; the index is built after the last. */
   questions: PlacementDraft[];
   rating: SelfRating | null;
   goal: Goal | null;
@@ -94,6 +95,12 @@ export type GenerationFault =
   | { type: "Stop"; once: boolean }
   | { type: "Fail"; error: CoreError; retries: number };
 
+/** A placement step that fails once, then works when retried. */
+export interface PlacementFailure {
+  step: "PreparingQuestions" | "BuildingIndex";
+  error: CoreError;
+}
+
 export interface FakeWorld {
   clock: FakeClock;
   session: Session;
@@ -111,6 +118,9 @@ export interface FakeWorld {
   /** The account's policy refuses web search. */
   searchRefused: boolean;
   fault: GenerationFault | null;
+  /** How many questions placement asks a new course, four to six. */
+  placementQuestions: number;
+  placementFailure: PlacementFailure | null;
 }
 
 export const account = { email: "candidate@example.com" };
@@ -135,6 +145,8 @@ export function createWorld(clock: FakeClock): FakeWorld {
     offline: false,
     searchRefused: false,
     fault: null,
+    placementQuestions: 4,
+    placementFailure: null,
   };
 }
 

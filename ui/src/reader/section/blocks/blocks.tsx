@@ -10,7 +10,7 @@ import {
 
 import { CatalogVisual } from "@/catalog/catalog-visual";
 import { CheckPlaceContext } from "@/catalog/components/check-question/check-place";
-import { CaptionInFrame } from "@/catalog/frame-context";
+import { CaptionInFrame, FrameDescription } from "@/catalog/frame-context";
 import { checkVisualSpec } from "@/catalog/visual-spec";
 import { Figure } from "@/components/ui/figure";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -112,20 +112,25 @@ function Placeholder({ kind }: { kind: Exclude<BlockKind, "Prose"> }) {
 
 /**
  * The shared figure frame around a catalog entry: the frame shows the
- * number and the caption, and the entry inside shows its content only.
+ * number and the caption, and the entry inside shows its content only,
+ * with the block's description at hand for when it cannot be drawn.
  */
 function Framed({
   label,
   caption,
+  description,
   children,
 }: {
   label: string;
   caption: string;
+  description: string | null;
   children: ReactNode;
 }) {
   return (
     <Figure label={label} caption={caption}>
-      <CaptionInFrame value={true}>{children}</CaptionInFrame>
+      <CaptionInFrame value={true}>
+        <FrameDescription value={description}>{children}</FrameDescription>
+      </CaptionInFrame>
     </Figure>
   );
 }
@@ -225,6 +230,7 @@ function Complete({
         <Framed
           label={label}
           caption={captionOf(content.spec, content.description)}
+          description={content.description}
         >
           <CatalogVisual spec={content.spec} />
         </Framed>
@@ -232,7 +238,11 @@ function Complete({
     }
     case "Figure":
       return (
-        <Framed label={label ?? ""} caption={content.description ?? ""}>
+        <Framed
+          label={label ?? ""}
+          caption={content.description ?? ""}
+          description={content.description}
+        >
           <RegistryEntry
             type="figure"
             props={{ svg: content.svg, caption: content.description ?? "" }}
@@ -241,7 +251,11 @@ function Complete({
       );
     case "Mermaid":
       return (
-        <Framed label={label ?? ""} caption={content.description ?? ""}>
+        <Framed
+          label={label ?? ""}
+          caption={content.description ?? ""}
+          description={content.description}
+        >
           <RegistryEntry
             type="mermaid-diagram"
             props={{

@@ -11,3 +11,14 @@ export const CaptionInFrame = createContext(false);
 export function useCaptionInFrame(): boolean {
   return useContext(CaptionInFrame);
 }
+
+/**
+ * Set by the section view around a framed catalog component: the block's
+ * own text description, which stands in for a visual that cannot be drawn.
+ */
+export const FrameDescription = createContext<string | null>(null);
+
+/** The text description of the block this component draws, if it has one. */
+export function useFrameDescription(): string | null {
+  return useContext(FrameDescription);
+}

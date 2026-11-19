@@ -10,7 +10,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 
 import type { AtlasCatalog } from "../../catalog.ts";
-import { useCaptionInFrame } from "../../frame-context.ts";
+import { useCaptionInFrame, useFrameDescription } from "../../frame-context.ts";
 import { PlainSection } from "../../plain-section.tsx";
 import { paletteAt, renderDiagram, type Diagram } from "./render.ts";
 
@@ -31,6 +31,36 @@ type Drawn =
   | { state: "drawing" }
   | { state: "drawn"; diagram: Diagram }
   | { state: "failed" };
+
+/**
+ * What stands in for a diagram that could not be drawn: the block's own
+ * description, or a pointer to the caption when that caption is it.
+ */
+function Undrawn({ caption }: { caption: string }) {
+  const description = useFrameDescription()?.trim() ?? "";
+  if (description === "") {
+    return (
+      <p className="py-1 text-13 text-muted-foreground">
+        This diagram could not be drawn.
+      </p>
+    );
+  }
+  if (description === caption.trim()) {
+    return (
+      <p className="py-1 text-13 text-muted-foreground">
+        This diagram could not be drawn; its description is below.
+      </p>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-1 py-1">
+      <p className="text-13 text-muted-foreground">
+        This diagram could not be drawn. What it shows:
+      </p>
+      <p className="text-15 text-pretty text-foreground">{description}</p>
+    </div>
+  );
+}
 
 /**
  * The diagram drawn by Mermaid in the theme where it sits, drawn again when
@@ -72,11 +102,7 @@ function Drawing({ source, caption }: { source: string; caption: string }) {
           <p className="sr-only">Drawing the diagram…</p>
         </>
       )}
-      {drawn.state === "failed" && (
-        <p className="py-1 text-13 text-muted-foreground">
-          This diagram could not be drawn; its description is below.
-        </p>
-      )}
+      {drawn.state === "failed" && <Undrawn caption={caption} />}
       {drawn.state === "drawn" && <style>{drawn.diagram.css}</style>}
       <div
         ref={host}

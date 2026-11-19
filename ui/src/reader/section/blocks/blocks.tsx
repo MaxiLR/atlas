@@ -1,5 +1,9 @@
 import type { BlockContent } from "@/core/generated/BlockContent";
 import type { BlockKind } from "@/core/generated/BlockKind";
+import type { ReactNode } from "react";
+
+import type { Citation } from "@/core/generated/Citation";
+import type { Source } from "@/core/generated/Source";
 import type { ShownBlock } from "@/store";
 import { unknownTag } from "@/store/unknown-tag";
 
@@ -66,7 +70,32 @@ function Complete({ content }: { content: BlockContent }) {
  * A section's blocks in order: prose as text, and a line of text for every
  * other block, whether complete or still arriving.
  */
-export function Blocks({ blocks }: { blocks: ShownBlock[] }) {
+export interface Mark {
+  id: string;
+  kind: string;
+  block: number;
+  quote: string;
+}
+export interface MarkProps {
+  id: string;
+  kind: string;
+  children: ReactNode;
+}
+export interface Passage {
+  block: number;
+  text: string;
+}
+
+export function Blocks({
+  blocks,
+}: {
+  blocks: ShownBlock[];
+  citations?: Citation[];
+  sources?: Source[];
+  marks?: Mark[];
+  markComponent?: (props: MarkProps) => ReactNode;
+  onSelection?: (passage: Passage | null) => void;
+}) {
   return (
     <div className="typeset">
       {blocks.map((block) =>

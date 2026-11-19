@@ -63,4 +63,13 @@ describe("the store's handling of the protocol", () => {
 
     expect(errors).not.toEqual([]);
   });
+
+  it("fails type-checking for a request with an unknown tag", () => {
+    const errors = storeErrors({
+      file: "CoreRequest.ts",
+      variant: '{ "type": "Unknown" }',
+    });
+
+    expect(errors).not.toEqual([]);
+  });
 });

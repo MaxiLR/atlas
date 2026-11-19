@@ -752,7 +752,7 @@ fn every_response_round_trips_with_its_stable_tag() {
         },
         CoreResponse::Placement {
             course_id: id(1),
-            placement: placement(PlacementStep::DraftingLadder),
+            placement: placement(PlacementStep::PreparingQuestions),
         },
         CoreResponse::Section {
             section: section_view(),
@@ -887,7 +887,7 @@ fn every_value_the_responses_carry_round_trips() {
     }
     for (step, tag) in [
         (PlacementStep::ChooseRating, "ChooseRating"),
-        (PlacementStep::DraftingLadder, "DraftingLadder"),
+        (PlacementStep::PreparingQuestions, "PreparingQuestions"),
         (
             PlacementStep::Question {
                 question: placement_question(),

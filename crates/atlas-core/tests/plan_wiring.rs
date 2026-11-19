@@ -632,9 +632,17 @@ impl Harness {
     }
 
     /// A request that generates with the plan.
-    /// It answers the waiting placement question, which writes the next one:
-    /// one generation. A failed placement step answers its error.
+    /// It creates a course, a plan request that generates nothing, then
+    /// answers the waiting placement question, which writes the next one: one
+    /// generation. A refused request or a failed placement step answers its
+    /// error.
     async fn generate(&self) -> Result<CoreResponse, CoreError> {
+        self.core
+            .handle(CoreRequest::CreateCourse {
+                topic: "Fluid dynamics".to_owned(),
+            })
+            .await
+            .map(drop)?;
         let response = self
             .core
             .handle(CoreRequest::AnswerPlacement {

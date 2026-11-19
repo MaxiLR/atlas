@@ -475,3 +475,114 @@ async fn a_print_that_never_ends_fails_after_the_timeout() {
     assert_eq!(*steps.closed.lock().unwrap(), 1, "the view is closed");
     assert!(files_in(dir.path()).is_empty(), "no file is written");
 }
+
+/// A print operation that never ends, as the real steps see it: it starts
+/// writing its file, and goes on until it is cancelled.
+struct EndlessPrint {
+    /// The steps called, in order.
+    calls: Mutex<Vec<&'static str>>,
+    /// Where the operation was told to write.
+    written: Mutex<Option<PathBuf>>,
+    destination: PathBuf,
+}
+
+impl ExportSteps for EndlessPrint {
+    async fn choose_destination(&self, _file_name: &str) -> Option<PathBuf> {
+        Some(self.destination.clone())
+    }
+
+    fn open_view(&self, _url: &Url) -> Result<UnboundedReceiver<ViewState>, String> {
+        let (sender, receiver) = unbounded_channel();
+        sender.send(ViewState::Ready).unwrap();
+        Ok(receiver)
+    }
+
+    async fn print(&self, settings: &PrintSettings) -> Result<(), String> {
+        self.calls.lock().unwrap().push("print");
+        *self.written.lock().unwrap() = Some(settings.destination.clone());
+        std::fs::write(&settings.destination, "%PDF-1.7 trunc").unwrap();
+        std::future::pending().await
+    }
+
+    fn cancel_print(&self) {
+        self.calls.lock().unwrap().push("cancel");
+    }
+
+    fn close_view(&self) {
+        self.calls.lock().unwrap().push("close");
+    }
+}
+
+impl EndlessPrint {
+    fn new(destination: PathBuf) -> Self {
+        Self {
+            calls: Mutex::default(),
+            written: Mutex::default(),
+            destination,
+        }
+    }
+
+    async fn export(&self) -> PdfOutcome {
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            export_with(self, &app(), course(), "Course.pdf", QUICK),
+        )
+        .await
+        .expect("the export ends on its own timeout")
+    }
+}
+
+#[tokio::test]
+async fn a_print_that_never_ends_is_cancelled_before_its_view_is_closed() {
+    let dir = tempfile::tempdir().unwrap();
+    let steps = EndlessPrint::new(dir.path().join("Course.pdf"));
+
+    let outcome = steps.export().await;
+
+    assert!(matches!(outcome, PdfOutcome::Failed(_)), "{outcome:?}");
+    assert_eq!(
+        *steps.calls.lock().unwrap(),
+        ["print", "cancel", "close"],
+        "the operation is cancelled, so the next export can print"
+    );
+}
+
+#[tokio::test]
+async fn a_print_that_ends_after_its_timeout_leaves_nothing_beside_the_chosen_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let destination = dir.path().join("Course.pdf");
+    std::fs::write(&destination, "an older export").unwrap();
+    let steps = EndlessPrint::new(destination.clone());
+
+    let outcome = steps.export().await;
+    // The operation writes the rest of its file once the export gave up.
+    let written = steps.written.lock().unwrap().clone().expect("a print");
+    std::fs::write(&written, "%PDF-1.7 late").unwrap();
+
+    assert!(matches!(outcome, PdfOutcome::Failed(_)), "{outcome:?}");
+    assert_eq!(files_in(dir.path()), ["Course.pdf"], "no partial file");
+    assert_eq!(
+        std::fs::read_to_string(&destination).unwrap(),
+        "an older export"
+    );
+    std::fs::remove_file(written).unwrap();
+}
+
+#[tokio::test]
+async fn each_export_prints_to_a_file_of_its_own() {
+    let dir = tempfile::tempdir().unwrap();
+    let first = EndlessPrint::new(dir.path().join("Course.pdf"));
+    let second = EndlessPrint::new(dir.path().join("Course.pdf"));
+
+    first.export().await;
+    second.export().await;
+
+    let (first, second) = (
+        first.written.lock().unwrap().clone(),
+        second.written.lock().unwrap().clone(),
+    );
+    assert_ne!(
+        first, second,
+        "a late print cannot overwrite the next one's pages"
+    );
+}

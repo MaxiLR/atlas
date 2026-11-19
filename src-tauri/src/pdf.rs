@@ -1,7 +1,8 @@
 //! The PDF exporter on the Mac. The save dialog picks the file; a window
 //! that is never shown loads the course's export route; once the route
-//! signals ready, the webview's print operation writes paginated pages
-//! straight to the file, with no print or progress panel.
+//! signals ready, the webview's print operation writes paginated pages to a
+//! file of the export's own, with no print or progress panel, and the whole
+//! PDF is moved onto the chosen file.
 //!
 //! Everything that does not need a window (the file name, the route, the
 //! print settings and the export's steps with their timeouts) is tested; the
@@ -129,6 +130,10 @@ pub trait ExportSteps: Sync {
     fn open_view(&self, url: &Url) -> Result<UnboundedReceiver<ViewState>, String>;
     /// Prints the open view with `settings`.
     fn print(&self, settings: &PrintSettings) -> impl Future<Output = Result<(), String>> + Send;
+    /// Cancels the print operation that [`ExportSteps::print`] started and
+    /// that the export stopped waiting for. Steps whose print stops when its
+    /// future is dropped have nothing more to cancel.
+    fn cancel_print(&self) {}
     /// Closes the view, whether or not it is ready.
     fn close_view(&self);
 }
@@ -230,9 +235,10 @@ pub fn view_state(title: &str) -> Option<ViewState> {
 }
 
 /// Exports the course through `steps`: asks for the file, loads the export
-/// route, waits for it to be ready and prints it. The pages are written
-/// beside the chosen file and moved onto it once printed, so a file the
-/// dialog confirmed replacing is replaced only by a whole PDF.
+/// route, waits for it to be ready and prints it. The pages are written to a
+/// file of this export's own in the temporary folder and moved onto the
+/// chosen file once printed, so a file the dialog confirmed replacing is
+/// replaced only by a whole PDF, and nothing is left beside it.
 pub async fn export_with(
     steps: &impl ExportSteps,
     app_url: &Url,
@@ -271,40 +277,44 @@ async fn print_when_ready(
     if let Some(reason) = failure {
         return PdfOutcome::Failed(reason);
     }
-    let staging = staging_path(&destination);
-    let printed = tokio::time::timeout(timeouts.print, steps.print(&print_settings(&staging)))
-        .await
-        .unwrap_or_else(|_| {
-            Err(format!(
-                "the print operation did not finish within {:?}",
-                timeouts.print
-            ))
-        })
-        .and_then(|()| {
-            std::fs::rename(&staging, &destination).map_err(|error| {
-                format!(
-                    "the PDF could not be saved to {}: {error}",
-                    destination.display()
-                )
-            })
-        });
+    let pages = pages_path();
+    let printed =
+        match tokio::time::timeout(timeouts.print, steps.print(&print_settings(&pages))).await {
+            Ok(printed) => printed.and_then(|()| move_onto(&pages, &destination)),
+            Err(_) => {
+                // So that the operation no longer runs, nor stops the next export.
+                steps.cancel_print();
+                Err(format!(
+                    "the print operation did not finish within {:?}",
+                    timeouts.print
+                ))
+            }
+        };
+    // Moved, never started, or partly written.
+    let _ = std::fs::remove_file(&pages);
     match printed {
         Ok(()) => PdfOutcome::Saved(destination),
-        Err(reason) => {
-            // Nothing may be there when the operation never started.
-            let _ = std::fs::remove_file(&staging);
-            PdfOutcome::Failed(reason)
-        }
+        Err(reason) => PdfOutcome::Failed(reason),
     }
 }
 
-/// The hidden file beside `destination` that the pages are printed to.
-fn staging_path(destination: &Path) -> PathBuf {
-    let name = destination
-        .file_name()
-        .map(|name| name.to_string_lossy())
-        .unwrap_or_default();
-    destination.with_file_name(format!(".{name}.partial.pdf"))
+/// A file of one export's own in the temporary folder, which the pages are
+/// printed to: a print that ends after its export gave up writes there.
+fn pages_path() -> PathBuf {
+    std::env::temp_dir().join(format!("atlas-export-{}.pdf", Uuid::new_v4()))
+}
+
+/// Moves the printed `pages` onto `destination`, copying them over it when a
+/// move cannot (another volume, or a folder where only the file is writable).
+fn move_onto(pages: &Path, destination: &Path) -> Result<(), String> {
+    std::fs::rename(pages, destination)
+        .or_else(|_| std::fs::copy(pages, destination).map(drop))
+        .map_err(|error| {
+            format!(
+                "the PDF could not be saved to {}: {error}",
+                destination.display()
+            )
+        })
 }
 
 /// The real exporter: the dialog plugin's save dialog, a hidden window of
@@ -385,6 +395,12 @@ impl ExportSteps for WebviewPdfExporter {
             .unwrap_or_else(|_| Err("the print operation ended without a result".to_owned()))
     }
 
+    fn cancel_print(&self) {
+        if let Err(error) = self.app.run_on_main_thread(print_operation::cancel) {
+            eprintln!("could not cancel the print operation: {error}");
+        }
+    }
+
     fn close_view(&self) {
         if let Some(window) = self.app.get_webview_window(EXPORT_WINDOW)
             && let Err(error) = window.destroy()
@@ -404,7 +420,7 @@ mod print_operation {
     use objc2::runtime::{AnyObject, Bool, NSObject};
     use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
     use objc2_app_kit::{
-        NSPrintInfo, NSPrintJobSavingURL, NSPrintOperation, NSPrintSaveJob,
+        NSPrintCancelJob, NSPrintInfo, NSPrintJobSavingURL, NSPrintOperation, NSPrintSaveJob,
         NSPrintingPaginationMode, NSWindow,
     };
     use objc2_foundation::{NSSize, NSString, NSURL};
@@ -431,7 +447,7 @@ mod print_operation {
 
         impl PrintDelegate {
             #[unsafe(method(printOperationDidRun:success:contextInfo:))]
-            fn did_run(&self, _operation: &NSPrintOperation, success: Bool, _context: *mut c_void) {
+            fn did_run(&self, operation: &NSPrintOperation, success: Bool, _context: *mut c_void) {
                 if let Some(done) = self.ivars().done.take() {
                     let _ = done.send(if success.as_bool() {
                         Ok(())
@@ -439,9 +455,20 @@ mod print_operation {
                         Err("the print operation did not write the PDF".to_owned())
                     });
                 }
-                // The operation does not retain its delegate, so the running
-                // one is kept until here and released once this call returns.
-                if let Some(this) = RUNNING.take() {
+                CURRENT.with_borrow_mut(|current| {
+                    if current.as_deref().is_some_and(|current| std::ptr::eq(current, operation)) {
+                        *current = None;
+                    }
+                });
+                // The operation does not retain its delegate, so each is kept
+                // until here and released once this call returns.
+                let this = DELEGATES.with_borrow_mut(|delegates| {
+                    let index = delegates
+                        .iter()
+                        .position(|delegate| std::ptr::eq(&**delegate, self))?;
+                    Some(delegates.swap_remove(index))
+                });
+                if let Some(this) = this {
                     let _ = Retained::autorelease_ptr(this);
                 }
             }
@@ -459,8 +486,20 @@ mod print_operation {
     }
 
     thread_local! {
-        /// The delegate of the print operation that is running, if any.
-        static RUNNING: RefCell<Option<Retained<PrintDelegate>>> = const { RefCell::new(None) };
+        /// The print operation an export is waiting for, if any.
+        static CURRENT: RefCell<Option<Retained<NSPrintOperation>>> = const { RefCell::new(None) };
+        /// The delegates of the operations that have not ended, cancelled
+        /// ones included.
+        static DELEGATES: RefCell<Vec<Retained<PrintDelegate>>> = const { RefCell::new(Vec::new()) };
+    }
+
+    /// Cancels the operation the export stopped waiting for. It keeps its
+    /// delegate until it ends, and no longer stops the next export.
+    pub(super) fn cancel() {
+        if let Some(operation) = CURRENT.take() {
+            // SAFETY: AppKit's constant, which cancels a running job.
+            unsafe { operation.printInfo().setJobDisposition(NSPrintCancelJob) };
+        }
     }
 
     /// Starts printing `webview` with `settings`; `done` receives the end.
@@ -471,7 +510,7 @@ mod print_operation {
             ));
             return;
         };
-        if RUNNING.with_borrow(Option::is_some) {
+        if CURRENT.with_borrow(Option::is_some) {
             let _ = done.send(Err("another export is still printing".into()));
             return;
         }
@@ -501,7 +540,8 @@ mod print_operation {
             view.setFrame(web_view.frame());
         }
         let delegate = PrintDelegate::new(mtm, done);
-        RUNNING.set(Some(delegate.clone()));
+        CURRENT.set(Some(operation.clone()));
+        DELEGATES.with_borrow_mut(|delegates| delegates.push(delegate.clone()));
         let delegate: &AnyObject = &delegate;
         // SAFETY: the delegate answers the selector with the signature the
         // operation calls, and is kept alive until it is called; no context

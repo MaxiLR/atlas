@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
-import type { CoreClient } from "./client";
+import { createCoreClient, type CoreClient } from "./client";
 import type { CoreEvent } from "./generated/CoreEvent";
 import type { CoreResponse } from "./generated/CoreResponse";
 
@@ -11,8 +11,8 @@ export const CORE_COMMAND = "core_request";
 export const CORE_EVENT = "core-event";
 
 export function createTauriCore(): CoreClient {
-  return {
-    call: (request) => invoke<CoreResponse>(CORE_COMMAND, { request }),
+  return createCoreClient({
+    request: (request) => invoke<CoreResponse>(CORE_COMMAND, { request }),
     subscribe(listener) {
       const unlisten = listen<CoreEvent>(CORE_EVENT, (event) =>
         listener(event.payload),
@@ -21,5 +21,5 @@ export function createTauriCore(): CoreClient {
         void unlisten.then((stop) => stop());
       };
     },
-  };
+  });
 }

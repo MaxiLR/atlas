@@ -6,3 +6,11 @@ export interface PlacementSlice {
 }
 
 export const initialPlacement: PlacementSlice = { byCourse: {} };
+
+export function placementChanged(
+  slice: PlacementSlice,
+  courseId: string,
+  placement: PlacementState,
+): PlacementSlice {
+  return { byCourse: { ...slice.byCourse, [courseId]: placement } };
+}

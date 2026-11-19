@@ -1,115 +1,42 @@
-import { useEffect, useState } from "react";
-
+import { failureInStore, useAtlas, useAtlasStore } from "@/app/store";
 import { Button } from "@/components/ui/button";
-import { describeError, expectResponse } from "@/core/client";
-import { useCore } from "@/core/context";
-import type { CoreRequest } from "@/core/generated/CoreRequest";
+import { describeError } from "@/core/client";
 import type { CourseView } from "@/core/generated/CourseView";
-import type { SectionNode } from "@/core/generated/SectionNode";
-import type { SectionView } from "@/core/generated/SectionView";
-
-interface ShownSection {
-  id: string;
-  title: string;
-  text: string;
-  generating: boolean;
-}
-
-/** The text of a section's prose blocks, in order. */
-function proseText(section: SectionView): string {
-  return section.version.blocks
-    .map((block) => (block.content.type === "Prose" ? block.content.text : ""))
-    .join("");
-}
+import { selectSection } from "@/store";
 
 /** A course: its index beside the open section, with Next at its foot. */
-export function Reader({
-  course,
-  onBack,
-}: {
-  course: CourseView;
-  onBack: () => void;
-}) {
-  const core = useCore();
-  const [section, setSection] = useState<ShownSection | null>(null);
-  const [ended, setEnded] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const entries = course.chapters.flatMap((chapter) => chapter.sections);
-
-  useEffect(
-    () =>
-      core.subscribe((event) =>
-        setSection((current) => {
-          if (
-            current === null ||
-            event.type !== "Generation" ||
-            event.target.type !== "Section" ||
-            current.id !== event.target.sectionId
-          ) {
-            return current;
-          }
-          switch (event.event.type) {
-            case "TextDelta":
-              return { ...current, text: current.text + event.event.text };
-            case "Finished":
-              return { ...current, generating: false };
-            default:
-              return current;
-          }
-        }),
-      ),
-    [core],
+export function Reader({ course }: { course: CourseView }) {
+  const { send, navigate } = useAtlasStore();
+  const { sectionId, ended } = useAtlas((state) => ({
+    sectionId: state.navigation.sectionId,
+    ended: state.navigation.endOfCourse,
+  }));
+  const shown = useAtlas((state) =>
+    sectionId === null ? null : selectSection(state, sectionId),
   );
-
-  /** Shows `entry` at once (streaming into it), then the core's answer. */
-  async function show(entry: SectionNode | null, request: CoreRequest) {
-    setEnded(false);
-    setError(null);
-    if (entry !== null) {
-      setSection({
-        id: entry.id,
-        title: entry.title,
-        text: "",
-        generating: true,
-      });
-    }
-    try {
-      const response = await core.call(request);
-      if (response.type === "EndOfCourse") {
-        setEnded(true);
-        return;
-      }
-      const shown = expectResponse(response, "Section").section;
-      setSection((current) =>
-        current === null || current.id === shown.id
-          ? {
-              id: shown.id,
-              title: shown.title,
-              text: proseText(shown),
-              generating: false,
-            }
-          : current,
-      );
-    } catch (reason) {
-      setError(describeError(reason));
-      setSection((current) => current && { ...current, generating: false });
-    }
-  }
-
-  function next() {
-    if (section === null) return;
-    const position = entries.findIndex((entry) => entry.id === section.id);
-    void show(entries[position + 1] ?? null, {
-      type: "Next",
-      courseId: course.id,
-      sectionId: section.id,
-    });
-  }
+  const entry = course.chapters
+    .flatMap((chapter) => chapter.sections)
+    .find((section) => section.id === sectionId);
+  const text =
+    shown?.blocks
+      .map((block) =>
+        block.state === "open"
+          ? block.text
+          : block.content.type === "Prose"
+            ? block.content.text
+            : "",
+      )
+      .join("") ?? "";
+  const generating = shown === null || shown.status === "streaming";
 
   return (
     <div className="flex min-h-svh gap-8 p-8">
       <aside className="flex w-64 shrink-0 flex-col gap-4">
-        <Button variant="ghost" className="self-start" onClick={onBack}>
+        <Button
+          variant="ghost"
+          className="self-start"
+          onClick={() => navigate({ type: "ShowLibrary" })}
+        >
           Library
         </Button>
         <h1 className="text-lg font-medium">{course.topic}</h1>
@@ -120,22 +47,22 @@ export function Reader({
                 {chapter.title}
               </h2>
               <ol>
-                {chapter.sections.map((entry) => (
-                  <li key={entry.id}>
+                {chapter.sections.map((section) => (
+                  <li key={section.id}>
                     <Button
                       variant="link"
                       aria-current={
-                        entry.id === section?.id ? "page" : undefined
+                        section.id === sectionId ? "page" : undefined
                       }
                       onClick={() =>
-                        void show(entry, {
+                        send({
                           type: "OpenSection",
                           courseId: course.id,
-                          sectionId: entry.id,
-                        })
+                          sectionId: section.id,
+                        }).catch(failureInStore)
                       }
                     >
-                      {entry.title}
+                      {section.title}
                     </Button>
                   </li>
                 ))}
@@ -145,31 +72,45 @@ export function Reader({
         </nav>
       </aside>
       <main className="flex max-w-2xl flex-1 flex-col gap-4">
-        {section === null ? (
+        {sectionId === null ? (
           <p>Choose a section in the index.</p>
         ) : (
           <article
-            key={section.id}
-            aria-labelledby={`section-${section.id}`}
-            aria-busy={section.generating}
+            key={sectionId}
+            aria-labelledby={`section-${sectionId}`}
+            aria-busy={generating}
             className="flex flex-col gap-4"
           >
-            <h2 id={`section-${section.id}`} className="text-xl font-medium">
-              {section.title}
+            <h2 id={`section-${sectionId}`} className="text-xl font-medium">
+              {entry?.title}
             </h2>
-            <div className="typeset whitespace-pre-wrap">{section.text}</div>
-            {section.generating && section.text === "" && (
+            <div className="typeset whitespace-pre-wrap">{text}</div>
+            {generating && text === "" && (
               <p role="status">Writing this section…</p>
             )}
+            {shown?.status === "incomplete" && (
+              <p role="status">This section is incomplete.</p>
+            )}
+            {shown?.error != null && (
+              <p role="alert">{describeError(shown.error)}</p>
+            )}
             <footer>
-              <Button onClick={next} disabled={section.generating}>
+              <Button
+                onClick={() =>
+                  send({
+                    type: "Next",
+                    courseId: course.id,
+                    sectionId,
+                  }).catch(failureInStore)
+                }
+                disabled={generating}
+              >
                 Next
               </Button>
             </footer>
           </article>
         )}
         {ended && <p role="status">This is the end of the course.</p>}
-        {error !== null && <p role="alert">{error}</p>}
       </main>
     </div>
   );

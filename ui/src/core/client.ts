@@ -3,13 +3,65 @@ import type { CoreEvent } from "./generated/CoreEvent";
 import type { CoreRequest } from "./generated/CoreRequest";
 import type { CoreResponse } from "./generated/CoreResponse";
 
+/** The responses the core answers each request with, as `Core::handle` routes them. */
+export const responseTypes = {
+  GetSession: ["Session"],
+  SignIn: ["Session"],
+  CancelSignIn: ["Session"],
+  EnablePlanUsage: ["Session"],
+  SignOut: ["Session"],
+  OpenManageUsage: ["Done"],
+  OpenExternal: ["Done"],
+  ListModels: ["Models"],
+  SelectModel: ["Models"],
+  ListCourses: ["Courses"],
+  CreateCourse: ["Course"],
+  OpenCourse: ["Course"],
+  DeleteCourse: ["Done"],
+  SubmitSelfRating: ["Placement"],
+  AnswerPlacement: ["Placement"],
+  RetryPlacementStep: ["Placement"],
+  OpenSection: ["Section"],
+  StopGeneration: ["Done"],
+  RetrySection: ["Section"],
+  ExplainDifferently: ["Section"],
+  SelectVersion: ["Section"],
+  AnswerCheck: ["CheckAnswered"],
+  Next: ["Section", "NextSection", "EndOfCourse"],
+  GoDeeper: ["DeepDives"],
+  Define: ["Definition"],
+  LookupWikipedia: ["Wikipedia"],
+  ListGlossary: ["Glossary"],
+  ListSideChats: ["SideChats"],
+  StartSideChat: ["SideChat"],
+  OpenSideChat: ["SideChat"],
+  SendSideChatMessage: ["SideChatReply"],
+  StopSideChatReply: ["Done"],
+  GetUsage: ["Usage"],
+  ConnectUsage: ["Usage"],
+  CancelConnectUsage: ["Usage"],
+  SetWindowFocused: ["Done"],
+  GetExportDocument: ["ExportDocument"],
+  ExportPdf: ["Exported"],
+} as const satisfies {
+  [Type in CoreRequest["type"]]: readonly CoreResponse["type"][];
+};
+
+/** The response a request is answered with. */
+export type ResponseTo<Request extends CoreRequest> = Extract<
+  CoreResponse,
+  { type: (typeof responseTypes)[Request["type"]][number] }
+>;
+
 /**
- * The interface's only way to reach the core: one typed request in, one typed
- * response out, events on the side. A failed request rejects with a
- * `CoreError`.
+ * The interface's only way to reach the core: one typed request in, the
+ * response that request promises out, events on the side. A failed request
+ * rejects with a `CoreError`.
  */
 export interface CoreClient {
-  call(request: CoreRequest): Promise<CoreResponse>;
+  call<Request extends CoreRequest>(
+    request: Request,
+  ): Promise<ResponseTo<Request>>;
   /** Calls `listener` for every core event; returns the unsubscribe. */
   subscribe(listener: (event: CoreEvent) => void): () => void;
 }
@@ -20,22 +72,20 @@ export interface CoreTransport {
   subscribe(listener: (event: CoreEvent) => void): () => void;
 }
 
+/** A client that rejects any response its request does not promise. */
 export function createCoreClient(transport: CoreTransport): CoreClient {
   return {
-    call: (request) => transport.request(request),
+    async call<Request extends CoreRequest>(request: Request) {
+      const response = await transport.request(request);
+      const promised: readonly CoreResponse["type"][] =
+        responseTypes[request.type];
+      if (!promised.includes(response.type)) {
+        throw new Error(`${request.type} was answered with ${response.type}`);
+      }
+      return response as ResponseTo<Request>;
+    },
     subscribe: (listener) => transport.subscribe(listener),
   };
-}
-
-/** Narrows a response to the variant a request promises; anything else is a bug. */
-export function expectResponse<T extends CoreResponse["type"]>(
-  response: CoreResponse,
-  type: T,
-): Extract<CoreResponse, { type: T }> {
-  if (response.type !== type) {
-    throw new Error(`expected a ${type} response, got ${response.type}`);
-  }
-  return response as Extract<CoreResponse, { type: T }>;
 }
 
 /** A sentence for a failed request, whether the core or the transport failed. */

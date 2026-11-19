@@ -1,4 +1,4 @@
-import type { CoreClient } from "../client";
+import { createCoreClient, type CoreClient } from "../client";
 import type { CoreError } from "../generated/CoreError";
 import type { CoreEvent } from "../generated/CoreEvent";
 import type { CoreRequest } from "../generated/CoreRequest";
@@ -282,11 +282,11 @@ export function createFakeCore(options: FakeCoreOptions = {}): CoreClient {
     }
   }
 
-  return {
-    call: handle,
+  return createCoreClient({
+    request: handle,
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-  };
+  });
 }

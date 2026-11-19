@@ -9,3 +9,17 @@ export interface LibrarySlice {
 }
 
 export const initialLibrary: LibrarySlice = { courses: null, error: null };
+
+export function coursesListed(courses: CourseSummary[]): LibrarySlice {
+  return { courses, error: null };
+}
+
+export function courseDeleted(
+  slice: LibrarySlice,
+  courseId: string,
+): LibrarySlice {
+  return {
+    courses: slice.courses?.filter((course) => course.id !== courseId) ?? null,
+    error: null,
+  };
+}

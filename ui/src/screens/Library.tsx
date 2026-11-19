@@ -1,55 +1,28 @@
 import { useEffect, useState, type FormEvent } from "react";
 
+import { failureInStore, useAtlas, useAtlasStore } from "@/app/store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { describeError, expectResponse } from "@/core/client";
-import { useCore } from "@/core/context";
-import type { CourseSummary } from "@/core/generated/CourseSummary";
-import type { CourseView } from "@/core/generated/CourseView";
+import { describeError } from "@/core/client";
 
 /** Home: the topic field and the courses already started. */
-export function Library({ onOpen }: { onOpen: (course: CourseView) => void }) {
-  const core = useCore();
-  const [courses, setCourses] = useState<CourseSummary[]>([]);
+export function Library() {
+  const { send } = useAtlasStore();
+  const { courses, error } = useAtlas((state) => state.library);
   const [topic, setTopic] = useState("");
   const [creating, setCreating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    let live = true;
-    core
-      .call({ type: "ListCourses" })
-      .then((response) => {
-        if (live) setCourses(expectResponse(response, "Courses").courses);
-      })
-      .catch((reason: unknown) => {
-        if (live) setError(describeError(reason));
-      });
-    return () => {
-      live = false;
-    };
-  }, [core]);
+    send({ type: "ListCourses" }).catch(failureInStore);
+  }, [send]);
 
   async function startCourse(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setCreating(true);
-    setError(null);
     try {
-      const response = await core.call({ type: "CreateCourse", topic });
-      onOpen(expectResponse(response, "Course").course);
-    } catch (reason) {
-      setError(describeError(reason));
+      await send({ type: "CreateCourse", topic });
+    } catch {
       setCreating(false);
-    }
-  }
-
-  async function openCourse(courseId: string) {
-    setError(null);
-    try {
-      const response = await core.call({ type: "OpenCourse", courseId });
-      onOpen(expectResponse(response, "Course").course);
-    } catch (reason) {
-      setError(describeError(reason));
     }
   }
 
@@ -74,8 +47,8 @@ export function Library({ onOpen }: { onOpen: (course: CourseView) => void }) {
         </div>
         {creating && <p role="status">Building the index…</p>}
       </form>
-      {error !== null && <p role="alert">{error}</p>}
-      {courses.length > 0 && (
+      {error !== null && <p role="alert">{describeError(error)}</p>}
+      {courses !== null && courses.length > 0 && (
         <section aria-labelledby="courses-heading">
           <h2 id="courses-heading" className="text-sm font-medium">
             Courses
@@ -83,7 +56,14 @@ export function Library({ onOpen }: { onOpen: (course: CourseView) => void }) {
           <ul>
             {courses.map((course) => (
               <li key={course.id}>
-                <Button variant="link" onClick={() => openCourse(course.id)}>
+                <Button
+                  variant="link"
+                  onClick={() =>
+                    send({ type: "OpenCourse", courseId: course.id }).catch(
+                      failureInStore,
+                    )
+                  }
+                >
                   {course.topic}
                 </Button>
               </li>

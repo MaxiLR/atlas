@@ -109,6 +109,14 @@ The interface reaches the core only through `ui/src/core/`: the `CoreClient`
 (`client.ts`, `tauri.ts`), the generated types and, in Vite mode `fake`, the
 fake core in `fake/`.
 
+The interface keeps its state in `ui/src/store/`, one slice per file, changed
+only by the pure `applyEvent`, `applyRequest`, `applyResponse`, `applyFailure`
+and `applyNavigation` and read through selectors; each switch over a protocol
+union ends in `unknownTag`, so a new tag fails type-checking until the store
+handles it. `ui/src/app/store.tsx` binds it to React: `useAtlas(selector)`
+reads, `send(request)` goes through the store to the `CoreClient`, and
+`navigate` changes interface-only state.
+
 ## Prompts
 
 Each prompt is one file in `prompts/`, with front matter naming its version,

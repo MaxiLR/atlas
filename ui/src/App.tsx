@@ -1,21 +1,25 @@
-import { useState } from "react";
-
-import type { CourseView } from "@/core/generated/CourseView";
+import { AtlasStoreProvider, useAtlas } from "@/app/store";
 import { Library } from "@/screens/Library";
 import { Reader } from "@/screens/Reader";
+import { selectOpenCourse } from "@/store";
 
-type Screen = { name: "library" } | { name: "reader"; course: CourseView };
+function Screen() {
+  const { screen, course } = useAtlas((state) => ({
+    screen: state.navigation.screen,
+    course: selectOpenCourse(state),
+  }));
+
+  return screen === "reader" && course !== null ? (
+    <Reader key={course.id} course={course} />
+  ) : (
+    <Library />
+  );
+}
 
 export function App() {
-  const [screen, setScreen] = useState<Screen>({ name: "library" });
-
-  return screen.name === "library" ? (
-    <Library onOpen={(course) => setScreen({ name: "reader", course })} />
-  ) : (
-    <Reader
-      key={screen.course.id}
-      course={screen.course}
-      onBack={() => setScreen({ name: "library" })}
-    />
+  return (
+    <AtlasStoreProvider>
+      <Screen />
+    </AtlasStoreProvider>
   );
 }

@@ -50,7 +50,13 @@ export function SectionView({
         )}
       </header>
       <SectionStatus courseId={course.id} sectionId={sectionId} />
-      {display !== null && <Blocks blocks={display.blocks} />}
+      {display !== null && (
+        <Blocks
+          blocks={display.blocks}
+          citations={display.citations}
+          sources={display.sources}
+        />
+      )}
       {display !== null && <Sources sources={display.sources} />}
       {display?.status === "stored" && (
         <Explain

@@ -1,116 +1,340 @@
+import {
+  Fragment,
+  useEffect,
+  useEffectEvent,
+  useMemo,
+  useRef,
+  type ComponentType,
+  type ReactNode,
+} from "react";
+
+import { CatalogVisual } from "@/catalog/catalog-visual";
+import { CaptionInFrame } from "@/catalog/frame-context";
+import { checkVisualSpec } from "@/catalog/visual-spec";
+import { Figure } from "@/components/ui/figure";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { BlockContent } from "@/core/generated/BlockContent";
 import type { BlockKind } from "@/core/generated/BlockKind";
-import type { ReactNode } from "react";
-
+import type { CheckQuestion } from "@/core/generated/CheckQuestion";
 import type { Citation } from "@/core/generated/Citation";
 import type { Source } from "@/core/generated/Source";
 import type { ShownBlock } from "@/store";
 import { unknownTag } from "@/store/unknown-tag";
 
-/** Prose as paragraphs, split at blank lines. */
-function Prose({ text }: { text: string }) {
-  return text
-    .split(/\n{2,}/)
-    .filter((paragraph) => paragraph.trim() !== "")
-    .map((paragraph, at) => <p key={at}>{paragraph}</p>);
+import type { Mark } from "./markdown-plugins";
+import { Prose, type MarkProps } from "./prose";
+import { RegistryEntry } from "./registry-entry";
+
+export type { Mark } from "./markdown-plugins";
+export type { MarkProps } from "./prose";
+
+/** What a selection in the block list covers. */
+export interface Passage {
+  /** The prose block it lies in. */
+  block: number;
+  /** The selected text as it reads. */
+  text: string;
 }
 
-/** One line of text standing in for a block that is not prose. */
-function TextLine({ label, text }: { label: string; text: string }) {
-  return (
-    <p className="flex items-baseline gap-3.5 rounded-lg border border-edge px-4 py-2.5 text-13 text-muted-foreground">
-      <span className="font-mono text-12 tracking-[0.04em] whitespace-nowrap uppercase">
-        {label}
-      </span>
-      {text}
-    </p>
-  );
-}
+/** The series a framed block is numbered in, as the draft labels them. */
+type Series = "Fig." | "Table";
 
-const kindLabels: Record<BlockKind, string> = {
-  Prose: "Text",
-  Visual: "Visual",
-  Figure: "Figure",
-  Mermaid: "Diagram",
-  Check: "Check",
-};
-
-function Complete({ content }: { content: BlockContent }) {
+/**
+ * How a complete block sits in the column: prose, a framed visual with its
+ * series, or an unframed catalog entry (a callout, a check question).
+ */
+function seriesOf(content: BlockContent): Series | null {
   switch (content.type) {
     case "Prose":
-      return <Prose text={content.text} />;
-    case "Visual":
+    case "Check":
+      return null;
+    case "Visual": {
+      const check = checkVisualSpec(content.spec);
+      if (!check.ok) return "Fig.";
+      const type = check.spec.elements[check.spec.root]?.type;
+      if (type === "callout") return null;
+      return type === "comparison" ? "Table" : "Fig.";
+    }
     case "Figure":
     case "Mermaid":
-      return (
-        <TextLine
-          label={kindLabels[content.type]}
-          text={content.description ?? "No description given."}
-        />
-      );
-    case "Check":
-      return (
-        <TextLine
-          label={kindLabels.Check}
-          text={
-            content.questions.length === 1
-              ? "A check question."
-              : `${content.questions.length} check questions.`
-          }
-        />
-      );
     case "Fallback":
-      return <TextLine label="Figure" text={content.description} />;
+      return "Fig.";
     default:
       return unknownTag(content);
   }
 }
 
-/**
- * A section's blocks in order: prose as text, and a line of text for every
- * other block, whether complete or still arriving.
- */
-export interface Mark {
-  id: string;
-  kind: string;
-  block: number;
-  quote: string;
-}
-export interface MarkProps {
-  id: string;
-  kind: string;
-  children: ReactNode;
-}
-export interface Passage {
-  block: number;
-  text: string;
+/** The label of each framed block, numbered in its own series. */
+function labelsOf(blocks: ShownBlock[]): Map<number, string> {
+  const counts: Record<Series, number> = { "Fig.": 0, Table: 0 };
+  const labels = new Map<number, string>();
+  for (const block of blocks) {
+    if (block.state !== "complete") continue;
+    const series = seriesOf(block.content);
+    if (series === null) continue;
+    counts[series] += 1;
+    labels.set(block.index, `${series} ${counts[series]}`);
+  }
+  return labels;
 }
 
-export function Blocks({
-  blocks,
+const placeholderText: Record<Exclude<BlockKind, "Prose">, string> = {
+  Visual: "Drawing the visual…",
+  Figure: "Drawing the figure…",
+  Mermaid: "Drawing the diagram…",
+  Check: "Writing the check question…",
+};
+
+/**
+ * Holds an opened visual's place at a fixed height: what streams into it is
+ * never shown, so it does not grow, and the block replaces it in place.
+ */
+function Placeholder({ kind }: { kind: Exclude<BlockKind, "Prose"> }) {
+  return (
+    <div
+      data-slot="block-placeholder"
+      className="flex h-60 flex-col overflow-hidden rounded-xl border border-edge bg-panel"
+    >
+      <div className="flex-1 p-4">
+        <Skeleton className="size-full rounded-lg" />
+      </div>
+      <p className="border-t border-edge px-4 py-2.5 text-13 text-muted-foreground">
+        {placeholderText[kind]}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * The shared figure frame around a catalog entry: the frame shows the
+ * number and the caption, and the entry inside shows its content only.
+ */
+function Framed({
+  label,
+  caption,
+  children,
 }: {
-  blocks: ShownBlock[];
-  citations?: Citation[];
-  sources?: Source[];
-  marks?: Mark[];
-  markComponent?: (props: MarkProps) => ReactNode;
-  onSelection?: (passage: Passage | null) => void;
+  label: string;
+  caption: string;
+  children: ReactNode;
 }) {
   return (
-    <div className="typeset">
-      {blocks.map((block) =>
-        block.state === "complete" ? (
-          <Complete key={block.index} content={block.content} />
-        ) : block.kind === "Prose" ? (
-          <Prose key={block.index} text={block.text} />
-        ) : (
-          <TextLine
-            key={block.index}
-            label={kindLabels[block.kind]}
-            text="Arriving…"
+    <Figure label={label} caption={caption}>
+      <CaptionInFrame value={true}>{children}</CaptionInFrame>
+    </Figure>
+  );
+}
+
+/** A visual that could not be drawn, told by its description. */
+function Described({
+  label,
+  description,
+}: {
+  label: string;
+  description: string;
+}) {
+  return (
+    <Figure label={label} caption={description}>
+      <p className="px-4 py-5 text-13 text-muted-foreground">
+        This visual could not be drawn; its description is below.
+      </p>
+    </Figure>
+  );
+}
+
+function captionOf(spec: unknown, description: string | null): string {
+  const check = checkVisualSpec(spec);
+  if (check.ok) {
+    const caption = check.spec.elements[check.spec.root]?.props.caption;
+    if (typeof caption === "string") return caption;
+  }
+  return description ?? "";
+}
+
+function Check({ questions }: { questions: CheckQuestion[] }) {
+  return (
+    <>
+      <h2>{questions.length === 1 ? "Check question" : "Check questions"}</h2>
+      {questions.map((question) => (
+        <CheckEntry key={question.index} question={question} />
+      ))}
+    </>
+  );
+}
+
+function CheckEntry({ question }: { question: CheckQuestion }) {
+  const props = useMemo(
+    () => ({
+      stem: question.stem,
+      options: question.options.map((text) => ({ text })),
+    }),
+    [question],
+  );
+  return <RegistryEntry type="check-question" props={props} />;
+}
+
+function Complete({
+  content,
+  label,
+  prose,
+}: {
+  content: BlockContent;
+  label: string | undefined;
+  prose: (text: string) => ReactNode;
+}) {
+  switch (content.type) {
+    case "Prose":
+      return prose(content.text);
+    case "Visual": {
+      if (!checkVisualSpec(content.spec).ok) {
+        return (
+          <Described
+            label={label ?? ""}
+            description={content.description ?? ""}
           />
-        ),
-      )}
+        );
+      }
+      if (label === undefined) return <CatalogVisual spec={content.spec} />;
+      return (
+        <Framed
+          label={label}
+          caption={captionOf(content.spec, content.description)}
+        >
+          <CatalogVisual spec={content.spec} />
+        </Framed>
+      );
+    }
+    case "Figure":
+      return (
+        <Framed label={label ?? ""} caption={content.description ?? ""}>
+          <RegistryEntry
+            type="figure"
+            props={{ svg: content.svg, caption: content.description ?? "" }}
+          />
+        </Framed>
+      );
+    case "Mermaid":
+      return (
+        <Framed label={label ?? ""} caption={content.description ?? ""}>
+          <RegistryEntry
+            type="mermaid-diagram"
+            props={{
+              source: content.source,
+              caption: content.description ?? "",
+            }}
+          />
+        </Framed>
+      );
+    case "Check":
+      return <Check questions={content.questions} />;
+    case "Fallback":
+      return (
+        <Described label={label ?? ""} description={content.description} />
+      );
+    default:
+      return unknownTag(content);
+  }
+}
+
+/** Prose selected within one prose block of `root`; null otherwise. */
+function passageIn(root: Element, selection: Selection | null): Passage | null {
+  if (selection === null || selection.isCollapsed) return null;
+  const blockOf = (node: Node | null) => {
+    const element = node instanceof Element ? node : node?.parentElement;
+    const block = element?.closest("[data-prose-block]");
+    return block && root.contains(block)
+      ? block.getAttribute("data-prose-block")
+      : null;
+  };
+  const block = blockOf(selection.anchorNode);
+  if (block === null || block !== blockOf(selection.focusNode)) return null;
+  const text = selection.toString();
+  return text.trim() === "" ? null : { block: Number(block), text };
+}
+
+const nothing: never[] = [];
+
+function byBlock<T extends { block: number }>(items: T[]): Map<number, T[]> {
+  const grouped = new Map<number, T[]>();
+  for (const item of items) {
+    grouped.set(item.block, [...(grouped.get(item.block) ?? []), item]);
+  }
+  return grouped;
+}
+
+/**
+ * A section's blocks in order, keyed by block: prose as Markdown in
+ * Typeset, visuals, figures and diagrams through the catalog's registry in
+ * the figure frame with running numbers, check questions through the
+ * registry, and a placeholder of fixed height for a block still arriving.
+ * Every block owns only the space above it, so a block that arrives or
+ * grows never moves the ones before it.
+ */
+export function Blocks({
+  blocks,
+  citations = nothing,
+  sources = nothing,
+  marks = nothing,
+  markComponent,
+  onSelection,
+}: {
+  blocks: ShownBlock[];
+  /** The section's citations; their markers sit where their claims end. */
+  citations?: Citation[];
+  sources?: Source[];
+  /** Quoted passages of prose blocks, shown through `markComponent`. */
+  marks?: Mark[];
+  markComponent?: ComponentType<MarkProps>;
+  /** Called with what a selection covers whenever the selection changes. */
+  onSelection?: (passage: Passage | null) => void;
+}) {
+  const root = useRef<HTMLDivElement>(null);
+  const labels = useMemo(() => labelsOf(blocks), [blocks]);
+  const citationsByBlock = useMemo(() => byBlock(citations), [citations]);
+  const marksByBlock = useMemo(() => byBlock(marks), [marks]);
+
+  const report = useEffectEvent(() => {
+    if (root.current !== null) {
+      onSelection?.(passageIn(root.current, document.getSelection()));
+    }
+  });
+  const listening = onSelection !== undefined;
+  useEffect(() => {
+    if (!listening) return;
+    document.addEventListener("selectionchange", report);
+    return () => document.removeEventListener("selectionchange", report);
+  }, [listening]);
+
+  return (
+    <div ref={root} className="typeset">
+      {blocks.map((block) => {
+        const prose = (text: string, streaming: boolean) => (
+          <Prose
+            block={block.index}
+            text={text}
+            streaming={streaming}
+            citations={citationsByBlock.get(block.index)}
+            sources={sources}
+            marks={marksByBlock.get(block.index)}
+            markComponent={markComponent}
+          />
+        );
+        return (
+          <Fragment key={block.index}>
+            {block.state === "complete" ? (
+              <Complete
+                content={block.content}
+                label={labels.get(block.index)}
+                prose={(text) => prose(text, false)}
+              />
+            ) : block.kind === "Prose" ? (
+              prose(block.text, true)
+            ) : (
+              <Placeholder kind={block.kind} />
+            )}
+          </Fragment>
+        );
+      })}
     </div>
   );
 }

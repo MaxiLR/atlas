@@ -9,6 +9,7 @@ import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { Button } from "@/components/ui/button";
 import { Trace, TraceIcon, TraceLine, TraceTitle } from "@/components/ui/trace";
 import { ModelPicker } from "@/model-picker/model-picker";
+import { replyAwaited } from "@/store/side-chats";
 import { outcomeError } from "@/store/stream";
 
 import { ReplyFailure, StoredReply, StreamingReply } from "./reply";
@@ -39,7 +40,7 @@ export function SideChatThread({
         ? last.message.text
         : null;
   const pending = last?.type === "Sent" && reply === null && error === null;
-  const streaming = pending || (reply !== null && reply.outcome === null);
+  const streaming = replyAwaited(open);
 
   const ask = (text: string) => {
     send({ type: "SendSideChatMessage", chatId, text }).catch(failureInStore);
@@ -90,7 +91,7 @@ export function SideChatThread({
     turns.push({
       id: `reply-${reply.generationId}`,
       fromPerson: false,
-      content: <StreamingReply stream={reply} />,
+      content: <StreamingReply stream={reply} searched={open.searched} />,
     });
   } else if (pending) {
     turns.push({

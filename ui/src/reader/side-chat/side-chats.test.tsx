@@ -498,6 +498,52 @@ describe("a reply as it is written", () => {
     ).toBeVisible();
   });
 
+  it("returning to a chat while its reply streams keeps the reply, the search row and Stop", async () => {
+    const valve = createValve();
+    const { panel, requests, user } = await renderPanel({ pace: valve.pace });
+    const thread = await startChat(user, panel);
+    await user.type(
+      within(panel).getByRole("textbox", { name: "Ask a question" }),
+      "Why do plates move?{Enter}",
+    );
+    await act(async () => valve.step());
+    await act(async () => valve.step());
+    expect(
+      await within(thread).findByText(FIRST_CHUNK, { exact: false }),
+    ).toBeVisible();
+
+    await user.click(
+      within(panel).getByRole("button", { name: "All side chats" }),
+    );
+    const list = await within(panel).findByRole("list", { name: "Side chats" });
+    await user.click(
+      within(within(list).getAllByRole("listitem")[0]!).getByRole("button"),
+    );
+    const back = await within(panel).findByRole("region", {
+      name: "Side chat",
+    });
+
+    expect(within(back).getByText(FIRST_CHUNK, { exact: false })).toBeVisible();
+    expect(within(back).getByText("Searched the web")).toBeVisible();
+    expect(within(back).getAllByText("Why do plates move?")).toHaveLength(1);
+    expect(within(panel).getByRole("button", { name: "Stop" })).toBeVisible();
+    expect(within(panel).queryByRole("button", { name: "Send" })).toBeNull();
+
+    await act(async () => valve.step());
+    await act(async () => valve.open());
+    expect(
+      await within(back).findByRole("button", { name: FOLLOW_UPS[0] }),
+    ).toBeVisible();
+    expect(
+      within(back).getAllByText(FIRST_CHUNK, { exact: false }),
+    ).toHaveLength(1);
+    expect(back).toHaveTextContent(LAST_CHUNK);
+    expect(within(back).getAllByText("Why do plates move?")).toHaveLength(1);
+    expect(
+      requests.filter(({ type }) => type === "SendSideChatMessage"),
+    ).toHaveLength(1);
+  });
+
   it("a failed reply says why and sends the question again", async () => {
     const { panel, requests, user, core } = await renderPanel({
       setup: (world) => {

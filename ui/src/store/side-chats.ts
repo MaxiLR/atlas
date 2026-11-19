@@ -8,7 +8,8 @@ import { applyGeneration, type Stream } from "./stream";
 
 /**
  * A line of a thread: a message the core holds, or the candidate's message
- * as sent, which the core returns only when the chat is opened again.
+ * as sent, which the core returns once the chat is opened again after its
+ * reply.
  */
 export type ThreadItem =
   { type: "Message"; message: ChatMessage } | { type: "Sent"; text: string };
@@ -18,6 +19,8 @@ export interface OpenChat {
   thread: ThreadItem[];
   /** The reply streaming, or the last one when it stopped or failed. */
   reply: Stream | null;
+  /** Whether the agent searched the web while writing `reply`. */
+  searched: boolean;
   followUps: string[];
   /** Why the last message sent got no reply; null once another is sent. */
   error: CoreError | null;
@@ -81,21 +84,45 @@ function update(
     : { ...slice, chats: { ...slice.chats, [chatId]: change(chat) } };
 }
 
+/**
+ * Whether the chat's reply is still to come: the core has not begun it, or
+ * it is streaming.
+ */
+export function replyAwaited(chat: OpenChat): boolean {
+  if (chat.error !== null) return false;
+  return chat.reply === null
+    ? chat.thread.at(-1)?.type === "Sent"
+    : chat.reply.outcome === null;
+}
+
+/**
+ * The core's copy of the chat. Opened again while its reply is awaited, the
+ * chat keeps its thread and the reply as streamed so far, which the core's
+ * copy does not hold.
+ */
 export function chatOpened(
   slice: SideChatsSlice,
   chat: SideChat,
 ): SideChatsSlice {
+  const known = slice.chats[chat.id];
   return {
     ...slice,
     chats: {
       ...slice.chats,
-      [chat.id]: {
-        chat,
-        thread: chat.messages.map((message) => ({ type: "Message", message })),
-        reply: null,
-        followUps: chat.followUps,
-        error: null,
-      },
+      [chat.id]:
+        known !== undefined && replyAwaited(known)
+          ? { ...known, chat }
+          : {
+              chat,
+              thread: chat.messages.map((message) => ({
+                type: "Message",
+                message,
+              })),
+              reply: null,
+              searched: false,
+              followUps: chat.followUps,
+              error: null,
+            },
     },
   };
 }
@@ -118,6 +145,7 @@ export function messageSent(
       ...chat,
       thread: again ? chat.thread : [...chat.thread, { type: "Sent", text }],
       reply: null,
+      searched: false,
       followUps: [],
       error: null,
     };
@@ -140,10 +168,16 @@ export function replyGenerated(
   generationId: string,
   event: GenerationEvent,
 ): SideChatsSlice {
-  return update(slice, chatId, (chat) => ({
-    ...chat,
-    reply: applyGeneration(chat.reply, generationId, event),
-  }));
+  return update(slice, chatId, (chat) => {
+    const reply = applyGeneration(chat.reply, generationId, event);
+    return {
+      ...chat,
+      reply,
+      searched:
+        (chat.searched && chat.reply?.generationId === generationId) ||
+        reply.activity?.type === "Searching",
+    };
+  });
 }
 
 /** The finished reply joins the thread in place of its stream. */

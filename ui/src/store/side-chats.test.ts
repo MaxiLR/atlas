@@ -7,6 +7,7 @@ import type { SideChatSummary } from "@/core/generated/SideChatSummary";
 
 import {
   applyEvent,
+  applyRequest,
   applyResponse,
   initialState,
   selectOpenCourse,
@@ -120,5 +121,49 @@ describe("the side-chat count of a course whose chats are listed", () => {
       "old-1",
       "old-2",
     ]);
+  });
+});
+
+describe("a chat opened again while its reply is awaited", () => {
+  it("still waits for the reply under the one question, with nothing gone wrong", () => {
+    const question = "Why do continents not sink?";
+    const send: CoreRequest = {
+      type: "SendSideChatMessage",
+      chatId: "new-1",
+      text: question,
+    };
+    let state = applyRequest(started(opened(), "new-1"), send);
+    state = applyResponse(
+      state,
+      { type: "OpenSideChat", chatId: "new-1" },
+      {
+        type: "SideChat",
+        chat: {
+          id: "new-1",
+          courseId,
+          anchor: null,
+          sectionTitle: null,
+          messages: [
+            {
+              id: "message-1",
+              role: "Candidate",
+              text: question,
+              state: "Complete",
+              citations: [],
+              sources: [],
+              createdAt: at,
+            },
+          ],
+          followUps: [],
+          createdAt: at,
+          updatedAt: at,
+        },
+      },
+    );
+
+    const chat = state.sideChats.chats["new-1"];
+    expect(chat?.thread).toEqual([{ type: "Sent", text: question }]);
+    expect(chat?.reply).toBeNull();
+    expect(chat?.error).toBeNull();
   });
 });

@@ -4,7 +4,7 @@ import {
   RotateCwIcon,
   SearchIcon,
 } from "lucide-react";
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo } from "react";
 
 import { failureInStore, useAtlas, useAtlasStore } from "@/app/store";
 import {
@@ -149,14 +149,18 @@ export function StoredReply({ message }: { message: ChatMessage }) {
 
 /**
  * A reply as it is written: the search row while and after the agent
- * searches, the step it is on until text arrives, then the text. One that
- * failed keeps what arrived, marked incomplete.
+ * searches (`searched`), the step it is on until text arrives, then the
+ * text. One that failed keeps what arrived, marked incomplete.
  */
-export function StreamingReply({ stream }: { stream: Stream }) {
+export function StreamingReply({
+  stream,
+  searched,
+}: {
+  stream: Stream;
+  searched: boolean;
+}) {
   const { activity, blocks, citations, sources, outcome } = stream;
   const searching = activity?.type === "Searching";
-  const [searched, setSearched] = useState(searching);
-  if (searching && !searched) setSearched(true);
   const running = outcome === null;
   const texts = blocks.flatMap((block) =>
     block.state === "open"

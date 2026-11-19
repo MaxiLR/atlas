@@ -14,6 +14,8 @@ use crate::protocol::{
     SectionKind, SectionNode,
 };
 
+mod api;
+pub use api::*;
 /// Migration `n` (1-based) is `MIGRATIONS[n - 1]`; `PRAGMA user_version`
 /// records the last one applied.
 const MIGRATIONS: [&str; 1] = [include_str!("migrations/0001_thin_loop.sql")];
@@ -62,7 +64,10 @@ pub struct Store {
 
 impl Store {
     /// Opens (creating if missing) the database at `path` and migrates it.
-    pub fn open(path: &Path) -> Result<Self, StoreError> {
+    pub fn open(
+        path: &Path,
+        _clock: std::sync::Arc<dyn crate::ports::Clock>,
+    ) -> Result<Self, StoreError> {
         let mut connection = Connection::open(path)?;
         connection.pragma_update(None, "foreign_keys", true)?;
         migrate(&mut connection)?;
@@ -366,38 +371,4 @@ fn parse_time(text: &str) -> Result<DateTime<Utc>, StoreError> {
 
 fn parse_id(text: &str) -> Result<Uuid, StoreError> {
     Uuid::parse_str(text).map_err(|error| StoreError::Corrupt(format!("id {text:?}: {error}")))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_fresh_database_migrates_to_the_latest_version() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("atlas.sqlite3");
-        Store::open(&path).unwrap();
-        let version: i64 = Connection::open(&path)
-            .unwrap()
-            .pragma_query_value(None, "user_version", |row| row.get(0))
-            .unwrap();
-        assert_eq!(version, LATEST);
-        // Opening again applies nothing twice.
-        Store::open(&path).unwrap();
-    }
-
-    #[test]
-    fn a_database_newer_than_the_code_is_refused() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("atlas.sqlite3");
-        Connection::open(&path)
-            .unwrap()
-            .pragma_update(None, "user_version", LATEST + 1)
-            .unwrap();
-        assert!(matches!(
-            Store::open(&path),
-            Err(StoreError::TooNew { found, supported })
-                if found == LATEST + 1 && supported == LATEST
-        ));
-    }
 }

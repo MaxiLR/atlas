@@ -30,7 +30,7 @@ pub struct Core {
 impl Core {
     /// Opens the store and builds every feature from the deps.
     pub fn new(deps: CoreDeps) -> Result<Self, CoreError> {
-        let store = Arc::new(Store::open(&deps.database_path)?);
+        let store = Arc::new(Store::open(&deps.database_path, deps.clock.clone())?);
         Ok(Self {
             features: Features::new(&deps, &store)?,
         })

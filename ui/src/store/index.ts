@@ -160,28 +160,36 @@ function glossaryEntryArrived(
   };
 }
 
+function sideChatCounted(state: AtlasState, courseId: string): AtlasState {
+  return {
+    ...state,
+    course: courseChanged(state.course, courseId, (course) => ({
+      ...course,
+      sideChatCount: course.sideChatCount + 1,
+    })),
+  };
+}
+
 /**
- * A side chat was started or received a message. It counts towards its
- * course when the course's chats are listed and it is not among them; an
- * unlisted course keeps the count its view came with.
+ * A side chat was started or received a message. On a course whose chats
+ * are listed, one not among them is new and counts; on any other the event
+ * cannot tell, and the answer to starting it counts it instead.
  */
 function sideChatArrived(
   state: AtlasState,
   summary: SideChatSummary,
 ): AtlasState {
-  const listed = state.sideChats.byCourse[summary.courseId];
+  const { courseId } = summary;
   const isNew =
-    listed !== undefined && !listed.some((chat) => chat.id === summary.id);
-  return {
+    state.sideChats.listed[courseId] === true &&
+    !(state.sideChats.byCourse[courseId] ?? []).some(
+      (chat) => chat.id === summary.id,
+    );
+  const changed = {
     ...state,
     sideChats: chatChanged(state.sideChats, summary),
-    course: isNew
-      ? courseChanged(state.course, summary.courseId, (course) => ({
-          ...course,
-          sideChatCount: course.sideChatCount + 1,
-        }))
-      : state.course,
   };
+  return isNew ? sideChatCounted(changed, courseId) : changed;
 }
 
 function generated(
@@ -327,8 +335,37 @@ export function applyRequest(
         ...state,
         sideChats: messageSent(state.sideChats, request.chatId, request.text),
       };
-    default:
+    case "GetSession":
+    case "SignIn":
+    case "CancelSignIn":
+    case "EnablePlanUsage":
+    case "SignOut":
+    case "OpenManageUsage":
+    case "OpenExternal":
+    case "ListModels":
+    case "SelectModel":
+    case "SubmitSelfRating":
+    case "AnswerPlacement":
+    case "RetryPlacementStep":
+    case "StopGeneration":
+    case "AnswerCheck":
+    case "GoDeeper":
+    case "Define":
+    case "LookupWikipedia":
+    case "ListGlossary":
+    case "ListSideChats":
+    case "StartSideChat":
+    case "OpenSideChat":
+    case "StopSideChatReply":
+    case "GetUsage":
+    case "ConnectUsage":
+    case "CancelConnectUsage":
+    case "SetWindowFocused":
+    case "GetExportDocument":
+    case "ExportPdf":
       return state;
+    default:
+      return unknownTag(request);
   }
 }
 
@@ -448,15 +485,25 @@ export function applyResponse(
           sideChatCount: response.chats.length,
         })),
       };
-    case "SideChat":
-      return {
+    case "SideChat": {
+      const opened = {
         ...state,
         sideChats: chatOpened(state.sideChats, response.chat),
         navigation: {
           ...state.navigation,
-          panel: { open: true, tab: "sideChats", chatId: response.chat.id },
+          panel: {
+            open: true,
+            tab: "sideChats" as const,
+            chatId: response.chat.id,
+          },
         },
       };
+      const { courseId } = response.chat;
+      return request.type === "StartSideChat" &&
+        state.sideChats.listed[courseId] !== true
+        ? sideChatCounted(opened, courseId)
+        : opened;
+    }
     case "SideChatReply":
       return {
         ...state,
@@ -512,8 +559,38 @@ export function applyFailure(
         ),
         navigation: { ...state.navigation, nextFrom: null },
       };
-    default:
+    case "GetSession":
+    case "SignIn":
+    case "CancelSignIn":
+    case "EnablePlanUsage":
+    case "SignOut":
+    case "OpenManageUsage":
+    case "OpenExternal":
+    case "ListModels":
+    case "SelectModel":
+    case "SubmitSelfRating":
+    case "AnswerPlacement":
+    case "RetryPlacementStep":
+    case "StopGeneration":
+    case "AnswerCheck":
+    case "GoDeeper":
+    case "Define":
+    case "LookupWikipedia":
+    case "ListGlossary":
+    case "ListSideChats":
+    case "StartSideChat":
+    case "OpenSideChat":
+    case "SendSideChatMessage":
+    case "StopSideChatReply":
+    case "GetUsage":
+    case "ConnectUsage":
+    case "CancelConnectUsage":
+    case "SetWindowFocused":
+    case "GetExportDocument":
+    case "ExportPdf":
       return state;
+    default:
+      return unknownTag(request);
   }
 }
 
@@ -557,6 +634,16 @@ export function selectAnchors(
       (chat) => chat.anchor?.versionId === versionId,
     ),
   };
+}
+
+/** A course's side chats, newest first; null until the core has listed them. */
+export function selectSideChats(
+  state: AtlasState,
+  courseId: string,
+): SideChatSummary[] | null {
+  return state.sideChats.listed[courseId] === true
+    ? (state.sideChats.byCourse[courseId] ?? [])
+    : null;
 }
 
 /** The usage meter: the last reading stays, stale, when a later one fails. */

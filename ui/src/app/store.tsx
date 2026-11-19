@@ -12,6 +12,7 @@ import { describeError, type CoreClient, type ResponseTo } from "@/core/client";
 import { useCore } from "@/core/context";
 import type { CoreError } from "@/core/generated/CoreError";
 import type { CoreRequest } from "@/core/generated/CoreRequest";
+import type { CoreResponse } from "@/core/generated/CoreResponse";
 import {
   applyEvent,
   applyFailure,
@@ -30,7 +31,9 @@ export interface AtlasStore {
   connect(): () => void;
   /**
    * Sends a request through the store: the store takes in the request, then
-   * the response or the failure. Resolves and rejects as the core does.
+   * the response or the failure. Resolves and rejects as the core does. When
+   * Next is answered with where it leads and the window followed, it opens
+   * that section too.
    */
   send<Request extends CoreRequest>(
     request: Request,
@@ -53,23 +56,35 @@ export function createAtlasStore(client: CoreClient): AtlasStore {
   const state = createStore<AtlasState>()(() => initialState);
   const apply = (change: (current: AtlasState) => AtlasState) =>
     state.setState(change, true);
+  const send: AtlasStore["send"] = async (request) => {
+    apply((current) => applyRequest(current, request));
+    try {
+      const response = await client.call(request);
+      apply((current) => applyResponse(current, request, response));
+      const answer: CoreResponse = response;
+      if (
+        answer.type === "NextSection" &&
+        state.getState().navigation.sectionId === answer.sectionId
+      ) {
+        send({
+          type: "OpenSection",
+          courseId: answer.courseId,
+          sectionId: answer.sectionId,
+        }).catch(failureInStore);
+      }
+      return response;
+    } catch (error) {
+      apply((current) => applyFailure(current, request, asCoreError(error)));
+      throw error;
+    }
+  };
   return {
     state,
     connect: () =>
       client.subscribe((event) =>
         apply((current) => applyEvent(current, event)),
       ),
-    async send(request) {
-      apply((current) => applyRequest(current, request));
-      try {
-        const response = await client.call(request);
-        apply((current) => applyResponse(current, request, response));
-        return response;
-      } catch (error) {
-        apply((current) => applyFailure(current, request, asCoreError(error)));
-        throw error;
-      }
-    },
+    send,
     navigate: (action) => apply((current) => applyNavigation(current, action)),
   };
 }

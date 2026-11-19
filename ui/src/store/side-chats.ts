@@ -21,20 +21,33 @@ export interface OpenChat {
 }
 
 export interface SideChatsSlice {
-  /** Each course's side chats, newest first. */
+  /**
+   * Each course's side chats heard of, newest first: all of them once the
+   * core has listed them (`listed`), otherwise those its events named.
+   */
   byCourse: Record<string, SideChatSummary[]>;
+  /** The courses whose side chats the core has listed. */
+  listed: Record<string, true>;
   /** The chats opened, by id. */
   chats: Record<string, OpenChat>;
 }
 
-export const initialSideChats: SideChatsSlice = { byCourse: {}, chats: {} };
+export const initialSideChats: SideChatsSlice = {
+  byCourse: {},
+  listed: {},
+  chats: {},
+};
 
 export function chatsListed(
   slice: SideChatsSlice,
   courseId: string,
   chats: SideChatSummary[],
 ): SideChatsSlice {
-  return { ...slice, byCourse: { ...slice.byCourse, [courseId]: chats } };
+  return {
+    ...slice,
+    byCourse: { ...slice.byCourse, [courseId]: chats },
+    listed: { ...slice.listed, [courseId]: true },
+  };
 }
 
 /** A chat was started (it goes first) or received a message. */
@@ -44,11 +57,14 @@ export function chatChanged(
 ): SideChatsSlice {
   const chats = slice.byCourse[summary.courseId] ?? [];
   const at = chats.findIndex((chat) => chat.id === summary.id);
-  return chatsListed(
-    slice,
-    summary.courseId,
-    at === -1 ? [summary, ...chats] : chats.with(at, summary),
-  );
+  return {
+    ...slice,
+    byCourse: {
+      ...slice.byCourse,
+      [summary.courseId]:
+        at === -1 ? [summary, ...chats] : chats.with(at, summary),
+    },
+  };
 }
 
 function update(

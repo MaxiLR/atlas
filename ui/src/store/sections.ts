@@ -170,7 +170,10 @@ export interface SectionDisplay {
   activity: Activity | null;
   /** How the shown generation ended; null for a stored version. */
   outcome: GenerationOutcome | null;
-  /** Why the generation or the last request failed. */
+  /**
+   * Why the last request about it was refused, otherwise why the shown
+   * generation failed: a refusal is newer than the attempt it left shown.
+   */
   error: CoreError | null;
   /** The stored version shown; null while a generation is shown. */
   versionId: string | null;
@@ -206,7 +209,7 @@ export function sectionDisplay(
       sources: stream.sources,
       activity: stream.activity,
       outcome: stream.outcome,
-      error: outcomeError(stream.outcome) ?? section.error,
+      error: section.error ?? outcomeError(stream.outcome),
       versionId: null,
       versions,
     };

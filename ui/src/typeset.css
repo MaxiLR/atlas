@@ -58,7 +58,7 @@
     &:where(h1, h2, h3, h4, h5, h6) {
       color: var(--color-foreground, currentColor);
       font-family: var(--typeset-font-heading);
-      font-weight: 600;
+      font-weight: var(--font-weight-medium, 510);
       margin-block-end: 0;
     }
     &:where(h1) {
@@ -84,14 +84,14 @@
     &:where(h5) {
       font-size: 0.875em;
       line-height: 1.5;
-      font-weight: 500;
+      font-weight: var(--font-weight-medium, 510);
       color: var(--typeset-muted);
       margin-block-start: calc(var(--typeset-flow) / 0.875);
     }
     &:where(h6) {
       font-size: 0.8125em;
       line-height: 1.5;
-      font-weight: 500;
+      font-weight: var(--font-weight-medium, 510);
       letter-spacing: 0.08em;
       text-transform: uppercase;
       color: var(--typeset-muted);
@@ -113,7 +113,7 @@
     /* Links. */
     &:where(a) {
       color: inherit;
-      font-weight: 500;
+      font-weight: var(--font-weight-medium, 510);
       text-decoration-line: underline;
       text-decoration-color: color-mix(in oklab, currentColor 30%, transparent);
     }
@@ -131,16 +131,15 @@
 
     /* Inline semantics. */
     &:where(strong, b) {
-      font-weight: 600;
+      font-weight: var(--font-weight-medium, 510);
     }
     &:where(:is(h1, h2, h3, h4) :is(strong, b)) {
-      font-weight: 600;
+      font-weight: var(--font-weight-medium, 510);
     }
     &:where(mark) {
-      background-color: color-mix(
-        in oklab,
-        oklch(0.86 0.17 95) 40%,
-        transparent
+      background-color: var(
+        --color-atlas-accent-wash,
+        color-mix(in oklab, currentColor 15%, transparent)
       );
       color: inherit;
       padding: 0.05em 0.15em;
@@ -170,7 +169,7 @@
     }
     &:where(sup a) {
       text-decoration-line: none;
-      font-weight: 500;
+      font-weight: var(--font-weight-medium, 510);
     }
 
     /* Lists. */
@@ -235,7 +234,7 @@
     }
     &:where(summary) {
       cursor: pointer;
-      font-weight: 500;
+      font-weight: var(--font-weight-medium, 510);
     }
     &:where(summary)::marker {
       color: var(--typeset-muted);
@@ -245,7 +244,7 @@
     &:where(kbd) {
       font-family: inherit;
       font-size: 0.85em;
-      font-weight: 500;
+      font-weight: var(--font-weight-medium, 510);
       border: 1px solid var(--typeset-rule);
       border-block-end-width: 2px;
       border-radius: min(calc(var(--radius, 0.5em) * 0.6), 0.35em);
@@ -258,7 +257,7 @@
       margin-block-end: 0;
     }
     &:where(dt) {
-      font-weight: 500;
+      font-weight: var(--font-weight-medium, 510);
       margin-block-start: 1em;
     }
     &:where(dt + dt) {
@@ -401,7 +400,7 @@
       max-width: none;
     }
     &:where(thead th) {
-      font-weight: 500;
+      font-weight: var(--font-weight-medium, 510);
       text-align: start;
       white-space: nowrap;
       padding: 0.65em 1em;
@@ -413,7 +412,7 @@
       border-block-start: 1px solid var(--typeset-rule);
     }
     &:where(tbody th, tfoot th) {
-      font-weight: 500;
+      font-weight: var(--font-weight-medium, 510);
     }
     &:where(th:first-child, td:first-child) {
       padding-inline-start: 0;

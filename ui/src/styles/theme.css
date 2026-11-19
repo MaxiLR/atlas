@@ -16,7 +16,8 @@
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *):not(:where([data-theme="light"], [data-theme="light"] *)));
 
 @theme inline {
-  /* Atlas tokens. Muted text is `text-muted-foreground`. */
+  /* Atlas tokens. Muted text is `text-muted-foreground`. The Atlas accent is
+     `atlas-accent`: `accent` is shadcn's neutral highlight fill. */
   --color-canvas: var(--atlas-canvas);
   --color-panel: var(--atlas-panel);
   --color-raised: var(--atlas-raised);
@@ -27,8 +28,8 @@
   --color-edge-strong: var(--atlas-edge-strong);
   --color-wash: var(--atlas-wash);
   --color-wash-strong: var(--atlas-wash-strong);
-  --color-accent: var(--atlas-accent);
-  --color-accent-wash: var(--atlas-accent-wash);
+  --color-atlas-accent: var(--atlas-accent);
+  --color-atlas-accent-wash: var(--atlas-accent-wash);
   --color-focus: var(--atlas-focus);
   --color-green: var(--atlas-green);
   --color-amber: var(--atlas-amber);
@@ -47,6 +48,7 @@
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-border: var(--border);
@@ -126,11 +128,15 @@
   --secondary-foreground: var(--atlas-heading);
   --muted: var(--atlas-wash);
   --muted-foreground: var(--atlas-muted);
-  --accent: var(--atlas-accent);
-  --accent-foreground: var(--atlas-canvas);
+  /* Hover and highlight change fill, never hue: the accent marks position,
+     what the candidate marked and focus only. */
+  --accent: var(--atlas-wash-strong);
+  --accent-foreground: var(--atlas-heading);
   --destructive: var(--atlas-red);
   --border: var(--atlas-edge);
-  --input: var(--atlas-edge-strong);
+  /* Control boundaries carry meaning (an unchecked option's ring), so they
+     take faint, the 3:1 mark token, rather than a hairline edge. */
+  --input: var(--atlas-faint);
   --ring: var(--atlas-focus);
   --chart-1: var(--atlas-accent);
   --chart-2: var(--atlas-green);
@@ -156,7 +162,7 @@
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply border-border outline-ring;
   }
   body {
     @apply bg-background text-foreground;

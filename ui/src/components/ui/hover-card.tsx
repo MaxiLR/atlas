@@ -28,6 +28,7 @@ function HoverCardContent({
     <HoverCardPrimitive.Portal data-slot="hover-card-portal">
       <HoverCardPrimitive.Content
         data-slot="hover-card-content"
+        data-surface="raised"
         align={align}
         sideOffset={sideOffset}
         className={cn(

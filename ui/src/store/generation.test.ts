@@ -290,3 +290,62 @@ describe("how a generation ends", () => {
     expect(failed.sections.byId[sectionId]?.currentVersionId).toBe("version-1");
   });
 });
+
+describe("a generation answered before its last events arrive", () => {
+  // The shell delivers events and responses on separate channels, so a
+  // response can overtake the events the core emitted just before it.
+  const lastEvents = [
+    generation("gen-1", {
+      type: "BlockCompleted",
+      block: { index: 0, content: { type: "Prose", text: "Plates move." } },
+    }),
+    generation("gen-1", { type: "Finished", outcome: { type: "Completed" } }),
+  ];
+
+  it("shows the stored version the response carries, and the late events change nothing", () => {
+    const answered = applyResponse(
+      streamed("gen-1"),
+      { type: "OpenSection", courseId, sectionId },
+      { type: "Section", section: storedSection("version-1") },
+    );
+    const late = replay(answered, lastEvents);
+
+    for (const state of [answered, late]) {
+      const shown = selectSection(state, sectionId);
+      expect(shown?.status).toBe("stored");
+      expect(shown?.versionId).toBe("version-1");
+      expect(shown?.outcome).toBeNull();
+      expect(shown?.blocks.map((block) => block.state)).toEqual([
+        "complete",
+        "complete",
+        "complete",
+      ]);
+    }
+  });
+
+  it("leaves a running new version streaming when a request answers the version already shown", () => {
+    const stored = applyResponse(
+      initialState,
+      { type: "OpenSection", courseId, sectionId },
+      { type: "Section", section: storedSection("version-1") },
+    );
+    const rewriting = replay(stored, [
+      generation("gen-2", { type: "Started" }, "Simpler"),
+      generation(
+        "gen-2",
+        { type: "BlockOpened", block: 0, kind: "Prose" },
+        "Simpler",
+      ),
+    ]);
+
+    const reopened = applyResponse(
+      rewriting,
+      { type: "OpenSection", courseId, sectionId },
+      { type: "Section", section: storedSection("version-1") },
+    );
+
+    const shown = selectSection(reopened, sectionId);
+    expect(shown?.status).toBe("streaming");
+    expect(shown?.versionId).toBeNull();
+  });
+});

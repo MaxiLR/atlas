@@ -34,6 +34,11 @@ export interface SectionEntry {
   currentVersionId: string | null;
   /** The generation running, or the last one when it stopped or failed. */
   attempt: Attempt | null;
+  /**
+   * The generation the core last answered for: its events can still arrive
+   * after the response, which travels apart from them, and change nothing.
+   */
+  settled: string | null;
   /** Why the last request about it failed. */
   error: CoreError | null;
 }
@@ -57,6 +62,7 @@ function entry(
       versions: {},
       currentVersionId: null,
       attempt: null,
+      settled: null,
       error: null,
     }
   );
@@ -74,6 +80,7 @@ export function sectionGenerated(
   event: GenerationEvent,
 ): SectionsSlice {
   const section = entry(slice, target.courseId, target.sectionId);
+  if (generationId === section.settled) return slice;
   return put(slice, {
     ...section,
     attempt: {
@@ -90,8 +97,11 @@ export function sectionGenerated(
 
 /**
  * The core answered with a section in its current version. A completed
- * generation gives way to the stored version; a stopped or failed one stays
- * shown unless `dismissAttempt`, as when the candidate chose a version.
+ * generation gives way to the stored version, as does a running one when
+ * the answer carries a version not seen before: the response of the
+ * generation that wrote it, arrived before its last events. A stopped or
+ * failed generation stays shown unless `dismissAttempt`, as when the
+ * candidate chose a version.
  */
 export function sectionAnswered(
   slice: SectionsSlice,
@@ -99,16 +109,23 @@ export function sectionAnswered(
   dismissAttempt: boolean,
 ): SectionsSlice {
   const section = entry(slice, view.courseId, view.id);
-  const outcome = section.attempt?.stream.outcome;
+  const attempt = section.attempt;
+  const outcome = attempt?.stream.outcome ?? null;
+  const written = !(view.version.id in section.versions);
   const attemptEnded =
     outcome?.type === "Completed" ||
-    (dismissAttempt && outcome !== null && outcome !== undefined);
+    (outcome === null && written) ||
+    (dismissAttempt && outcome !== null);
   return put(slice, {
     ...section,
     view,
     versions: { ...section.versions, [view.version.id]: view.version },
     currentVersionId: view.version.id,
-    attempt: attemptEnded ? null : section.attempt,
+    attempt: attemptEnded ? null : attempt,
+    settled:
+      attemptEnded && attempt !== null
+        ? attempt.stream.generationId
+        : section.settled,
     error: null,
   });
 }

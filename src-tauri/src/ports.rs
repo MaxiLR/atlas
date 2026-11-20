@@ -23,7 +23,10 @@ impl Browser for SystemBrowser {
 
 /// Passes the core's events on one at a time, in the order the core emits
 /// them, from a thread of its own, so that no core thread waits on the
-/// interface.
+/// interface. Responses go back over the command instead, so one can reach
+/// the interface before the events the core emitted just ahead of it; the
+/// interface's store drops a generation's events that arrive after the
+/// response that settled it.
 pub struct ForwardedEvents(Sender<CoreEvent>);
 
 impl ForwardedEvents {

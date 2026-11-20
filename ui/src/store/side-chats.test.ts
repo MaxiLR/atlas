@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { CoreEvent } from "@/core/generated/CoreEvent";
 import type { CoreRequest } from "@/core/generated/CoreRequest";
 import type { CourseView } from "@/core/generated/CourseView";
+import type { GenerationEvent } from "@/core/generated/GenerationEvent";
 import type { SideChatSummary } from "@/core/generated/SideChatSummary";
 
 import {
@@ -165,5 +166,58 @@ describe("a chat opened again while its reply is awaited", () => {
     expect(chat?.thread).toEqual([{ type: "Sent", text: question }]);
     expect(chat?.reply).toBeNull();
     expect(chat?.error).toBeNull();
+  });
+});
+
+describe("a reply answered before its last events arrive", () => {
+  it("joins the thread once, and the late events start no stream beside it", () => {
+    const send: CoreRequest = {
+      type: "SendSideChatMessage",
+      chatId: "new-1",
+      text: "Why do continents not sink?",
+    };
+    const reply = (event: GenerationEvent): CoreEvent => ({
+      type: "Generation",
+      generationId: "reply-1",
+      target: { type: "SideChat", courseId, chatId: "new-1" },
+      event,
+    });
+    const text = "They are lighter than the mantle.";
+    let state = applyRequest(started(opened(), "new-1"), send);
+    state = [
+      reply({ type: "Started" }),
+      reply({ type: "BlockOpened", block: 0, kind: "Prose" }),
+      reply({ type: "TextDelta", block: 0, text }),
+    ].reduce(applyEvent, state);
+
+    // The response overtakes the reply's last events.
+    state = applyResponse(state, send, {
+      type: "SideChatReply",
+      chatId: "new-1",
+      message: {
+        id: "message-2",
+        role: "Agent",
+        text,
+        state: "Complete",
+        citations: [],
+        sources: [],
+        createdAt: at,
+      },
+    });
+    state = [
+      reply({
+        type: "BlockCompleted",
+        block: { index: 0, content: { type: "Prose", text } },
+      }),
+      reply({ type: "Finished", outcome: { type: "Completed" } }),
+    ].reduce(applyEvent, state);
+
+    const chat = state.sideChats.chats["new-1"];
+    expect(chat?.reply).toBeNull();
+    expect(
+      chat?.thread.map((item) =>
+        item.type === "Message" ? item.message.id : item.text,
+      ),
+    ).toEqual(["Why do continents not sink?", "message-2"]);
   });
 });

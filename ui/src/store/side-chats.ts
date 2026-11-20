@@ -19,6 +19,12 @@ export interface OpenChat {
   thread: ThreadItem[];
   /** The reply streaming, or the last one when it stopped or failed. */
   reply: Stream | null;
+  /**
+   * The reply generation the core last answered for: its events can still
+   * arrive after the response, which travels apart from them, and change
+   * nothing.
+   */
+  settled: string | null;
   /** Whether the agent searched the web while writing `reply`. */
   searched: boolean;
   followUps: string[];
@@ -119,6 +125,7 @@ export function chatOpened(
                 message,
               })),
               reply: null,
+              settled: known?.settled ?? null,
               searched: false,
               followUps: chat.followUps,
               error: null,
@@ -169,6 +176,7 @@ export function replyGenerated(
   event: GenerationEvent,
 ): SideChatsSlice {
   return update(slice, chatId, (chat) => {
+    if (generationId === chat.settled) return chat;
     const reply = applyGeneration(chat.reply, generationId, event);
     return {
       ...chat,
@@ -180,7 +188,10 @@ export function replyGenerated(
   });
 }
 
-/** The finished reply joins the thread in place of its stream. */
+/**
+ * The finished reply joins the thread in place of its stream; the stream's
+ * late events, if any, are ignored.
+ */
 export function replied(
   slice: SideChatsSlice,
   chatId: string,
@@ -190,6 +201,7 @@ export function replied(
     ...chat,
     thread: [...chat.thread, { type: "Message", message }],
     reply: null,
+    settled: chat.reply?.generationId ?? chat.settled,
   }));
 }
 

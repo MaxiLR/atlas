@@ -1,0 +1,335 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-19T00:00:00Z",
+  "title": "Design System: Atlas",
+  "extensions": {
+    "colorMeta": {
+      "accent": {
+        "role": "primary",
+        "displayName": "Route Indigo",
+        "canonical": "oklch(0.6487 0.1496 277.52)",
+        "tonalRamp": [
+          "oklch(0.15 0.04 277.52)",
+          "oklch(0.25 0.08 277.52)",
+          "oklch(0.36 0.12 277.52)",
+          "oklch(0.47 0.15 277.52)",
+          "oklch(0.57 0.16 277.52)",
+          "oklch(0.65 0.15 277.52)",
+          "oklch(0.8 0.08 277.52)",
+          "oklch(0.95 0.02 277.52)"
+        ]
+      },
+      "accent-wash": {
+        "role": "primary",
+        "displayName": "Indigo Wash",
+        "canonical": "oklch(0.6487 0.1496 277.52 / 0.14)"
+      },
+      "canvas": {
+        "role": "neutral",
+        "displayName": "Night Canvas",
+        "canonical": "oklch(0.139 0.0029 246.26)",
+        "tonalRamp": [
+          "oklch(0.139 0.0029 246.26)",
+          "oklch(0.1773 0.0029 246.26)",
+          "oklch(0.208 0.0029 246.26)",
+          "oklch(0.5093 0.014 277.52)",
+          "oklch(0.6479 0.014 277.52)",
+          "oklch(0.883 0.0109 277.52)",
+          "oklch(0.9258 0.0069 277.52)",
+          "oklch(0.978 0.0021 277.52)"
+        ]
+      },
+      "panel": {
+        "role": "neutral",
+        "displayName": "Rail Panel",
+        "canonical": "oklch(0.1773 0.0029 246.26)"
+      },
+      "raised": {
+        "role": "neutral",
+        "displayName": "Raised Slate",
+        "canonical": "oklch(0.208 0.0029 246.26)"
+      },
+      "heading": {
+        "role": "neutral",
+        "displayName": "Cool White",
+        "canonical": "oklch(0.978 0.0021 277.52)"
+      },
+      "body": {
+        "role": "neutral",
+        "displayName": "Reading Grey",
+        "canonical": "oklch(0.883 0.0109 277.52)"
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Support Grey",
+        "canonical": "oklch(0.6479 0.014 277.52)"
+      },
+      "faint": {
+        "role": "neutral",
+        "displayName": "Mark Grey",
+        "canonical": "oklch(0.5093 0.014 277.52)"
+      },
+      "edge": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "canonical": "oklch(0.978 0.0021 277.52 / 0.08)"
+      },
+      "edge-strong": {
+        "role": "neutral",
+        "displayName": "Strong Hairline",
+        "canonical": "oklch(0.978 0.0021 277.52 / 0.14)"
+      },
+      "wash": {
+        "role": "neutral",
+        "displayName": "Ink Wash",
+        "canonical": "oklch(0.978 0.0021 277.52 / 0.05)"
+      },
+      "wash-strong": {
+        "role": "neutral",
+        "displayName": "Strong Ink Wash",
+        "canonical": "oklch(0.978 0.0021 277.52 / 0.1)"
+      },
+      "primary-fill": {
+        "role": "neutral",
+        "displayName": "Primary Fill",
+        "canonical": "oklch(0.9258 0.0069 277.52)"
+      },
+      "green": {
+        "role": "state",
+        "displayName": "Right Green",
+        "canonical": "oklch(0.5804 0.1598 150)"
+      },
+      "amber": {
+        "role": "state",
+        "displayName": "High Amber",
+        "canonical": "oklch(0.603 0.1272 75)"
+      },
+      "red": {
+        "role": "state",
+        "displayName": "Critical Red",
+        "canonical": "oklch(0.6166 0.16 25)"
+      },
+      "light-canvas": {
+        "role": "neutral",
+        "displayName": "Paper Canvas",
+        "canonical": "oklch(0.994 0 0)",
+        "tonalRamp": [
+          "oklch(0.1734 0.0061 275.21)",
+          "oklch(0.2442 0.0085 275.21)",
+          "oklch(0.2877 0.0101 275.21)",
+          "oklch(0.4926 0.014 275.21)",
+          "oklch(0.6297 0.014 275.21)",
+          "oklch(0.9756 0 0)",
+          "oklch(0.994 0 0)",
+          "oklch(1 0 0)"
+        ]
+      },
+      "light-accent": {
+        "role": "primary",
+        "displayName": "Route Indigo (light)",
+        "canonical": "oklch(0.5674 0.1585 275.21)"
+      }
+    },
+    "typographyMeta": {
+      "title": {
+        "displayName": "Title",
+        "purpose": "The section title at the head of the reading column; the largest type in the app."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Section headings inside a lesson and the question of a placement or check question."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Lesson prose in Reading Grey inside the 680 px measure."
+      },
+      "input": {
+        "displayName": "Input",
+        "purpose": "Text fields, option rows and list titles."
+      },
+      "interface": {
+        "displayName": "Interface",
+        "purpose": "Buttons, the route, the breadcrumb, captions and menus."
+      },
+      "small": {
+        "displayName": "Small",
+        "purpose": "Usage meter figures and keyboard hints."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Uppercase mono figure numbers and labels inside figures; nothing else."
+      }
+    },
+    "shadows": [
+      {
+        "name": "float-dark",
+        "value": "0 2px 32px color-mix(in oklab, var(--atlas-canvas) 25%, transparent), 0 8px 24px color-mix(in oklab, var(--atlas-canvas) 35%, transparent)",
+        "purpose": "Under floating surfaces only (menus, popovers, dialogs, sheets, narrow overlays), dark theme."
+      },
+      {
+        "name": "float-light",
+        "value": "0 2px 32px color-mix(in oklab, var(--atlas-heading) 8%, transparent), 0 8px 24px color-mix(in oklab, var(--atlas-heading) 10%, transparent)",
+        "purpose": "Under floating surfaces only, light theme."
+      }
+    ],
+    "motion": [
+      {
+        "name": "state-change",
+        "value": "150ms ease-out",
+        "purpose": "Fill, edge and colour changes on hover, press and selection."
+      },
+      {
+        "name": "press",
+        "value": "scale(0.97)",
+        "purpose": "A pressed control."
+      },
+      {
+        "name": "floating-enter",
+        "value": "100ms fade, zoom from 0.98",
+        "purpose": "Menus and popovers opening from their trigger."
+      },
+      {
+        "name": "route-advance",
+        "value": "200ms ease-out",
+        "purpose": "Next advancing the travelled part of the line."
+      },
+      {
+        "name": "branch-draw",
+        "value": "250ms ease-out",
+        "purpose": "Go deeper drawing the branch from the current node."
+      }
+    ],
+    "breakpoints": [
+      { "name": "min-window", "value": "720px" },
+      { "name": "lg", "value": "1024px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one primary action on a screen, such as Next or Start course.",
+      "html": "<button class=\"ds-btn-primary\">Next</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; height: 28px; padding: 0 10px; border: 1px solid transparent; border-radius: 6px; background: var(--atlas-primary-fill); color: var(--atlas-primary-text); font: 510 13px/1 'Inter Variable', system-ui, sans-serif; font-feature-settings: 'cv01', 'ss03'; cursor: pointer; transition: background-color 150ms ease-out, scale 150ms ease-out; } .ds-btn-primary:hover { background: var(--atlas-heading); } .ds-btn-primary:focus-visible { outline: 2px solid var(--atlas-focus); outline-offset: 2px; } .ds-btn-primary:active { scale: 0.97; }"
+    },
+    {
+      "name": "Default Button",
+      "kind": "button",
+      "refersTo": "button-default",
+      "description": "Secondary actions such as Go deeper, on a wash with a hairline.",
+      "html": "<button class=\"ds-btn-default\">Go deeper</button>",
+      "css": ".ds-btn-default { display: inline-flex; align-items: center; height: 28px; padding: 0 10px; border: 1px solid var(--atlas-edge); border-radius: 6px; background: var(--atlas-wash); color: var(--atlas-body); font: 510 13px/1 'Inter Variable', system-ui, sans-serif; font-feature-settings: 'cv01', 'ss03'; cursor: pointer; transition: background-color 150ms ease-out, color 150ms ease-out, scale 150ms ease-out; } .ds-btn-default:hover { background: var(--atlas-wash-strong); color: var(--atlas-heading); } .ds-btn-default:focus-visible { outline: 2px solid var(--atlas-focus); outline-offset: 2px; } .ds-btn-default:active { scale: 0.97; }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Header and toolbar actions such as Glossary and Side chats.",
+      "html": "<button class=\"ds-btn-ghost\">Glossary</button>",
+      "css": ".ds-btn-ghost { display: inline-flex; align-items: center; height: 28px; padding: 0 10px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--atlas-muted); font: 510 13px/1 'Inter Variable', system-ui, sans-serif; font-feature-settings: 'cv01', 'ss03'; cursor: pointer; transition: background-color 150ms ease-out, color 150ms ease-out, scale 150ms ease-out; } .ds-btn-ghost:hover { background: var(--atlas-wash); color: var(--atlas-heading); } .ds-btn-ghost:focus-visible { outline: 2px solid var(--atlas-focus); outline-offset: 2px; } .ds-btn-ghost:active { scale: 0.97; }"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "A text field on the panel face; the accent edge on focus.",
+      "html": "<input class=\"ds-input\" placeholder=\"Name a topic\" />",
+      "css": ".ds-input { width: 100%; height: 36px; padding: 0 12px; border: 1px solid var(--atlas-edge-strong); border-radius: 10px; background: var(--atlas-panel); color: var(--atlas-heading); font: 400 15px/1 'Inter Variable', system-ui, sans-serif; letter-spacing: -0.011em; outline: none; transition: border-color 150ms ease-out, box-shadow 150ms ease-out; } .ds-input::placeholder { color: var(--atlas-muted); } .ds-input:focus-visible { border-color: var(--atlas-focus); box-shadow: 0 0 0 3px var(--atlas-accent-wash); }"
+    },
+    {
+      "name": "Option Row",
+      "kind": "custom",
+      "refersTo": "option-row",
+      "description": "A choice in placement, a check question or the model picker; the selected row takes the accent edge and wash.",
+      "html": "<div class=\"ds-options\"><button class=\"ds-option\" aria-pressed=\"true\">I know what a plate boundary is</button><button class=\"ds-option\" aria-pressed=\"false\">I have heard the term</button></div>",
+      "css": ".ds-options { display: grid; gap: 8px; } .ds-option { padding: 12px 14px; border: 1px solid var(--atlas-edge); border-radius: 8px; background: transparent; color: var(--atlas-body); font: 400 15px/1.5 'Inter Variable', system-ui, sans-serif; letter-spacing: -0.011em; text-align: start; cursor: pointer; transition: background-color 150ms ease-out, border-color 150ms ease-out; } .ds-option:hover:not([aria-pressed='true']) { border-color: var(--atlas-edge-strong); background: var(--atlas-wash); } .ds-option[aria-pressed='true'] { border-color: var(--atlas-accent); background: var(--atlas-accent-wash); color: var(--atlas-heading); } .ds-option:focus-visible { outline: 2px solid var(--atlas-focus); outline-offset: 2px; }"
+    },
+    {
+      "name": "Route Line",
+      "kind": "nav",
+      "refersTo": "route-row",
+      "description": "The index as one drawn line: stations, read and unread nodes, the current node in the accent.",
+      "html": "<ol class=\"ds-route\"><li class=\"ds-route-row ds-station\"><span class=\"ds-mark\"></span><span class=\"ds-title\">Plates and boundaries</span></li><li class=\"ds-route-row ds-read\"><span class=\"ds-mark\"></span><span class=\"ds-title\">What a plate is</span></li><li class=\"ds-route-row ds-current\" aria-current=\"true\"><span class=\"ds-mark\"></span><span class=\"ds-title\">Divergent boundaries</span></li><li class=\"ds-route-row ds-unread\"><span class=\"ds-mark\"></span><span class=\"ds-title\">Convergent boundaries</span></li></ol>",
+      "css": ".ds-route { position: relative; margin: 0; padding: 0; list-style: none; width: 280px; background: var(--atlas-panel); } .ds-route::before { content: ''; position: absolute; left: 20px; top: 15px; bottom: 15px; width: 1px; background: var(--atlas-faint); } .ds-route-row { position: relative; display: flex; align-items: center; height: 30px; padding-left: 32px; font: 400 13px/1.5 'Inter Variable', system-ui, sans-serif; color: var(--atlas-muted); cursor: pointer; } .ds-mark { position: absolute; left: 20px; top: 50%; translate: -50% -50%; border-radius: 50%; transition: scale 150ms ease-out; } .ds-title { flex: 1; padding: 0 8px; height: 100%; display: flex; align-items: center; border-radius: 6px; transition: background-color 150ms ease-out, color 150ms ease-out; } .ds-route-row:hover .ds-title { background: var(--atlas-wash); color: var(--atlas-heading); } .ds-route-row:hover .ds-mark { scale: 1.25; } .ds-station .ds-title { color: var(--atlas-heading); font-weight: 510; } .ds-station .ds-mark { width: 10px; height: 10px; background: var(--atlas-panel); border: 1px solid var(--atlas-body); box-sizing: border-box; } .ds-read .ds-title { color: var(--atlas-body); } .ds-read .ds-mark { width: 6px; height: 6px; background: var(--atlas-body); } .ds-unread .ds-mark { width: 6px; height: 6px; background: var(--atlas-panel); border: 1px solid var(--atlas-faint); box-sizing: border-box; } .ds-current .ds-title { background: var(--atlas-wash); color: var(--atlas-heading); box-shadow: inset 0 0 0 1px var(--atlas-edge); } .ds-current .ds-mark { width: 11px; height: 11px; background: radial-gradient(circle, var(--atlas-accent) 0 2.5px, var(--atlas-panel) 3px); border: 1.5px solid var(--atlas-accent); box-sizing: border-box; }"
+    },
+    {
+      "name": "Figure",
+      "kind": "card",
+      "refersTo": "figure",
+      "description": "The frame shared by catalog visuals and figures: panel face, hairline, mono caption bar.",
+      "html": "<figure class=\"ds-figure\"><div class=\"ds-figure-body\"><svg viewBox=\"0 0 240 80\" width=\"100%\" height=\"80\" fill=\"none\"><rect x=\"20\" y=\"30\" width=\"90\" height=\"30\" stroke=\"currentColor\" stroke-width=\"1\"/><rect x=\"130\" y=\"30\" width=\"90\" height=\"30\" stroke=\"currentColor\" stroke-width=\"1\"/><text x=\"20\" y=\"22\" class=\"ds-figure-text\">PLATE A</text><text x=\"130\" y=\"22\" class=\"ds-figure-text\">PLATE B</text></svg></div><figcaption class=\"ds-figure-caption\"><span class=\"ds-figure-label\">Fig. 1</span><span>Two plates moving apart at a ridge.</span></figcaption></figure>",
+      "css": ".ds-figure { margin: 0; overflow: hidden; border: 1px solid var(--atlas-edge); border-radius: 12px; background: var(--atlas-panel); color: var(--atlas-body); } .ds-figure-body { padding: 16px; } .ds-figure-text { fill: var(--atlas-muted); font: 400 12px 'IBM Plex Mono', ui-monospace, monospace; letter-spacing: 0.04em; } .ds-figure-caption { display: flex; align-items: baseline; gap: 14px; padding: 10px 16px; border-top: 1px solid var(--atlas-edge); color: var(--atlas-muted); font: 400 13px/1.5 'Inter Variable', system-ui, sans-serif; } .ds-figure-label { font: 400 12px 'IBM Plex Mono', ui-monospace, monospace; letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap; }"
+    },
+    {
+      "name": "Popover",
+      "kind": "card",
+      "refersTo": "popover",
+      "description": "A floating surface such as Define's answer: raised ground, strong hairline ring, the Float shadow.",
+      "html": "<div class=\"ds-popover\"><strong class=\"ds-popover-term\">Rift valley</strong><p>A lowland that forms where the crust is pulled apart.</p></div>",
+      "css": ".ds-popover { width: 320px; padding: 16px; border-radius: 12px; background: var(--atlas-raised); color: var(--atlas-body); box-shadow: 0 0 0 1px var(--atlas-edge-strong), 0 2px 32px color-mix(in oklab, var(--atlas-canvas) 25%, transparent), 0 8px 24px color-mix(in oklab, var(--atlas-canvas) 35%, transparent); font: 400 13px/1.5 'Inter Variable', system-ui, sans-serif; } .ds-popover-term { color: var(--atlas-heading); font-weight: 510; } .ds-popover p { margin: 6px 0 0; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Route Line",
+    "overview": "Atlas draws the whole topic as one figure before the candidate reads a word of it. The broad pass is a continuous vertical line down the rail; each chapter is a station, each section a node, each deep dive a branch that leaves the line under its section. The part already travelled is bright, the current node carries the accent, and the reading column beside it is calm enough to stay in for an hour. Everything else in the interface is chrome that recedes so the line and the lesson can lead.\n\nThe world is Linear's design language, pinned by the engineer: a near-black canvas with a slightly lighter panel, cool-white Inter Variable at weight 510 for heads, hairline translucent edges, compact 28 px controls, 12 px panels and one indigo accent. It borrows the type, the palette, the density and the technical-drawing figure treatment. It does not borrow the marketing site's display sizes, pill buttons, proof cards or page flows. Light and dark are not designed by hand: both come from one generator, and the dark theme is tuned to the reference.\n\nThe density is an application's, not a page's: 13 px interface type, 30 px index rows, a 44 px header and a 64 px foot frame a 680 px column of 16 px prose. The interface is Read inside an application shell, so ambition shows as precision and restraint.",
+    "keyCharacteristics": [
+      "One drawn figure of the whole topic, always visible, with the candidate's position marked on it.",
+      "State is a mark, not a hue: hollow, filled, branched.",
+      "A neutral ramp solved against WCAG contrast, one accent, state colours only where they carry meaning.",
+      "Inter Variable at 400 and 510 only; IBM Plex Mono only for captions and figure labels.",
+      "Flat surfaces separated by hairlines; the one soft shadow belongs to floating surfaces."
+    ],
+    "rules": [
+      {
+        "name": "The Three Jobs Rule",
+        "body": "The accent marks position, what the candidate marked, and focus. Nothing else: not hover, not links, not decoration, not a primary button.",
+        "section": "colors"
+      },
+      {
+        "name": "The Faint Is Not Text Rule",
+        "body": "Mark Grey sits at 3.45:1, under the AA text floor. It draws nodes, the resting line, rules and unread marks; any text that looks faint uses Support Grey.",
+        "section": "colors"
+      },
+      {
+        "name": "The Generator Rule",
+        "body": "Colours come only from the theme tokens. Change the generator's input, never a value downstream of it; both themes, every derived surface and the WCAG floors follow by construction.",
+        "section": "colors"
+      },
+      {
+        "name": "The Never Bold Rule",
+        "body": "Weights are 400 and 510. A heading is set apart by size and the heading colour, never by 600 or 700.",
+        "section": "typography"
+      },
+      {
+        "name": "The Mono Caption Rule",
+        "body": "IBM Plex Mono appears only in figure captions and inside figures. Code, keys and data use Inter.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat Ground Rule",
+        "body": "If it does not float above the page, it has no shadow. A card, a figure or a panel is separated by its tone and a hairline.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do take every colour from the theme tokens and let the generator decide both themes.",
+      "Do keep lesson prose in Reading Grey at 16 px/1.65 inside the 680 px measure.",
+      "Do keep the whole route visible at every window width, folded to its marks below 1024 px.",
+      "Do show state with the route's marks (hollow, filled, branched) so it reads without colour.",
+      "Do run state changes at 150 ms ease-out, scale a press to 0.97, and stop all of it under reduced motion.",
+      "Do name controls by their action: Start course, Check answer, Go deeper."
+    ],
+    "donts": [
+      "Don't use the accent for hover, links, decoration or the primary button; it has three jobs.",
+      "Don't set any text in Mark Grey.",
+      "Don't use weight 600 or bold, or display sizes above 28 px.",
+      "Don't draw pill-shaped buttons or 44 px marketing actions.",
+      "Don't put a shadow on a panel, card or figure; only floating surfaces take the Float shadow.",
+      "Don't separate catalog visuals with filled tiles; use hairlines.",
+      "Don't use IBM Plex Mono outside captions and figure labels.",
+      "Don't use green, amber or red where they do not mean right, wrong, high usage or danger.",
+      "Don't use exclamation marks or hype words."
+    ]
+  }
+}

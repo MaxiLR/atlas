@@ -1,8 +1,9 @@
 {
   "error": {
-    "message": "The ChatGPT plan usage limit for this app has been reached.",
-    "type": "rate_limit_error",
-    "param": null,
-    "code": "subscription_sharing_usage_limit_exceeded"
+    "type": "usage_limit_reached",
+    "message": "You have hit your ChatGPT usage limit.",
+    "plan_type": "enterprise",
+    "resets_at": 1767229200,
+    "resets_in_seconds": 3600
   }
 }

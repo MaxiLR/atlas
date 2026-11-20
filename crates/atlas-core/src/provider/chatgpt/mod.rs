@@ -1,5 +1,6 @@
-//! The ChatGPT plan provider: `POST {api}/responses` with `store: false` and
-//! `stream: true`, `GET {api}/models`, with the plan login's bearer token.
+//! The ChatGPT plan provider on the Codex backend: `POST {api}/responses`
+//! with `store: false` and `stream: true`, `GET {api}/models`, with the Codex
+//! login's bearer token and the Codex client headers.
 
 mod attempts;
 mod errors;
@@ -8,7 +9,10 @@ mod request;
 mod stream;
 
 pub use models::parse_models;
-pub use request::{build_responses_body, models_url, request_headers, responses_url};
+pub use request::{
+    CODEX_CLIENT_VERSION, ORIGINATOR, ROUTING_HINT, USER_AGENT_VALUE, build_responses_body,
+    models_url, request_headers, responses_url, routing_hint,
+};
 pub use stream::{ResponseFailure, ResponsesEvent, ResponsesStreamParser};
 
 use std::collections::VecDeque;
@@ -173,13 +177,15 @@ fn unbuildable(_: reqwest::Error) -> ProviderError {
 impl ModelProvider for ChatGptProvider {
     async fn stream(&self, request: ProviderRequest) -> Result<ProviderStream, ProviderError> {
         let task = request.task;
-        let body = match request.model {
-            Some(_) => build_responses_body(&request, ""),
-            None => build_responses_body(&request, &self.default_model().await?),
+        let model = match &request.model {
+            Some(model) => model.clone(),
+            None => self.default_model().await?,
         };
+        let body = build_responses_body(&request, &model);
         let request = self
             .client
             .post(self.responses.clone())
+            .header(ROUTING_HINT, routing_hint(&model))
             .body(body.to_string())
             .build()
             .map_err(unbuildable)?;

@@ -1,9 +1,9 @@
-//! Token refresh: one at a time, rotated tokens replacing the old ones
-//! together, terminal errors ending the login.
+//! Token refresh through the Codex client: one at a time, rotated tokens
+//! replacing the old ones together, terminal errors ending the login.
 
-use super::oauth::{self, Failure, RESOURCE, TERMINAL_REFRESH_CODES};
-use super::stored::{StoredLogin, read_client_id};
-use super::{AccessToken, Inner, RefreshError, Unreachable};
+use super::oauth::{self, Failure, TERMINAL_REFRESH_CODES};
+use super::stored::StoredLogin;
+use super::{AccessToken, CODEX_CLIENT_ID, Inner, RefreshError, Unreachable};
 
 pub(super) async fn refresh(inner: &Inner) -> Result<AccessToken, RefreshError> {
     let seen = StoredLogin::read(&*inner.secrets)?.ok_or(RefreshError::SignedOut)?;
@@ -13,16 +13,14 @@ pub(super) async fn refresh(inner: &Inner) -> Result<AccessToken, RefreshError> 
         // Another caller refreshed while this one waited.
         return Ok(login.access_token());
     }
-    let client_id = read_client_id(&*inner.secrets)?.ok_or(RefreshError::SignedOut)?;
 
     let answer = oauth::token_request(
         &inner.http,
         &inner.endpoints.auth,
         &[
             ("grant_type", "refresh_token"),
-            ("client_id", &client_id),
+            ("client_id", CODEX_CLIENT_ID),
             ("refresh_token", &login.refresh_token),
-            ("resource", RESOURCE),
         ],
     )
     .await;
@@ -57,9 +55,6 @@ pub(super) async fn refresh(inner: &Inner) -> Result<AccessToken, RefreshError> 
         login.refresh_token = refresh_token;
     }
     login.expires_at = inner.expires_at(tokens.expires_in);
-    if let Some(scope) = tokens.scope {
-        login.scopes = oauth::scopes(&scope);
-    }
     login.write(&*inner.secrets)?;
     Ok(login.access_token())
 }

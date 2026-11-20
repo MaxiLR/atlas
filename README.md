@@ -35,10 +35,15 @@ target folder):
 npm --prefix ui run tauri build
 ```
 
-The app signs in with ChatGPT and keeps its tokens in the macOS Keychain,
-under the service `com.maxilr.atlas`. Courses are stored in SQLite in the
-app's data folder. To run it without a login, against a scripted fake
-provider, set `ATLAS_FAKE_PROVIDER=1`:
+The app signs in with ChatGPT through OpenAI's Codex OAuth client and calls
+models on the Codex backend (ADR-0014). The browser returns to
+`http://localhost:1455/auth/callback`, so port 1455 must be free while signing
+in; another program's Codex sign-in blocks it until that ends. The tokens stay
+in the macOS Keychain, under the service `com.maxilr.atlas`. A login saved by
+an earlier version (ChatGPT plan sharing) is not used: sign in again, and the
+courses stay. Courses are stored in SQLite in the app's data folder. To run it
+without a login, against a scripted fake provider, set
+`ATLAS_FAKE_PROVIDER=1`:
 
 ```sh
 ATLAS_FAKE_PROVIDER=1 npm --prefix ui run tauri dev
@@ -77,7 +82,7 @@ throwaway course in a temporary store that is removed afterwards, through the
 same code paths as the app, and prints a report.
 
 It uses the plan login the app saved in the Keychain and never signs in
-itself, so sign in with ChatGPT in the app first (and turn plan usage on).
+itself, so sign in with ChatGPT in the app first.
 Without a login it says so and stops before any request. macOS may ask for
 Keychain access the first time.
 

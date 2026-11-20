@@ -8,8 +8,10 @@
 
 use std::collections::{HashMap, HashSet};
 
+use chrono::{DateTime, Utc};
 use serde_json::Value;
 
+use super::errors::{error_code, resets_at};
 use crate::provider::{ProviderCitation, ProviderError, ProviderEvent};
 
 /// What a Responses stream yields, in order. Exactly one outcome
@@ -51,9 +53,12 @@ impl ResponsesEvent {
 /// The error a failed response reports.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResponseFailure {
+    /// The error's `code`, or the Codex backend's `type` when it names no code.
     pub code: Option<String>,
     pub message: Option<String>,
     pub param: Option<String>,
+    /// When a usage limit resets, as the Codex backend reports it.
+    pub resets_at: Option<DateTime<Utc>>,
     /// The request's id, from the response headers, for diagnostics.
     pub request_id: Option<String>,
 }
@@ -177,9 +182,10 @@ impl ResponsesStreamParser {
     fn failure(&self, error: Option<&Value>) -> ResponsesEvent {
         let field = |name: &str| error.and_then(|error| text(error, name));
         ResponsesEvent::Failed(ResponseFailure {
-            code: field("code"),
+            code: error.and_then(error_code),
             message: field("message"),
             param: field("param"),
+            resets_at: error.and_then(resets_at),
             request_id: self.request_id.clone(),
         })
     }

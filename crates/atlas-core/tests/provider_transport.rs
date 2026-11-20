@@ -1,6 +1,7 @@
-//! The ChatGPT plan provider against a scripted server on 127.0.0.1, with a
-//! fake clock and a fake token source: what each documented refusal becomes,
-//! how many requests it takes, and which pauses it asks of the clock.
+//! The ChatGPT plan provider on the Codex backend against a scripted server
+//! on 127.0.0.1, with a fake clock and a fake token source: what each Codex
+//! refusal becomes, how many requests it takes, and which pauses it asks of
+//! the clock.
 
 mod support;
 
@@ -363,11 +364,16 @@ async fn a_503_that_clears_completes_after_its_pauses() {
     assert_eq!(rig.pauses(), BACKOFF[..2]);
 }
 
-// Structured codes before a stream opens.
+// Codex errors before a stream opens.
+
+/// When `usage-limit-exceeded.json` says the limit resets: 2026-01-01T01:00Z.
+fn limit_resets_at() -> Option<chrono::DateTime<chrono::Utc>> {
+    chrono::DateTime::from_timestamp(1_767_229_200, 0)
+}
 
 #[tokio::test]
-async fn user_not_eligible_is_plan_not_allowed_with_exactly_one_request() {
-    let rig = Rig::responses([refusal(403, "user-not-eligible.json")]).await;
+async fn usage_not_included_is_plan_not_allowed_with_exactly_one_request() {
+    let rig = Rig::responses([refusal(403, "usage-not-included.json")]).await;
     let run = rig.run(request()).await;
     assert_eq!(
         run.error,
@@ -377,13 +383,13 @@ async fn user_not_eligible_is_plan_not_allowed_with_exactly_one_request() {
 }
 
 #[tokio::test]
-async fn usage_limit_exceeded_is_plan_limit_with_exactly_one_request_and_no_reset_time() {
+async fn a_usage_limit_is_plan_limit_with_exactly_one_request_and_its_reset_time() {
     let rig = Rig::responses([refusal(429, "usage-limit-exceeded.json")]).await;
     let run = rig.run(request()).await;
     assert_eq!(
         run.error,
         Some(ProviderError::PlanLimit {
-            resets_at: None,
+            resets_at: limit_resets_at(),
             request_id: rid(),
         })
     );
@@ -391,21 +397,21 @@ async fn usage_limit_exceeded_is_plan_limit_with_exactly_one_request_and_no_rese
 }
 
 #[tokio::test]
-async fn usage_unavailable_is_retried_three_times_then_failed_with_retry() {
-    let rig = Rig::responses([refusal(503, "usage-unavailable.json")]).await;
+async fn an_overloaded_server_is_retried_three_times_then_failed_with_retry() {
+    let rig = Rig::responses([refusal(503, "server-overloaded.json")]).await;
     let run = rig.run(request()).await;
     assert_retried_then_failed(&rig, &run);
 }
 
 #[tokio::test]
-async fn user_unavailable_is_retried_three_times_then_failed_with_retry() {
-    let rig = Rig::responses([refusal(503, "user-unavailable.json")]).await;
+async fn a_rate_limit_is_retried_three_times_then_failed_with_retry() {
+    let rig = Rig::responses([refusal(429, "rate-limit-exceeded.json")]).await;
     let run = rig.run(request()).await;
     assert_retried_then_failed(&rig, &run);
 }
 
 #[tokio::test]
-async fn unsupported_capability_is_unsupported_with_its_param() {
+async fn an_unsupported_parameter_is_unsupported_with_its_param() {
     let rig = Rig::responses([refusal(400, "unsupported-capability.json")]).await;
     let run = rig.run(request()).await;
     assert_eq!(
@@ -419,15 +425,15 @@ async fn unsupported_capability_is_unsupported_with_its_param() {
 }
 
 #[tokio::test]
-async fn invalid_user_refreshes_once_then_requires_sign_in() {
-    let rig = Rig::responses([refusal(401, "invalid-user.json")]).await;
+async fn an_expired_token_refreshes_once_then_requires_sign_in() {
+    let rig = Rig::responses([refusal(401, "token-expired.json")]).await;
     let run = rig.run(request()).await;
     assert_signed_out(&rig, &run);
 }
 
 #[tokio::test]
-async fn invalid_user_followed_by_a_refreshed_token_succeeds() {
-    let rig = Rig::responses([refusal(401, "invalid-user.json"), completed()]).await;
+async fn an_expired_token_followed_by_a_refreshed_token_succeeds() {
+    let rig = Rig::responses([refusal(401, "token-expired.json"), completed()]).await;
     let run = rig.run(request()).await;
     assert_eq!(run.error, None, "{run:?}");
     assert_eq!(rig.posts(), 2);
@@ -435,51 +441,29 @@ async fn invalid_user_followed_by_a_refreshed_token_succeeds() {
     assert!(!rig.tokens.was_rejected());
 }
 
-async fn assert_failed_without_retry(status: u16, name: &str) {
-    let rig = Rig::responses([refusal(status, name)]).await;
+#[tokio::test]
+async fn an_unknown_code_fails_without_retry() {
+    let rig = Rig::responses([refusal(400, "unknown-code.json")]).await;
     let run = rig.run(request()).await;
-    assert!(is_failed(&run.error), "{name}: {run:?}");
+    assert!(is_failed(&run.error), "{run:?}");
     assert_eq!(
         run.error.as_ref().and_then(ProviderError::request_id),
         Some(REQUEST_ID),
-        "{name}: the request id is kept"
+        "the request id is kept"
     );
     assert_answered_once(&rig, &run);
 }
 
-#[tokio::test]
-async fn route_not_supported_fails_without_retry() {
-    assert_failed_without_retry(403, "route-not-supported.json").await;
-}
+// The same errors inside a stream, after text.
 
-#[tokio::test]
-async fn scope_not_authorized_fails_without_retry() {
-    assert_failed_without_retry(403, "scope-not-authorized.json").await;
-}
-
-#[tokio::test]
-async fn invalid_authorization_context_fails_without_retry() {
-    assert_failed_without_retry(403, "invalid-authorization-context.json").await;
-}
-
-#[tokio::test]
-async fn an_unknown_code_fails_without_retry() {
-    assert_failed_without_retry(400, "unknown-code.json").await;
-}
-
-// The same codes inside a stream, after text.
-
-/// Each coded fixture with the status the documentation gives it.
-const CODED: [(u16, &str); 10] = [
-    (403, "user-not-eligible.json"),
+/// Each coded fixture with the status the Codex backend gives it.
+const CODED: [(u16, &str); 7] = [
+    (403, "usage-not-included.json"),
     (429, "usage-limit-exceeded.json"),
-    (503, "usage-unavailable.json"),
+    (503, "server-overloaded.json"),
+    (429, "rate-limit-exceeded.json"),
     (400, "unsupported-capability.json"),
-    (403, "route-not-supported.json"),
-    (401, "invalid-user.json"),
-    (403, "scope-not-authorized.json"),
-    (403, "invalid-authorization-context.json"),
-    (503, "user-unavailable.json"),
+    (401, "token-expired.json"),
     (400, "unknown-code.json"),
 ];
 
@@ -532,7 +516,7 @@ async fn a_failure_inside_a_stream_after_text_maps_to_the_same_state_as_before_i
 
 #[tokio::test]
 async fn a_retry_after_streamed_text_says_so_and_starts_over() {
-    let rig = Rig::responses([failing_stream("usage-unavailable.json"), completed()]).await;
+    let rig = Rig::responses([failing_stream("server-overloaded.json"), completed()]).await;
     let run = rig.run(request()).await;
     assert_eq!(run.error, None, "{run:?}");
     let mut expected = partial_text();
@@ -542,7 +526,7 @@ async fn a_retry_after_streamed_text_says_so_and_starts_over() {
     assert_eq!(rig.posts(), 2);
     assert_eq!(rig.pauses(), BACKOFF[..1]);
 
-    let rig = Rig::responses([failing_stream("usage-unavailable.json"), completed()]).await;
+    let rig = Rig::responses([failing_stream("server-overloaded.json"), completed()]).await;
     let text = complete_text(rig.provider.as_ref(), request(), |_| {}).await;
     assert_eq!(text, Ok("Hello, world!".to_owned()));
 }
@@ -656,7 +640,7 @@ async fn model_listing_recovers_like_a_response() {
     assert_eq!(
         rig.provider.list_models().await,
         Err(ProviderError::PlanLimit {
-            resets_at: None,
+            resets_at: limit_resets_at(),
             request_id: rid(),
         })
     );

@@ -105,7 +105,7 @@ pub enum ProviderEvent {
 pub enum ProviderError {
     #[error("the stream ended before the response completed{}", for_request(.request_id))]
     Incomplete { request_id: Option<String> },
-    /// No reset time is inferred from the plan route's code.
+    /// The reset time is the one the Codex backend reports, when it does.
     #[error("the plan's usage limit is reached{}", for_request(.request_id))]
     PlanLimit {
         resets_at: Option<DateTime<Utc>>,

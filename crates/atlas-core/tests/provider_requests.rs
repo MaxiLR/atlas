@@ -4,7 +4,8 @@
 use atlas_core::auth::AccessToken;
 use atlas_core::protocol::Model;
 use atlas_core::provider::chatgpt::{
-    build_responses_body, parse_models, request_headers, responses_url,
+    CODEX_CLIENT_VERSION, build_responses_body, models_url, parse_models, request_headers,
+    responses_url,
 };
 use atlas_core::provider::{OutputSchema, ProviderRequest, Task};
 use serde_json::{Map, Value, json};
@@ -217,12 +218,12 @@ fn a_token_that_cannot_be_a_header_value_sends_no_authorization() {
 fn the_endpoint_is_responses_under_the_injected_api_base() {
     let cases = [
         (
-            "https://api.openai.com/v1",
-            "https://api.openai.com/v1/responses",
+            "https://chatgpt.com/backend-api/codex",
+            "https://chatgpt.com/backend-api/codex/responses",
         ),
         (
-            "https://api.openai.com/v1/",
-            "https://api.openai.com/v1/responses",
+            "https://chatgpt.com/backend-api/codex/",
+            "https://chatgpt.com/backend-api/codex/responses",
         ),
         (
             "http://127.0.0.1:4100/api",
@@ -233,6 +234,20 @@ fn the_endpoint_is_responses_under_the_injected_api_base() {
         let base = Url::parse(base).expect("a valid base");
         assert_eq!(responses_url(&base).as_str(), expected);
     }
+}
+
+#[test]
+fn the_model_list_names_the_codex_client_version() {
+    let base = Url::parse("https://chatgpt.com/backend-api/codex/").expect("a valid base");
+
+    let url = models_url(&base);
+
+    assert_eq!(url.path(), "/backend-api/codex/models");
+    let query: Vec<(String, String)> = url.query_pairs().into_owned().collect();
+    assert_eq!(
+        query,
+        [("client_version".to_owned(), CODEX_CLIENT_VERSION.to_owned())]
+    );
 }
 
 fn model(slug: &str, display_name: &str) -> Model {

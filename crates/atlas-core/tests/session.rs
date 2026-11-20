@@ -1,6 +1,10 @@
 //! The session and external links through `Core::handle`, against a fake
-//! authorisation server on `127.0.0.1` with a test signing key, a secret store
-//! in memory, a browser that follows only local redirects, and a fake clock.
+//! Codex authorisation server on `127.0.0.1` with a test signing key, a
+//! secret store in memory, a browser that follows only local redirects, and a
+//! fake clock.
+//!
+//! The Codex callback port is fixed, so each harness holds [`CALLBACK_PORT`]
+//! and the tests run one at a time.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -25,21 +29,22 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use jsonwebtoken::jwk::{Jwk, JwkSet, PublicKeyUse};
 use jsonwebtoken::{Algorithm, EncodingKey, Header};
 use serde_json::{Value, json};
 use tempfile::TempDir;
 use tokio::net::TcpListener;
 use url::Url;
 
-const PLAN_SCOPE: &str = "chatgpt.tokens.use.direct";
+const CODEX_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 const SUBJECT: &str = "user-7Qe2";
 const EMAIL: &str = "ada@example.com";
 const KEY_ID: &str = "test-key-1";
 
-const AUTHORIZE: &str = "/auth/api/accounts/authorize";
-const TOKEN: &str = "/auth/api/accounts/oauth/token";
-const REVOKE: &str = "/auth/oauth/revoke";
+const AUTHORIZE: &str = "/auth/oauth/authorize";
+const TOKEN: &str = "/auth/oauth/token";
+
+/// Held by every harness: sign-in listens on the one registered port.
+static CALLBACK_PORT: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// The fake server's signing key. A test key, used nowhere else.
 const SIGNING_KEY: &str = "-----BEGIN PRIVATE KEY-----
@@ -77,25 +82,13 @@ vlmXEqvKDaJbDuudP4oRvJ1NXw==
 // ---------------------------------------------------------------------------
 
 /// How the server behaves; a test changes it between steps.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 struct Knobs {
-    /// Whether the user grants `chatgpt.tokens.use.direct`.
-    grant_plan_scope: bool,
     /// The user declines on the consent page.
     decline: bool,
     /// Every refresh token is refused as `invalid_grant`: the login was
     /// revoked.
     revoked: bool,
-}
-
-impl Default for Knobs {
-    fn default() -> Self {
-        Self {
-            grant_plan_scope: true,
-            decline: false,
-            revoked: false,
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -104,21 +97,13 @@ struct Seen {
     params: HashMap<String, String>,
 }
 
-#[derive(Debug, Clone)]
-struct Grant {
-    client_id: String,
-    nonce: String,
-    scope: String,
-}
-
 #[derive(Default)]
 struct AuthState {
     knobs: Knobs,
     seen: Vec<Seen>,
-    registered: Vec<String>,
-    codes: HashMap<String, Grant>,
-    /// Refresh tokens still valid, with their client id and scope.
-    live_refresh: HashMap<String, (String, String)>,
+    codes: HashSet<String>,
+    /// Refresh tokens still valid.
+    live_refresh: HashSet<String>,
     /// Every access token issued, in order.
     access_tokens: Vec<String>,
     /// Every token issued: access, refresh and ID tokens.
@@ -148,14 +133,13 @@ impl AuthServerInner {
         });
     }
 
-    fn id_token(&self, grant: &Grant) -> String {
+    fn id_token(&self) -> String {
         let now = self.clock.now().timestamp();
         let claims = json!({
             "iss": self.issuer(),
             "sub": SUBJECT,
             "email": EMAIL,
-            "aud": grant.client_id,
-            "nonce": grant.nonce,
+            "aud": CODEX_CLIENT_ID,
             "iat": now,
             "exp": now + 3600,
         });
@@ -163,6 +147,17 @@ impl AuthServerInner {
         header.kid = Some(KEY_ID.to_owned());
         let key = EncodingKey::from_rsa_pem(SIGNING_KEY.as_bytes()).expect("a valid test key");
         jsonwebtoken::encode(&header, &claims, &key).expect("a signed ID token")
+    }
+
+    /// Issues the next access and refresh tokens.
+    fn issue(&self, state: &mut AuthState) -> (String, String) {
+        state.counter += 1;
+        let access = format!("access-{}", state.counter);
+        let refresh = format!("refresh-{}", state.counter);
+        state.live_refresh.insert(refresh.clone());
+        state.access_tokens.push(access.clone());
+        state.issued.extend([access.clone(), refresh.clone()]);
+        (access, refresh)
     }
 }
 
@@ -174,25 +169,6 @@ fn oauth_error(status: u16, body: Value) -> Response {
         .into_response()
 }
 
-async fn discovery(State(server): State<Arc<AuthServerInner>>) -> Json<Value> {
-    let base = server.base.as_str().trim_end_matches('/');
-    Json(json!({
-        "issuer": server.issuer(),
-        "authorization_endpoint": format!("{base}{AUTHORIZE}"),
-        "token_endpoint": format!("{base}{TOKEN}"),
-        "jwks_uri": format!("{base}/auth/.well-known/jwks.json"),
-        "revocation_endpoint": format!("{base}{REVOKE}"),
-    }))
-}
-
-async fn jwks() -> Json<Value> {
-    let key = EncodingKey::from_rsa_pem(SIGNING_KEY.as_bytes()).expect("a valid test key");
-    let mut jwk = Jwk::from_encoding_key(&key, Algorithm::RS256).expect("a public JWK");
-    jwk.common.key_id = Some(KEY_ID.to_owned());
-    jwk.common.public_key_use = Some(PublicKeyUse::Signature);
-    Json(serde_json::to_value(JwkSet { keys: vec![jwk] }).expect("a JWK set"))
-}
-
 async fn authorize(
     State(server): State<Arc<AuthServerInner>>,
     Query(params): Query<HashMap<String, String>>,
@@ -201,54 +177,20 @@ async fn authorize(
     let param = |name: &str| params.get(name).cloned().unwrap_or_default();
     let mut callback = Url::parse(&param("redirect_uri")).expect("a redirect URI");
     let mut state = server.state();
-    let knobs = state.knobs.clone();
-    if knobs.decline {
+    if state.knobs.decline || param("client_id") != CODEX_CLIENT_ID {
         callback
             .query_pairs_mut()
             .append_pair("error", "access_denied")
             .append_pair("state", &param("state"));
         return Redirect::to(callback.as_str()).into_response();
     }
-    let requested = param("client_id");
-    let (client_id, named) = if requested == "dynamic_agent_client" {
-        state.counter += 1;
-        let issued = format!("oaiapp_atlas_{}", state.counter);
-        state.registered.push(issued.clone());
-        (issued.clone(), Some(issued))
-    } else if state.registered.contains(&requested) {
-        (requested, None)
-    } else {
-        callback
-            .query_pairs_mut()
-            .append_pair("error", "unauthorized_client")
-            .append_pair("state", &param("state"));
-        return Redirect::to(callback.as_str()).into_response();
-    };
-    let scope = param("scope")
-        .split(' ')
-        .filter(|scope| knobs.grant_plan_scope || *scope != PLAN_SCOPE)
-        .collect::<Vec<_>>()
-        .join(" ");
     state.counter += 1;
     let code = format!("code-{}", state.counter);
-    state.codes.insert(
-        code.clone(),
-        Grant {
-            client_id,
-            nonce: param("nonce"),
-            scope: scope.clone(),
-        },
-    );
-    {
-        let mut pairs = callback.query_pairs_mut();
-        pairs
-            .append_pair("code", &code)
-            .append_pair("scope", &scope)
-            .append_pair("state", &param("state"));
-        if let Some(client_id) = named {
-            pairs.append_pair("client_id", &client_id);
-        }
-    }
+    state.codes.insert(code.clone());
+    callback
+        .query_pairs_mut()
+        .append_pair("code", &code)
+        .append_pair("state", &param("state"));
     Redirect::to(callback.as_str()).into_response()
 }
 
@@ -258,33 +200,24 @@ async fn token(
 ) -> Response {
     server.record(TOKEN, &form);
     let field = |name: &str| form.get(name).cloned().unwrap_or_default();
+    if field("client_id") != CODEX_CLIENT_ID {
+        return oauth_error(400, json!({ "error": "invalid_client" }));
+    }
     match field("grant_type").as_str() {
         "authorization_code" => {
             let mut state = server.state();
-            let Some(grant) = state.codes.remove(&field("code")) else {
-                return oauth_error(400, json!({ "error": "invalid_grant" }));
-            };
-            if grant.client_id != field("client_id") {
+            if !state.codes.remove(&field("code")) {
                 return oauth_error(400, json!({ "error": "invalid_grant" }));
             }
-            let id_token = server.id_token(&grant);
-            state.counter += 1;
-            let access = format!("access-{}", state.counter);
-            let refresh = format!("refresh-{}", state.counter);
-            state
-                .live_refresh
-                .insert(refresh.clone(), (grant.client_id, grant.scope.clone()));
-            state.access_tokens.push(access.clone());
-            state
-                .issued
-                .extend([access.clone(), refresh.clone(), id_token.clone()]);
+            let id_token = server.id_token();
+            let (access, refresh) = server.issue(&mut state);
+            state.issued.push(id_token.clone());
             Json(json!({
                 "access_token": access,
                 "refresh_token": refresh,
                 "id_token": id_token,
                 "token_type": "Bearer",
                 "expires_in": 3600,
-                "scope": grant.scope,
             }))
             .into_response()
         }
@@ -292,41 +225,20 @@ async fn token(
             // Long enough for a concurrent caller to arrive meanwhile.
             tokio::time::sleep(Duration::from_millis(100)).await;
             let mut state = server.state();
-            if state.knobs.revoked {
+            if state.knobs.revoked || !state.live_refresh.remove(&field("refresh_token")) {
                 return oauth_error(400, json!({ "error": "invalid_grant" }));
             }
-            let Some((client_id, scope)) = state.live_refresh.remove(&field("refresh_token"))
-            else {
-                return oauth_error(400, json!({ "error": "invalid_grant" }));
-            };
-            state.counter += 1;
-            let access = format!("access-{}", state.counter);
-            let refresh = format!("refresh-{}", state.counter);
-            state
-                .live_refresh
-                .insert(refresh.clone(), (client_id, scope.clone()));
-            state.access_tokens.push(access.clone());
-            state.issued.extend([access.clone(), refresh.clone()]);
+            let (access, refresh) = server.issue(&mut state);
             Json(json!({
                 "access_token": access,
                 "refresh_token": refresh,
                 "token_type": "Bearer",
                 "expires_in": 3600,
-                "scope": scope,
             }))
             .into_response()
         }
         _ => oauth_error(400, json!({ "error": "unsupported_grant_type" })),
     }
-}
-
-async fn revoke(
-    State(server): State<Arc<AuthServerInner>>,
-    Form(form): Form<HashMap<String, String>>,
-) -> StatusCode {
-    server.record(REVOKE, &form);
-    server.state().live_refresh.remove(&form["token"]);
-    StatusCode::OK
 }
 
 struct FakeAuthServer {
@@ -345,11 +257,8 @@ impl FakeAuthServer {
             state: Mutex::new(AuthState::default()),
         });
         let app = Router::new()
-            .route("/auth/.well-known/openid-configuration", get(discovery))
-            .route("/auth/.well-known/jwks.json", get(jwks))
             .route(AUTHORIZE, get(authorize))
             .route(TOKEN, post(token))
-            .route(REVOKE, post(revoke))
             .with_state(inner.clone());
         tokio::spawn(async move {
             axum::serve(listener, app)
@@ -623,6 +532,8 @@ struct Harness {
     /// Every response and error the core answered, as JSON.
     answers: Mutex<Vec<String>>,
     _dir: TempDir,
+    /// Released when the test ends, for the next harness to sign in.
+    _port: tokio::sync::MutexGuard<'static, ()>,
 }
 
 impl Harness {
@@ -642,6 +553,8 @@ impl Harness {
     }
 
     async fn with(provider: Arc<dyn ModelProvider>, plan: Arc<PlanProvider>) -> Self {
+        let port = CALLBACK_PORT.lock().await;
+        callback_port_released().await;
         let dir = tempfile::tempdir().expect("a temp dir");
         let clock = Arc::new(FakeClock::default());
         let server = FakeAuthServer::start(clock.clone()).await;
@@ -669,6 +582,7 @@ impl Harness {
             core,
             answers: Mutex::new(Vec::new()),
             _dir: dir,
+            _port: port,
         }
     }
 
@@ -760,6 +674,17 @@ impl Harness {
     }
 }
 
+/// Waits a moment for an earlier test's cancelled sign-in to close its
+/// listener on the callback port.
+async fn callback_port_released() {
+    for _ in 0..200 {
+        if std::net::TcpListener::bind(("127.0.0.1", 1455)).is_ok() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
 fn signed_in(plan_usage: PlanUsage) -> Session {
     Session::SignedIn {
         account: Account {
@@ -796,43 +721,28 @@ async fn first_launch_is_signed_out_and_a_completed_sign_in_has_plan_usage_on_an
 }
 
 #[tokio::test]
-async fn a_sign_in_without_the_plan_permission_is_kept_with_plan_usage_off_until_enabled() {
+async fn enabling_plan_usage_on_a_codex_login_answers_the_session_without_a_new_authorization() {
     let harness = Harness::plan().await;
-    harness.server.knobs(|knobs| knobs.grant_plan_scope = false);
+    assert_eq!(
+        harness.request(CoreRequest::EnablePlanUsage).await,
+        Err(CoreError::SignInRequired),
+        "signed out there is nothing to enable"
+    );
 
-    assert_eq!(harness.sign_in().await, signed_in(PlanUsage::Off));
+    assert_eq!(harness.sign_in().await, signed_in(PlanUsage::On));
 
     assert_eq!(
-        harness.create_course().await,
-        Err(CoreError::PlanUsageOff),
-        "a request that spends plan usage is refused"
-    );
-    assert!(
-        harness.plan.presented().is_empty(),
-        "the refused request reaches no provider"
-    );
-    assert!(harness.course_topics().await.is_empty());
-
-    harness.server.knobs(|knobs| knobs.grant_plan_scope = true);
-    harness
-        .request(CoreRequest::EnablePlanUsage)
-        .await
-        .expect("enabling starts");
-    assert_eq!(harness.settled().await, signed_in(PlanUsage::On));
-    let authorizations = harness.authorizations();
-    assert_eq!(authorizations.len(), 2);
-    assert_eq!(
-        authorizations[1].params.get("prompt").map(String::as_str),
-        Some("consent"),
-        "enabling asks for consent again"
+        harness.request(CoreRequest::EnablePlanUsage).await,
+        Ok(CoreResponse::Session {
+            session: signed_in(PlanUsage::On),
+        })
     );
     assert_eq!(
-        harness.events.sessions().last(),
-        Some(&signed_in(PlanUsage::On))
+        harness.authorizations().len(),
+        1,
+        "a Codex login needs no second authorisation"
     );
-
-    assert!(harness.create_course().await.is_ok(), "now it is accepted");
-    assert_eq!(harness.course_topics().await, ["Plate tectonics"]);
+    assert!(harness.create_course().await.is_ok());
 }
 
 #[tokio::test]
@@ -844,8 +754,7 @@ async fn with_the_fake_provider_the_guard_passes() {
         "signed out, the fake provider still answers"
     );
 
-    harness.server.knobs(|knobs| knobs.grant_plan_scope = false);
-    assert_eq!(harness.sign_in().await, signed_in(PlanUsage::Off));
+    assert_eq!(harness.sign_in().await, signed_in(PlanUsage::On));
     assert!(
         harness.create_course().await.is_ok(),
         "the fake provider spends no plan usage"
@@ -947,10 +856,6 @@ async fn a_revoked_login_ends_signed_out_and_the_courses_stay() {
     assert_eq!(harness.events.sessions().last(), Some(&ended));
     assert_eq!(harness.server.refreshes(), 1);
     assert!(harness.secrets.get(SecretRecord::PlanLogin).is_none());
-    assert!(
-        harness.secrets.get(SecretRecord::IssuedClientId).is_some(),
-        "the issued client id is kept"
-    );
     assert_eq!(
         harness.course_topics().await,
         ["Plate tectonics", "Plate tectonics"],
@@ -1218,12 +1123,7 @@ async fn sign_out_ends_the_plan_login_and_the_usage_login_together() {
         .secrets
         .write(SecretRecord::UsageLogin, "usage-login-record")
         .expect("a usage login is present");
-    let refresh_token = harness
-        .server
-        .issued()
-        .into_iter()
-        .find(|token| token.starts_with("refresh-"))
-        .expect("a refresh token was issued");
+    let requests = harness.server.seen(TOKEN).len() + harness.authorizations().len();
 
     let session = harness.session_request(CoreRequest::SignOut).await;
 
@@ -1231,14 +1131,12 @@ async fn sign_out_ends_the_plan_login_and_the_usage_login_together() {
     assert_eq!(session, out);
     assert_eq!(harness.session().await, out);
     assert_eq!(harness.events.sessions().last(), Some(&out));
-    let revocations = harness.server.seen(REVOKE);
-    assert_eq!(revocations.len(), 1);
-    assert_eq!(revocations[0].params["token"], refresh_token);
-    assert!(harness.secrets.get(SecretRecord::PlanLogin).is_none());
-    assert!(
-        harness.secrets.get(SecretRecord::IssuedClientId).is_some(),
-        "the issued client id is kept"
+    assert_eq!(
+        harness.server.seen(TOKEN).len() + harness.authorizations().len(),
+        requests,
+        "the Codex login is cleared locally, without a request"
     );
+    assert!(harness.secrets.get(SecretRecord::PlanLogin).is_none());
     assert!(harness.secrets.get(SecretRecord::UsageLogin).is_none());
     assert!(harness.events.all().contains(&CoreEvent::UsageChanged {
         usage: UsageState::NotConnected
@@ -1353,14 +1251,7 @@ async fn open_external_opens_only_web_links() {
 #[tokio::test]
 async fn no_response_or_event_contains_a_token() {
     let harness = Harness::plan().await;
-    harness.server.knobs(|knobs| knobs.grant_plan_scope = false);
     harness.sign_in().await;
-    harness.server.knobs(|knobs| knobs.grant_plan_scope = true);
-    harness
-        .request(CoreRequest::EnablePlanUsage)
-        .await
-        .expect("enabling starts");
-    harness.settled().await;
     harness.clock.advance(Duration::from_secs(3600));
     harness.create_course().await.expect("a course is created");
     harness.plan.refuse([Refusal::NotAllowed]);
@@ -1390,47 +1281,4 @@ async fn no_response_or_event_contains_a_token() {
             );
         }
     }
-}
-
-// ---------------------------------------------------------------------------
-// The model list follows the session
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn a_sign_in_with_plan_usage_off_reports_an_empty_model_list_without_reading_it() {
-    let harness = Harness::plan().await;
-    harness.server.knobs(|knobs| knobs.grant_plan_scope = false);
-
-    assert_eq!(harness.sign_in().await, signed_in(PlanUsage::Off));
-
-    let lists = || {
-        harness
-            .events
-            .all()
-            .into_iter()
-            .filter_map(|event| match event {
-                CoreEvent::ModelsChanged { list } => Some(list),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-    };
-    tokio::time::timeout(Duration::from_secs(10), async {
-        while lists().is_empty() {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-    })
-    .await
-    .expect("the sign-in reports the model list");
-    assert_eq!(
-        lists(),
-        [atlas_core::protocol::ModelList {
-            models: Vec::new(),
-            current: None,
-        }],
-        "without plan usage the plan login lists no model"
-    );
-    assert!(
-        harness.plan.presented().is_empty(),
-        "the plan route is not read without plan usage"
-    );
 }

@@ -1,0 +1,7 @@
+{
+  "error": {
+    "type": "usage_not_included",
+    "message": "Your workspace plan does not include Codex.",
+    "plan_type": "enterprise"
+  }
+}

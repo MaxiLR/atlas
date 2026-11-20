@@ -1378,13 +1378,10 @@ fn local_settings_persist_and_are_not_syncable_records() {
     let fixture = Fixture::new();
     assert_eq!(fixture.store.selected_model().unwrap(), None);
     fixture.store.set_selected_model(Some("gpt-5")).unwrap();
-    let host = fixture.store.host_id().unwrap();
-    assert_eq!(fixture.store.host_id().unwrap(), host);
     drop(fixture.store);
 
     let store = Store::open(&fixture.path, fixture.clock.clone()).unwrap();
     assert_eq!(store.selected_model().unwrap().as_deref(), Some("gpt-5"));
-    assert_eq!(store.host_id().unwrap(), host);
     store.set_selected_model(None).unwrap();
     assert_eq!(store.selected_model().unwrap(), None);
 

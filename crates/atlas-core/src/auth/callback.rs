@@ -1,9 +1,11 @@
-//! The loopback listener the browser returns to:
-//! `http://127.0.0.1:<free port>/auth/callback`, never `localhost`.
+//! The loopback listener the browser returns to. The Codex client allowlists
+//! one callback, `http://localhost:1455/auth/callback`, so the listener takes
+//! that port on `127.0.0.1` or fails; it never falls back to another port and
+//! never stops whatever holds it.
 
 use std::collections::HashMap;
 use std::io;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::Ipv4Addr;
 use std::time::Duration;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -20,38 +22,33 @@ const PAGE: &str = "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8
 <title>Atlas</title></head><body><p>Sign-in received. You can close this tab and \
 return to Atlas.</p></body></html>";
 
+/// The callback URI registered for the Codex client on `port`.
+pub(super) fn redirect_uri(port: u16) -> String {
+    format!("http://localhost:{port}{CALLBACK_PATH}")
+}
+
 pub(super) struct CallbackListener {
     listener: TcpListener,
-    redirect_uri: Url,
 }
 
 impl CallbackListener {
-    /// Listens on `127.0.0.1` at a free port.
-    pub async fn bind() -> io::Result<Self> {
-        let listener = TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).await?;
-        let port = listener.local_addr()?.port();
-        let redirect_uri = Url::parse(&format!("http://127.0.0.1:{port}{CALLBACK_PATH}"))
-            .expect("a valid loopback URL");
-        Ok(Self {
-            listener,
-            redirect_uri,
-        })
-    }
-
-    pub fn redirect_uri(&self) -> &Url {
-        &self.redirect_uri
+    /// Listens on `127.0.0.1` at `port`.
+    pub async fn bind(port: u16) -> io::Result<Self> {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, port)).await?;
+        Ok(Self { listener })
     }
 
     /// Waits for the browser to reach the callback path and returns its
     /// query. Other requests get a 404 and the listener keeps waiting.
     pub async fn wait(self) -> io::Result<HashMap<String, String>> {
+        let base = Url::parse("http://localhost/").expect("a valid base URL");
         loop {
             let (mut stream, _) = self.listener.accept().await?;
             let Ok(Ok(target)) = tokio::time::timeout(READ_TIMEOUT, read_target(&mut stream)).await
             else {
                 continue;
             };
-            let Ok(url) = self.redirect_uri.join(&target) else {
+            let Ok(url) = base.join(&target) else {
                 let _ = respond(&mut stream, "400 Bad Request", "").await;
                 continue;
             };

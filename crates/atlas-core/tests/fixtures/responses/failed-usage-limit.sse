@@ -17,5 +17,5 @@ event: response.output_text.delta
 data: {"type":"response.output_text.delta","sequence_number":5,"item_id":"msg_68f1c4c4","output_index":0,"content_index":0,"delta":"floats on ","logprobs":[]}
 
 event: response.failed
-data: {"type":"response.failed","sequence_number":6,"response":{"id":"resp_68f1c4c3a9b2819c","object":"response","created_at":1763560000,"status":"failed","error":{"code":"subscription_sharing_usage_limit_exceeded","message":"You have reached the usage limit of your ChatGPT plan.","param":null},"incomplete_details":null,"model":"gpt-6.2-sol","output":[],"store":false}}
+data: {"type":"response.failed","sequence_number":6,"response":{"id":"resp_68f1c4c3a9b2819c","object":"response","created_at":1763560000,"status":"failed","error":{"code":"usage_limit_reached","message":"You have hit your ChatGPT usage limit.","param":null},"incomplete_details":null,"model":"gpt-6.2-sol","output":[],"store":false}}
 

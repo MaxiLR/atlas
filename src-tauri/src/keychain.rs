@@ -19,7 +19,6 @@ const ITEM_NOT_FOUND: i32 = -25300;
 pub fn account(record: SecretRecord) -> &'static str {
     match record {
         SecretRecord::PlanLogin => "plan-login",
-        SecretRecord::IssuedClientId => "issued-client-id",
         SecretRecord::UsageLogin => "usage-login",
     }
 }

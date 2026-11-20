@@ -4,11 +4,7 @@ use atlas_core::ports::{SecretRecord, SecretStore};
 
 use crate::keychain::{Keychain, SERVICE, account, decode, encode};
 
-const RECORDS: [SecretRecord; 3] = [
-    SecretRecord::PlanLogin,
-    SecretRecord::IssuedClientId,
-    SecretRecord::UsageLogin,
-];
+const RECORDS: [SecretRecord; 2] = [SecretRecord::PlanLogin, SecretRecord::UsageLogin];
 
 #[test]
 fn items_live_under_the_bundle_identifier() {
@@ -20,7 +16,6 @@ fn each_record_is_its_own_item_under_a_stable_name() {
     // The names are where the logins are found after an update: they never
     // change.
     assert_eq!(account(SecretRecord::PlanLogin), "plan-login");
-    assert_eq!(account(SecretRecord::IssuedClientId), "issued-client-id");
     assert_eq!(account(SecretRecord::UsageLogin), "usage-login");
     let names: HashSet<&str> = RECORDS.into_iter().map(account).collect();
     assert_eq!(names.len(), RECORDS.len(), "one item per record");

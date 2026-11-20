@@ -1,18 +1,13 @@
-//! The authorisation server's endpoints, its discovery document and its
-//! form-encoded token requests.
+//! The Codex authorisation server's endpoints and its form-encoded token
+//! requests.
 
 use serde::Deserialize;
 use serde_json::Value;
 use url::Url;
 
-/// The first-registration entry point; never saved or used for an exchange.
-pub(super) const DYNAMIC_CLIENT: &str = "dynamic_agent_client";
-pub(super) const AGENT_NAME: &str = "Atlas";
-/// The identity scopes and the plan usage scopes, always requested together.
+/// The scopes the Codex client asks for, as OMP and the Codex CLI do.
 pub(super) const SCOPES: &str =
-    "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct";
-pub(super) const PLAN_SCOPE: &str = "chatgpt.tokens.use.direct";
-pub(super) const RESOURCE: &str = "https://api.openai.com/v1";
+    "openid profile email offline_access api.connectors.read api.connectors.invoke";
 
 /// Refresh errors after which the refresh token is unusable.
 pub(super) const TERMINAL_REFRESH_CODES: &[&str] = &[
@@ -25,7 +20,7 @@ pub(super) const TERMINAL_REFRESH_CODES: &[&str] = &[
 ];
 
 /// `{auth}/<segments>`, whether or not the base ends in a slash.
-pub(super) fn endpoint(auth: &Url, segments: &[&str]) -> Url {
+fn endpoint(auth: &Url, segments: &[&str]) -> Url {
     let mut url = auth.clone();
     url.path_segments_mut()
         .expect("the authorisation server's base is a hierarchical URL")
@@ -35,25 +30,17 @@ pub(super) fn endpoint(auth: &Url, segments: &[&str]) -> Url {
 }
 
 pub(super) fn authorize_url(auth: &Url) -> Url {
-    endpoint(auth, &["api", "accounts", "authorize"])
+    endpoint(auth, &["oauth", "authorize"])
 }
 
-pub(super) fn token_url(auth: &Url) -> Url {
-    endpoint(auth, &["api", "accounts", "oauth", "token"])
+fn token_url(auth: &Url) -> Url {
+    endpoint(auth, &["oauth", "token"])
 }
 
-/// The issuer the authorisation server must name: its base without a
-/// trailing slash.
-fn expected_issuer(auth: &Url) -> String {
+/// The issuer the ID token must name: the authorisation server's base
+/// without a trailing slash.
+pub(super) fn issuer(auth: &Url) -> String {
     auth.as_str().trim_end_matches('/').to_owned()
-}
-
-/// What the core takes from the discovery document.
-#[derive(Debug, Clone, Deserialize)]
-pub(super) struct Discovery {
-    pub issuer: String,
-    pub jwks_uri: Url,
-    pub revocation_endpoint: Option<Url>,
 }
 
 /// Why a request to the authorisation server did not succeed.
@@ -97,38 +84,8 @@ impl std::fmt::Display for Failure {
     }
 }
 
-/// The discovery document at `{auth}/.well-known/openid-configuration`; its
-/// issuer must be the authorisation server itself.
-pub(super) async fn discover(http: &reqwest::Client, auth: &Url) -> Result<Discovery, Failure> {
-    let url = endpoint(auth, &[".well-known", "openid-configuration"]);
-    let discovery: Discovery = get_json(http, url).await?;
-    if discovery.issuer.trim_end_matches('/') != expected_issuer(auth) {
-        return Err(Failure::Body(format!(
-            "the discovery document names the issuer {}",
-            discovery.issuer
-        )));
-    }
-    Ok(discovery)
-}
-
-pub(super) async fn get_json<T: serde::de::DeserializeOwned>(
-    http: &reqwest::Client,
-    url: Url,
-) -> Result<T, Failure> {
-    let response = http.get(url).send().await.map_err(Failure::network)?;
-    let status = response.status();
-    if !status.is_success() {
-        return Err(Failure::Status {
-            status: status.as_u16(),
-            code: None,
-        });
-    }
-    let body = response.bytes().await.map_err(Failure::network)?;
-    serde_json::from_slice(&body).map_err(|error| Failure::Body(error.to_string()))
-}
-
 /// Posts a form and returns the body of a successful answer.
-pub(super) async fn post_form(
+async fn post_form(
     http: &reqwest::Client,
     url: Url,
     form: &[(&str, &str)],
@@ -178,8 +135,6 @@ pub(super) struct TokenResponse {
     pub refresh_token: Option<String>,
     pub id_token: Option<String>,
     pub expires_in: Option<i64>,
-    /// Space-separated granted scopes.
-    pub scope: Option<String>,
 }
 
 pub(super) async fn token_request(
@@ -189,9 +144,4 @@ pub(super) async fn token_request(
 ) -> Result<TokenResponse, Failure> {
     let body = post_form(http, token_url(auth), form).await?;
     serde_json::from_slice(&body).map_err(|error| Failure::Body(error.to_string()))
-}
-
-/// The scopes in a space-separated `scope` value.
-pub(super) fn scopes(value: &str) -> Vec<String> {
-    value.split_whitespace().map(str::to_owned).collect()
 }

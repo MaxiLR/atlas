@@ -1,22 +1,42 @@
-//! The Responses call of the plan route: its body, headers and endpoint.
+//! The Responses call of the Codex backend: its body, headers and endpoints.
 //!
-//! The plan route rejects `background`, `conversation`, `max_output_tokens`,
-//! `max_tool_calls`, `metadata`, `moderation`, `multi_agent`, `prompt`,
-//! `prompt_cache_retention`, `safety_identifier`, `temperature`,
-//! `top_logprobs`, `top_p`, `truncation`, `user`, `previous_response_id` and
-//! system-role input items, so the body is built from the fields it accepts
-//! only. No reasoning effort is sent.
+//! The body carries only the fields Atlas needs: the prompt in
+//! `instructions`, the context as one user message, `store: false` and
+//! `stream: true`, and web search or structured output when asked. The
+//! headers follow the OMP Codex provider over SSE: the bearer token, the
+//! ChatGPT account the token belongs to, the workspace's data residency when
+//! it is pinned to a region, and the client's originator, version and agent.
+//! Atlas names itself rather than posing as another client.
 
-use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
+use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue, USER_AGENT};
 use serde_json::{Map, Value, json};
 use url::Url;
 
-use crate::auth::AccessToken;
+use crate::auth::{AccessToken, token_claims};
 use crate::provider::ProviderRequest;
 
+/// The client Atlas names in `originator`, on the authorisation page too.
+pub const ORIGINATOR: &str = "atlas";
+/// The Codex client version Atlas speaks for: the backend gates the models
+/// it lists and serves by it.
+pub const CODEX_CLIENT_VERSION: &str = "0.169.0";
+/// Atlas's own user agent.
+pub const USER_AGENT_VALUE: &str = concat!("atlas/", env!("CARGO_PKG_VERSION"));
+
+/// The claim of OpenAI's tokens that carries the ChatGPT account.
+const AUTH_CLAIM: &str = "https://api.openai.com/auth";
+/// A residency claim of an account that is not pinned to a region.
+const UNCONSTRAINED_RESIDENCY: &str = "no_constraint";
+
+const ACCOUNT_ID: &str = "chatgpt-account-id";
+const RESIDENCY: &str = "x-openai-internal-codex-residency";
+const ORIGINATOR_HEADER: &str = "originator";
+const VERSION: &str = "version";
+/// The model a Responses request routes to, as `model=<slug>`.
+pub const ROUTING_HINT: &str = "x-codex-routing-hint";
+
 /// The JSON body of `POST {api}/responses` for `request`, on `default_model`
-/// when the request names no model: the prompt in `instructions`, the full
-/// context as one user message in `input`, `store: false`, `stream: true`.
+/// when the request names no model.
 pub fn build_responses_body(request: &ProviderRequest, default_model: &str) -> Value {
     let mut body = Map::new();
     body.insert(
@@ -48,7 +68,14 @@ pub fn build_responses_body(request: &ProviderRequest, default_model: &str) -> V
     Value::Object(body)
 }
 
-/// The bearer token and the JSON content type. A token that cannot be a header
+/// The value of the routing hint for `model`.
+pub fn routing_hint(model: &str) -> String {
+    format!("model={model}")
+}
+
+/// The headers of every call with `token`: the bearer token, the JSON
+/// content type, the account and residency the token carries, and the
+/// client's originator, version and agent. A token that cannot be a header
 /// value is left out, so the provider answers as for a missing login.
 pub fn request_headers(token: &AccessToken) -> HeaderMap {
     let mut headers = HeaderMap::new();
@@ -57,7 +84,44 @@ pub fn request_headers(token: &AccessToken) -> HeaderMap {
         headers.insert(AUTHORIZATION, authorization);
     }
     headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+    let auth = token_claims(token.secret())
+        .and_then(|mut claims| claims.remove(AUTH_CLAIM))
+        .unwrap_or_default();
+    if let Some(account) = claim(&auth, "chatgpt_account_id") {
+        headers.insert(ACCOUNT_ID, account);
+    }
+    if let Some(residency) = residency(&auth) {
+        headers.insert(RESIDENCY, residency);
+    }
+    headers.insert(ORIGINATOR_HEADER, HeaderValue::from_static(ORIGINATOR));
+    headers.insert(VERSION, HeaderValue::from_static(CODEX_CLIENT_VERSION));
+    headers.insert(USER_AGENT, HeaderValue::from_static(USER_AGENT_VALUE));
     headers
+}
+
+/// A non-blank string claim of the auth claim, as a header value.
+fn claim(auth: &Value, name: &str) -> Option<HeaderValue> {
+    let value = auth.get(name)?.as_str()?.trim();
+    if value.is_empty() {
+        return None;
+    }
+    HeaderValue::from_str(value).ok()
+}
+
+/// The workspace's residency: the data residency, else the compute
+/// residency; the first one present decides, and an unconstrained one
+/// declares none.
+fn residency(auth: &Value) -> Option<HeaderValue> {
+    let first = ["chatgpt_data_residency", "chatgpt_compute_residency"]
+        .into_iter()
+        .find_map(|name| {
+            let value = auth.get(name)?.as_str()?.trim();
+            (!value.is_empty()).then_some(value)
+        })?;
+    if first.eq_ignore_ascii_case(UNCONSTRAINED_RESIDENCY) {
+        return None;
+    }
+    HeaderValue::from_str(first).ok()
 }
 
 /// `{api}/responses`, whether or not the base ends in a slash.
@@ -65,9 +129,12 @@ pub fn responses_url(api: &Url) -> Url {
     under(api, "responses")
 }
 
-/// `{api}/models`, whether or not the base ends in a slash.
+/// `{api}/models?client_version=…`, whether or not the base ends in a slash.
 pub fn models_url(api: &Url) -> Url {
-    under(api, "models")
+    let mut url = under(api, "models");
+    url.query_pairs_mut()
+        .append_pair("client_version", CODEX_CLIENT_VERSION);
+    url
 }
 
 fn under(api: &Url, segment: &str) -> Url {

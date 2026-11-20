@@ -1504,7 +1504,6 @@ fn no_core_only_or_token_bearing_type_reaches_the_interface() {
         "KeyedOption",
         "AccessToken",
         "RefreshToken",
-        "PlanTokens",
     ];
     for name in core_only {
         assert!(
@@ -1715,6 +1714,9 @@ fn local_endpoints_put_every_service_under_one_server() {
         assert_eq!(url.port(), Some(4321));
     }
     let production = atlas_core::ports::Endpoints::production();
-    assert_eq!(production.api.as_str(), "https://api.openai.com/v1");
+    assert_eq!(
+        production.api.as_str(),
+        "https://chatgpt.com/backend-api/codex"
+    );
     assert_eq!(production.chatgpt.host_str(), Some("chatgpt.com"));
 }

@@ -5,5 +5,5 @@ event: response.in_progress
 data: {"type":"response.in_progress","sequence_number":1,"response":{"id":"resp_68f1c5d1b7c3819d","object":"response","created_at":1763560000,"status":"in_progress","error":null,"incomplete_details":null,"model":"gpt-6.2-sol","output":[],"store":false}}
 
 event: response.failed
-data: {"type":"response.failed","sequence_number":2,"response":{"id":"resp_68f1c5d1b7c3819d","object":"response","created_at":1763560000,"status":"failed","error":{"code":"subscription_sharing_usage_unavailable","message":"Usage availability could not be checked. Try again later.","param":null},"incomplete_details":null,"model":"gpt-6.2-sol","output":[],"store":false}}
+data: {"type":"response.failed","sequence_number":2,"response":{"id":"resp_68f1c5d1b7c3819d","object":"response","created_at":1763560000,"status":"failed","error":{"code":"server_is_overloaded","message":"Our servers are currently overloaded. Please try again later.","param":null},"incomplete_details":null,"model":"gpt-6.2-sol","output":[],"store":false}}
 

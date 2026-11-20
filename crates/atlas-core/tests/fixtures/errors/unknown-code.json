@@ -3,6 +3,6 @@
     "message": "A condition Atlas has no recovery for.",
     "type": "invalid_request_error",
     "param": null,
-    "code": "subscription_sharing_condition_atlas_does_not_know"
+    "code": "codex_condition_atlas_does_not_know"
   }
 }

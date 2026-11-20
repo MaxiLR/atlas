@@ -56,7 +56,7 @@ impl Features {
         let deps = &usage.tap(deps);
         let models = Arc::new(models::Feature::new(deps, store)?);
         Ok(Self {
-            session: session::Feature::new(deps, store, &models)?,
+            session: session::Feature::new(deps, &models)?,
             external: external::Feature::new(deps, store)?,
             models,
             library: library::Feature::new(deps, store)?,

@@ -72,8 +72,8 @@ usually **anchored** to a selected passage, which keeps a faint margin mark that
 reopens it. A course holds many; one can start without a selection. A side chat
 never changes a section and never enters the context of section generation.
 
-**Plan login** — The candidate's Sign in with ChatGPT connection, which pays for
-model calls with their ChatGPT plan.
+**Plan login** — The candidate's Sign in with ChatGPT connection, through
+OpenAI's Codex OAuth client, which pays for model calls with their ChatGPT plan.
 
 **Usage meter** — The display of the plan's limit windows: the 5-hour and weekly
 windows, the share used, the time to each reset and a pace mark.

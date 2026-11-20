@@ -48,6 +48,7 @@ fn failed(code: &str, message: &str) -> ResponsesEvent {
         code: Some(code.to_owned()),
         message: Some(message.to_owned()),
         param: None,
+        resets_at: None,
         request_id: Some(REQUEST_ID.to_owned()),
     })
 }
@@ -83,13 +84,13 @@ fn expected(name: &str) -> Vec<ResponsesEvent> {
             delta("The crust "),
             delta("floats on "),
             failed(
-                "subscription_sharing_usage_limit_exceeded",
-                "You have reached the usage limit of your ChatGPT plan.",
+                "usage_limit_reached",
+                "You have hit your ChatGPT usage limit.",
             ),
         ],
         "failed-usage-unavailable.sse" => vec![failed(
-            "subscription_sharing_usage_unavailable",
-            "Usage availability could not be checked. Try again later.",
+            "server_is_overloaded",
+            "Our servers are currently overloaded. Please try again later.",
         )],
         "incomplete.sse" => vec![
             delta("Convection carries "),
@@ -223,8 +224,8 @@ fn text_before_a_failure_is_delivered_before_the_failure_arrives() {
     assert_eq!(
         after,
         vec![failed(
-            "subscription_sharing_usage_limit_exceeded",
-            "You have reached the usage limit of your ChatGPT plan.",
+            "usage_limit_reached",
+            "You have hit your ChatGPT usage limit.",
         )]
     );
 }
@@ -277,7 +278,7 @@ fn citation_ranges_index_the_concatenated_output_text() {
 #[test]
 fn a_failure_keeps_its_code_param_and_request_id() {
     let bytes = br#"event: response.failed
-data: {"type":"response.failed","sequence_number":1,"response":{"id":"resp_1","object":"response","status":"failed","error":{"code":"subscription_sharing_unsupported_capability","message":"web_search is not supported.","param":"tools"}}}
+data: {"type":"response.failed","sequence_number":1,"response":{"id":"resp_1","object":"response","status":"failed","error":{"code":"unsupported_parameter","message":"web_search is not supported.","param":"tools"}}}
 
 "#;
     let mut parser = ResponsesStreamParser::new(Some("req_abc".to_owned()));
@@ -286,10 +287,32 @@ data: {"type":"response.failed","sequence_number":1,"response":{"id":"resp_1","o
     assert_eq!(
         events,
         vec![Failed(ResponseFailure {
-            code: Some("subscription_sharing_unsupported_capability".to_owned()),
+            code: Some("unsupported_parameter".to_owned()),
             message: Some("web_search is not supported.".to_owned()),
             param: Some("tools".to_owned()),
+            resets_at: None,
             request_id: Some("req_abc".to_owned()),
+        })]
+    );
+}
+
+#[test]
+fn a_codex_usage_limit_named_by_its_type_keeps_its_reset_time() {
+    let bytes = br#"event: response.failed
+data: {"type":"response.failed","sequence_number":1,"response":{"id":"resp_1","object":"response","status":"failed","error":{"type":"usage_limit_reached","message":"You have hit your ChatGPT usage limit.","resets_at":1767229200}}}
+
+"#;
+    let mut parser = ResponsesStreamParser::new(None);
+    let mut events = parser.feed(bytes);
+    events.extend(parser.finish());
+    assert_eq!(
+        events,
+        vec![Failed(ResponseFailure {
+            code: Some("usage_limit_reached".to_owned()),
+            message: Some("You have hit your ChatGPT usage limit.".to_owned()),
+            param: None,
+            resets_at: chrono::DateTime::from_timestamp(1_767_229_200, 0),
+            request_id: None,
         })]
     );
 }
@@ -309,6 +332,7 @@ data: {"type":"error","sequence_number":3,"code":"server_error","message":"The s
             code: Some("server_error".to_owned()),
             message: Some("The server had an error.".to_owned()),
             param: None,
+            resets_at: None,
             request_id: None,
         })]
     );

@@ -1,0 +1,8 @@
+{
+  "error": {
+    "message": "Provided authentication token is expired. Please try signing in again.",
+    "type": null,
+    "param": null,
+    "code": "token_expired"
+  }
+}

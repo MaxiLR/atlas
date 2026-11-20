@@ -180,16 +180,15 @@ fn unsupported(param: &str) -> Result<String, ProviderError> {
 
 // -- the harness ----------------------------------------------------------------
 
-/// A plan login with plan usage on, as the app's sign-in stores it.
+/// A Codex login, as the app's sign-in stores it.
 fn sign_in(secrets: &dyn SecretStore) {
     let login = json!({
+        "client_id": "app_EMoamEEZ73f0CkXaXp7hrann",
         "subject": "user-live",
         "email": "engineer@example.com",
-        "id_token": "id-token-live",
         "access_token": TOKEN,
         "refresh_token": "refresh-token-live",
         "expires_at": "2030-01-01T00:00:00Z",
-        "scopes": ["openid", "email", "offline_access", "chatgpt.tokens.use.direct"],
     });
     secrets
         .write(SecretRecord::PlanLogin, &login.to_string())

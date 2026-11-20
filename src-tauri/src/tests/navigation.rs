@@ -39,7 +39,7 @@ fn every_other_url_is_refused() {
     for page in [
         "https://example.com/",
         "https://chatgpt.com/",
-        "https://auth.openai.com/api/accounts/authorize",
+        "https://auth.openai.com/oauth/authorize",
         "http://localhost:1421/",
         "https://localhost:1420/",
         "http://127.0.0.1:1420/",

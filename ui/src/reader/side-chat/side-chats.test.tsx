@@ -638,4 +638,23 @@ describe("a reply as it is written", () => {
       url: "https://doi.org/10.1111/j.1365-246X.1975.tb00631.x",
     });
   });
+
+  it("places a citation chip by Unicode characters, as the core counts them, after the punctuation closing its claim", async () => {
+    const { panel, user } = await renderPanel({
+      setup: (world) => {
+        const reply = sampleChat(world).messages[1]!;
+        reply.text = "🌋 Slab pull is the larger force, by far. More text.";
+        // Up to "force": 31 Unicode characters, 32 UTF-16 units.
+        reply.citations = [{ block: 0, start: 2, end: 31, source: 1 }];
+      },
+    });
+    const thread = await openChat(user, panel, /slab pull/);
+
+    const chip = within(thread).getByRole("button", { name: SOURCE_1 });
+    const paragraph = chip.closest("p")!;
+    const before = document.createRange();
+    before.setStart(paragraph, 0);
+    before.setEndBefore(chip);
+    expect(before.toString()).toBe("🌋 Slab pull is the larger force,");
+  });
 });

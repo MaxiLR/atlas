@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-/// A claim taken from a source: a character range of one prose block.
+/// A claim taken from a source: a character range of one prose block's
+/// text, `start` and `end` counted in Unicode characters (scalar values),
+/// not bytes or UTF-16 units.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct Citation {

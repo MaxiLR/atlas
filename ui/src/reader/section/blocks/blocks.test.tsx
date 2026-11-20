@@ -518,6 +518,44 @@ describe("the block list", () => {
       `Stars *shine* at night${marker}. Dark.`,
     );
   });
+
+  it("counts a citation's offsets in Unicode characters, as the core does, so characters beyond the BMP before a claim leave its marker in place", () => {
+    const { section, cite, column } = renderBlocks();
+    const texts = [
+      "🌋 Mount St. Helens erupted in 1980, killing 57 people. It was the deadliest.",
+      "𝑥 and 𝔽 come first, then the claim. After.",
+    ];
+    section(texts.map(prose));
+    const source: Source = {
+      number: 1,
+      url: "https://pubs.usgs.gov/gip/dynamic/msh.html",
+      title: "Mount St. Helens",
+    };
+    // Counted in Unicode characters: each of 🌋, 𝑥 and 𝔽 is one, though two
+    // UTF-16 units. The first claim ends after "people", the second after
+    // "claim".
+    cite({ block: 0, start: 2, end: 53, source: 1 }, source);
+    cite({ block: 1, start: 0, end: 34, source: 1 }, source);
+
+    const { container: entry } = render(
+      <CatalogVisual
+        spec={{
+          root: "c",
+          elements: {
+            c: { type: "citation", props: { ...source }, children: [] },
+          },
+        }}
+      />,
+    );
+    const marker = entry.textContent ?? "";
+    const paragraphs = column.querySelectorAll("p");
+    expect(paragraphs[0]!.textContent).toBe(
+      `🌋 Mount St. Helens erupted in 1980, killing 57 people${marker}. It was the deadliest.`,
+    );
+    expect(paragraphs[1]!.textContent).toBe(
+      `𝑥 and 𝔽 come first, then the claim${marker}. After.`,
+    );
+  });
 });
 
 describe("Markdown from the model", () => {

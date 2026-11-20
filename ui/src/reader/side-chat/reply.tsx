@@ -21,6 +21,7 @@ import type { ChatMessage } from "@/core/generated/ChatMessage";
 import type { Citation } from "@/core/generated/Citation";
 import type { CoreError } from "@/core/generated/CoreError";
 import type { Source } from "@/core/generated/Source";
+import { utf16Offset } from "@/reader/section/blocks/markdown-plugins";
 import { Prose } from "@/reader/section/blocks/prose";
 import { ResetsAt, resetTime } from "@/reader/section/status/section-status";
 import { selectUsage, type Stream } from "@/store";
@@ -30,13 +31,15 @@ const CLOSING = /^[.,;:!?)\]]*/;
 /**
  * Citations with each chip after the punctuation that closes its claim, as
  * the side chat sets them, so a sentence reads whole before its source.
+ * Offsets count Unicode characters; the punctuation is one each.
  */
 function chipsAfterPunctuation(
   citations: Citation[],
   text: string,
 ): Citation[] {
   return citations.map((citation) => {
-    const closing = CLOSING.exec(text.slice(citation.end))![0].length;
+    const end = utf16Offset(text, citation.end);
+    const closing = CLOSING.exec(text.slice(end))![0].length;
     return closing === 0
       ? citation
       : { ...citation, end: citation.end + closing };

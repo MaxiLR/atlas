@@ -223,16 +223,19 @@ export function blockOf(block: SampleBlock, index: number): Block {
   }
 }
 
-/** The citations of a prose block: each phrase's first occurrence. */
+/**
+ * The citations of a prose block: each phrase's first occurrence, counted
+ * in Unicode characters as the core counts them.
+ */
 export function citationsOf(block: SampleBlock, index: number): Citation[] {
   if (block.type !== "Prose") return [];
   const text = proseText(block);
   return (block.cites ?? []).map((cite) => {
-    const start = text.indexOf(cite.phrase);
+    const start = Array.from(text.slice(0, text.indexOf(cite.phrase))).length;
     return {
       block: index,
       start,
-      end: start + cite.phrase.length,
+      end: start + Array.from(cite.phrase).length,
       source: cite.source,
     };
   });

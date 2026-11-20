@@ -125,20 +125,33 @@ function shownLength(source: string, value: string, cut: number): number {
 }
 
 /**
+ * Where in `text`, in UTF-16 units, its first `characters` Unicode
+ * characters end: citations count characters, as the core does.
+ */
+export function utf16Offset(text: string, characters: number): number {
+  let offset = 0;
+  for (let read = 0; read < characters && offset < text.length; read += 1) {
+    offset += text.codePointAt(offset)! > 0xffff ? 2 : 1;
+  }
+  return offset;
+}
+
+/**
  * Puts a marker for each citation where its claim ends. Offsets count
- * characters of the block's source text, as the core places them; a claim
- * that ends on inline code or a formula has its marker after it.
+ * Unicode characters of the block's source text, as the core places them; a
+ * claim that ends on inline code or a formula has its marker after it.
  */
 export function remarkCitations({ citations }: { citations: Citation[] }) {
   return (tree: MdastRoot, file: { value: unknown }) => {
     const source = String(file.value);
     const latestFirst = [...citations].sort((a, b) => b.end - a.end);
     for (const citation of latestFirst) {
+      const end = utf16Offset(source, citation.end);
       let target: Located | undefined;
       for (const located of leavesIn(tree)) {
         const start = located.node.position?.start.offset;
         if (start === undefined) continue;
-        if (start >= citation.end) break;
+        if (start >= end) break;
         target = located;
       }
       if (target === undefined) continue;
@@ -152,7 +165,7 @@ export function remarkCitations({ citations }: { citations: Citation[] }) {
           ? shownLength(
               source.slice(start, node.position!.end.offset),
               node.value,
-              citation.end - start,
+              end - start,
             )
           : node.value.length;
       if (cut >= node.value.length) {

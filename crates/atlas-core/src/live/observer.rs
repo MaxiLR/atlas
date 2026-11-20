@@ -59,6 +59,12 @@ impl Call {
         )
     }
 
+    /// The route answered the request, so it took what the request asked
+    /// for (structured output, search).
+    pub(super) fn answered(&self) -> bool {
+        matches!(self.outcome, Outcome::Completed | Outcome::Incomplete)
+    }
+
     pub(super) fn took(&self) -> Duration {
         self.ended
             .unwrap_or_else(Instant::now)

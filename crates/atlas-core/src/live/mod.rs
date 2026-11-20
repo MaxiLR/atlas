@@ -420,20 +420,26 @@ impl Run<'_> {
             .filter(|call| call.live == task)
             .collect();
         let own: Vec<&Call> = calls.iter().filter(|call| !call.is_repair()).collect();
-        let structured = (task.structured() && !own.is_empty()).then(|| {
-            if own.iter().any(|call| !call.schema) {
-                Structured::Fallback
-            } else {
-                Structured::Accepted
-            }
-        });
-        let search = (task.searches() && !own.is_empty()).then(|| {
-            if own.iter().any(|call| !call.web_search) {
-                Search::Refused
-            } else {
-                Search::Allowed
-            }
-        });
+        // A request made without a capability shows the route refused it;
+        // only an answered request with it shows the route took it.
+        let structured = if !task.structured() {
+            None
+        } else if own.iter().any(|call| !call.schema) {
+            Some(Structured::Fallback)
+        } else if own.iter().any(|call| call.answered()) {
+            Some(Structured::Accepted)
+        } else {
+            None
+        };
+        let search = if !task.searches() {
+            None
+        } else if own.iter().any(|call| !call.web_search) {
+            Some(Search::Refused)
+        } else if own.iter().any(|call| call.answered()) {
+            Some(Search::Allowed)
+        } else {
+            None
+        };
         let result_word = match &result {
             LiveResult::Passed => "passed".to_owned(),
             LiveResult::Failed(error) => format!("failed: {error}"),

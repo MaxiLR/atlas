@@ -433,6 +433,43 @@ async fn a_refused_search_shows_as_refused() {
 }
 
 #[tokio::test]
+async fn a_request_the_route_never_answered_reports_neither_accepted_nor_allowed() {
+    let plan_limit = || {
+        Err(ProviderError::PlanLimit {
+            resets_at: None,
+            request_id: None,
+        })
+    };
+    let harness = start(
+        FakeProvider::new(FakeScript::sample()).answer(Task::DraftLadder, [plan_limit()]),
+        true,
+    );
+
+    let report = harness.run(&[LiveTask::DraftLadder]).await;
+
+    let ladder = line(&report, LiveTask::DraftLadder);
+    assert!(
+        matches!(ladder.result, LiveResult::Failed(_)),
+        "{ladder:#?}"
+    );
+    assert_eq!(ladder.structured, None);
+
+    let harness = start(
+        FakeProvider::new(FakeScript::sample()).answer(Task::WriteSection, [plan_limit()]),
+        true,
+    );
+
+    let report = harness.run(&[LiveTask::WriteSection]).await;
+
+    let written = line(&report, LiveTask::WriteSection);
+    assert!(
+        matches!(written.result, LiveResult::Failed(_)),
+        "{written:#?}"
+    );
+    assert_eq!(written.search, None);
+}
+
+#[tokio::test]
 async fn a_plan_limit_fails_its_task_and_the_run_and_skips_what_depends_on_it() {
     let provider = FakeProvider::new(FakeScript::sample())
         .answer(Task::DraftLadder, [ok(ladder())])

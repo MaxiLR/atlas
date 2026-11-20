@@ -111,14 +111,14 @@ command exits non-zero when a task failed.
 
 One line per task:
 
-| Column       | Meaning                                                                                                                                                                                 |
-| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Result`     | `passed`; `FAILED`, with the error state on the line below (for example the plan's usage limit); or `skipped`, when a task it needs failed first.                                       |
-| `Structured` | For the data tasks (ladder, question, index, deep dives): `accepted` when the plan route took structured output, `fallback used` when it refused it and the schema went in the prompt.  |
-| `Search`     | For write section, explain differently and side-chat reply: `allowed` when the hosted web search was accepted, `refused` when the route refused it and the text was written without it. |
-| `Repairs`    | The repair requests the task needed: a structured answer, a block or a section record that failed validation.                                                                           |
-| `Model`      | The model the requests named.                                                                                                                                                           |
-| `Time`       | The time its requests took, repairs included.                                                                                                                                           |
+| Column       | Meaning                                                                                                                                                                                                                                     |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Result`     | `passed`; `FAILED`, with the error state on the line below (for example the plan's usage limit); or `skipped`, when a task it needs failed first.                                                                                           |
+| `Structured` | For the data tasks (ladder, question, index, deep dives): `accepted` when the plan route answered a request with structured output, `fallback used` when it refused it and the schema went in the prompt, `-` when no request was answered. |
+| `Search`     | For write section, explain differently and side-chat reply: `allowed` when the route answered a request with the hosted web search, `refused` when it refused it and the text was written without it, `-` when no request was answered.     |
+| `Repairs`    | The repair requests the task needed: a structured answer, a block or a section record that failed validation.                                                                                                                               |
+| `Model`      | The model the requests named.                                                                                                                                                                                                               |
+| `Time`       | The time its requests took, repairs included.                                                                                                                                                                                               |
 
 Beneath a task, its course memory:
 

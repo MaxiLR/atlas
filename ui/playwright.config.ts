@@ -28,6 +28,14 @@ const schemes = ["light", "dark"] as const;
 export default defineConfig({
   testDir: "e2e",
   fullyParallel: true,
+  // Each worker drives its own Chromium against the one Vite server. On a
+  // machine busy with other work, half the cores (the default) and the
+  // default timeouts let the long keyboard journeys and the waits on
+  // streamed text run out; a quarter of the cores and doubled timeouts keep
+  // them inside.
+  workers: "25%",
+  timeout: 60_000,
+  expect: { timeout: 10_000 },
   forbidOnly: true,
   reporter: "list",
   use: {

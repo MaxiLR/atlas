@@ -1,8 +1,9 @@
 //! The context a section is written from, chosen by the core with no request
 //! (ADR-0013), and its fixed shrink order over budget.
 //!
-//! The renderings of the candidate profile and of the index titles with their
-//! keys are shared with the other tasks that send them.
+//! The renderings of the candidate profile, of the index titles with their
+//! keys, of the conventions and of a record are shared with the other tasks
+//! that send them.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
@@ -522,23 +523,7 @@ impl<'a> Selection<'a> {
     }
 
     fn conventions(&self) -> String {
-        let mut text = "# Conventions, fixed for the whole course".to_owned();
-        if self.memory.conventions.is_empty() {
-            text.push_str("\nNone fixed yet.");
-        }
-        for convention in &self.memory.conventions {
-            let kind = match convention.kind {
-                ConventionKind::Notation => "symbol",
-                ConventionKind::Terminology => "term",
-                ConventionKind::RunningExample => "running example",
-            };
-            let _ = write!(
-                text,
-                "\n- {kind} \"{}\": {}",
-                convention.key, convention.meaning
-            );
-        }
-        text
+        render_conventions(&self.memory.conventions)
     }
 
     fn entry(&self) -> String {
@@ -639,9 +624,30 @@ impl<'a> Selection<'a> {
     }
 }
 
+/// The course's conventions as a request carries them, under their heading.
+pub fn render_conventions(conventions: &[Convention]) -> String {
+    let mut text = "# Conventions, fixed for the whole course".to_owned();
+    if conventions.is_empty() {
+        text.push_str("\nNone fixed yet.");
+    }
+    for convention in conventions {
+        let kind = match convention.kind {
+            ConventionKind::Notation => "symbol",
+            ConventionKind::Terminology => "term",
+            ConventionKind::RunningExample => "running example",
+        };
+        let _ = write!(
+            text,
+            "\n- {kind} \"{}\": {}",
+            convention.key, convention.meaning
+        );
+    }
+    text
+}
+
 /// A record whole, but for its promises: those due to the section are sent
 /// apart. An unconfirmed record says so.
-fn render_record(record: &SectionRecord, status: RecordStatus) -> String {
+pub fn render_record(record: &SectionRecord, status: RecordStatus) -> String {
     let mut lines = Vec::new();
     let taught = match status {
         RecordStatus::Confirmed => "Concepts taught:",

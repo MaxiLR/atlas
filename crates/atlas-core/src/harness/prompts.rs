@@ -55,12 +55,18 @@ pub const DEFINE: Prompt = Prompt {
     source: include_str!("../../../../prompts/define.md"),
 };
 
+pub const PROPOSE_DEEP_DIVES: Prompt = Prompt {
+    name: "propose-deep-dives",
+    source: include_str!("../../../../prompts/propose-deep-dives.md"),
+};
+
 /// Every prompt the core embeds.
-pub const ALL: [Prompt; 8] = [
+pub const ALL: [Prompt; 9] = [
     DRAFT_LADDER,
     PLACEMENT_QUESTION,
     BUILD_INDEX,
     WRITE_SECTION,
+    PROPOSE_DEEP_DIVES,
     REPAIR_STRUCTURED,
     REPAIR_BLOCK,
     REPAIR_RECORD,

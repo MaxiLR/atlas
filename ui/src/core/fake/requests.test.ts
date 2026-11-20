@@ -553,6 +553,44 @@ describe("OpenSection", () => {
     });
     expect(generationsOf(events, section.id)).toEqual([]);
   });
+
+  it("resumes the course at a section only once it is read, not when its generation stops", async () => {
+    const { store, state } = startFake("stopped-generation");
+    const course = await openCourse(store, "Plate tectonics");
+    const section = findSection(course, "Transform boundaries");
+
+    await expect(
+      store.send({
+        type: "OpenSection",
+        courseId: course.id,
+        sectionId: section.id,
+      }),
+    ).rejects.toBeDefined();
+
+    const { courses } = await store.send({ type: "ListCourses" });
+    expect(courses[0]?.resumeTitle).toBe("Convergent boundaries");
+    const { course: reopened } = await store.send({
+      type: "OpenCourse",
+      courseId: course.id,
+    });
+    expect(reopened.resumeAt).toBe(
+      findSection(course, "Convergent boundaries").id,
+    );
+
+    await store.send({
+      type: "RetrySection",
+      courseId: course.id,
+      sectionId: section.id,
+    });
+    const { course: read } = await store.send({
+      type: "OpenCourse",
+      courseId: course.id,
+    });
+    expect(read.resumeAt).toBe(section.id);
+    expect(state().library.courses?.[0]?.resumeTitle).toBe(
+      "Transform boundaries",
+    );
+  });
 });
 
 describe("StopGeneration", () => {

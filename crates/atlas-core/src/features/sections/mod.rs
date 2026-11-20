@@ -137,8 +137,9 @@ impl Feature {
     }
 
     /// The section's current version from the store, with no request;
-    /// otherwise a generation, joined if one is running. Either way the
-    /// course now resumes at the section.
+    /// otherwise a generation, joined if one is running. Once a complete
+    /// version is opened or finishes generating, the course resumes at the
+    /// section.
     pub(crate) async fn open(
         &self,
         cx: &Features,
@@ -146,7 +147,6 @@ impl Feature {
         section_id: Uuid,
     ) -> Result<SectionView, CoreError> {
         let node = self.node(course_id, section_id)?;
-        self.store.set_last_read(course_id, section_id)?;
         if let Some(version) = self.store.current_version(section_id)? {
             return self.opened(cx, &node, version);
         }
@@ -257,8 +257,10 @@ impl Feature {
         self.view(node, version)
     }
 
-    /// Marks the section read, unless it was, and reports the index change.
+    /// Makes the section the one the course resumes at and marks it read,
+    /// reporting the index change, unless it was read already.
     fn mark_read(&self, cx: &Features, node: &NodeRecord) -> Result<(), CoreError> {
+        self.store.set_last_read(node.course_id, node.id)?;
         let read = self
             .store
             .index_node(node.id)?

@@ -26,7 +26,7 @@ use atlas_core::protocol::{
     CoreResponse, CourseStage, CourseSummary, CourseView, MessageState, NodeMark, PlacementAnswer,
     PlacementStep, Progress, SectionKind, SectionNode, SectionView, VersionStyle,
 };
-use atlas_core::provider::{FakeProvider, FakeScript};
+use atlas_core::provider::{FakeProvider, FakeScript, Task};
 use atlas_core::store::{NewChatMessage, NewGlossaryEntry, NewSectionVersion, Store};
 use atlas_core::testing::{FakePorts, RecordingEvents};
 use chrono::{DateTime, Utc};
@@ -69,6 +69,27 @@ impl Harness {
         let path = dir.path().join("atlas.sqlite3");
         let ports = FakePorts::default();
         let provider = Arc::new(FakeProvider::new(FakeScript::sample()));
+        let events = Arc::new(RecordingEvents::default());
+        let core = Core::new(ports.deps(path.clone(), provider.clone(), events.clone()))
+            .expect("core starts");
+        let store = Store::open(&path, ports.clock.clone()).unwrap();
+        Self {
+            _dir: dir,
+            path,
+            ports,
+            provider,
+            events,
+            core,
+            store,
+        }
+    }
+
+    /// A harness whose core asks `provider`.
+    fn answering(provider: FakeProvider) -> Self {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("atlas.sqlite3");
+        let ports = FakePorts::default();
+        let provider = Arc::new(provider);
         let events = Arc::new(RecordingEvents::default());
         let core = Core::new(ports.deps(path.clone(), provider.clone(), events.clone()))
             .expect("core starts");
@@ -679,6 +700,55 @@ async fn a_course_resumes_at_the_section_last_opened() {
     assert_eq!(
         harness.summary(course).await.progress,
         Progress { read: 4, total: 9 }
+    );
+}
+
+#[tokio::test]
+async fn a_section_whose_generation_failed_is_not_where_the_course_resumes() {
+    let harness = Harness::answering(
+        FakeProvider::new(FakeScript::sample())
+            .answer(Task::WriteSection, [Err(ProviderError::Offline)]),
+    );
+    let course = store_course(&harness.store, &sample_course(), None);
+    harness.open_section(course, LITHOSPHERE).await;
+
+    // The next section has no version yet; its generation fails, so it was
+    // never read.
+    let failed = harness
+        .send(CoreRequest::OpenSection {
+            course_id: course,
+            section_id: WHAT_DRIVES_PLATES,
+        })
+        .await;
+    assert!(failed.is_err(), "{failed:?}");
+    assert_eq!(harness.provider.requests().len(), 1, "it was generated");
+
+    let summary = harness.summary(course).await;
+    assert_eq!(summary.progress, Progress { read: 4, total: 9 });
+    assert_eq!(
+        summary.resume_title.as_deref(),
+        Some("Lithosphere and asthenosphere")
+    );
+    assert_eq!(harness.open(course).await.resume_at, Some(LITHOSPHERE));
+}
+
+#[tokio::test]
+async fn a_section_that_finished_generating_is_where_the_course_resumes() {
+    let harness = Harness::new();
+    let course = store_course(&harness.store, &sample_course(), None);
+    harness.open_section(course, LITHOSPHERE).await;
+
+    harness.open_section(course, WHAT_DRIVES_PLATES).await;
+
+    let summary = harness.summary(course).await;
+    assert_eq!(summary.progress, Progress { read: 5, total: 9 });
+    assert_eq!(
+        summary.resume_title.as_deref(),
+        Some("What drives the plates")
+    );
+    assert_eq!(
+        harness.open(course).await.resume_at,
+        Some(WHAT_DRIVES_PLATES)
     );
 }
 

@@ -333,11 +333,19 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
     emit({ type: "UsageChanged", usage: world.usage });
   }
 
-  /** A complete version was opened or finished in front of the candidate. */
+  /**
+   * A complete version was opened or finished in front of the candidate:
+   * the section is read and the course resumes at it.
+   */
   function markRead(course: FakeCourse, section: FakeSection): void {
-    if (section.read) return;
-    section.read = true;
-    indexChanged(course);
+    const moved = course.resumeAt !== section.id;
+    course.resumeAt = section.id;
+    if (!section.read) {
+      section.read = true;
+      indexChanged(course);
+    } else if (!moved) {
+      return;
+    }
     libraryChanged();
   }
 
@@ -657,10 +665,6 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
       case "OpenSection": {
         const course = courseOf(request.courseId);
         const section = sectionOf(course, request.sectionId);
-        if (course.resumeAt !== section.id) {
-          course.resumeAt = section.id;
-          libraryChanged();
-        }
         const version = current(section);
         if (version !== null) {
           markRead(course, section);

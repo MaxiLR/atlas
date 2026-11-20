@@ -1,0 +1,12 @@
+{
+  "root": "note",
+  "elements": {
+    "note": {
+      "type": "callout",
+      "props": {
+        "title": "Convergent does not mean a crash"
+      },
+      "children": []
+    }
+  }
+}

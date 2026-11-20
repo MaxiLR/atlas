@@ -1,0 +1,8 @@
+{
+  "error": {
+    "message": "The tool web_search is not supported on this route.",
+    "type": "invalid_request_error",
+    "param": "tools",
+    "code": "subscription_sharing_unsupported_capability"
+  }
+}

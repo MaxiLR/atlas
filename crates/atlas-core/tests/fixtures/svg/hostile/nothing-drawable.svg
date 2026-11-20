@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <title>Empty</title>
+  <script>alert(1)</script>
+  <foreignObject><body xmlns="http://www.w3.org/1999/xhtml">x</body></foreignObject>
+  <defs><rect id="r" width="10" height="10"/></defs>
+  <use href="#r"/>
+</svg>

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" onload="alert(1)" OnLoad="alert(2)">
+  <g ONCLICK="&#97;lert(3)" onMouseOver="&#x61;&#x6c;ert(4)">
+    <rect width="10" height="10" onfocusin="alert&#40;5&#41;" oNeRrOr="&#x6A;avascript:alert(6)"/>
+    <path d="M0 0L10 10" onbegin="alert(7)" stroke="currentColor"/>
+  </g>
+</svg>

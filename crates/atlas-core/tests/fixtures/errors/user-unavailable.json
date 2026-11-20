@@ -1,0 +1,8 @@
+{
+  "error": {
+    "message": "User and workspace information is temporarily unavailable.",
+    "type": "server_error",
+    "param": null,
+    "code": "subscription_sharing_user_unavailable"
+  }
+}

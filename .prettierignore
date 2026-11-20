@@ -2,3 +2,17 @@
 .claude/
 skills-lock.json
 docs/design/reference/
+
+# Lockfiles
+package-lock.json
+Cargo.lock
+
+# Build output and generated files
+target/
+node_modules/
+ui/dist/
+src-tauri/gen/
+ui/src/core/generated/
+ui/test-results/
+ui/playwright-report/
+ui/blob-report/

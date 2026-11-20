@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 270" fill="none" stroke="currentColor" stroke-width="1" role="img" aria-label="Cross-section of an oceanic plate bending beneath a continental plate at a trench, with melt rising to a volcanic arc.">
+  <path d="M0 70H322" opacity=".3" stroke-dasharray="2 4"/>
+  <path fill="var(--atlas-raised)" d="M0 96H300C350 96 370 110 400 132L560 250H505L378 156C352 136 335 124 290 124H0Z"/>
+  <path fill="var(--atlas-canvas)" d="M344 101 380 64 476 58 502 28 528 58H680V150H424Z"/>
+  <path d="M504 205 502 62" stroke-dasharray="3 4" opacity=".6"/>
+  <path d="M120 110H200m-7-5 7 5-7 5M430 174l44 32m-9.5-1.5 9.5 1.5-3-9" opacity=".8"/>
+  <text x="24" y="62">SEA LEVEL</text><text x="24" y="145">OCEANIC LITHOSPHERE</text><text x="292" y="84">TRENCH</text><text x="540" y="24">VOLCANIC ARC</text><text x="516" y="100">CONTINENTAL</text><text x="516" y="116">LITHOSPHERE</text><text x="60" y="214">ASTHENOSPHERE</text><text x="312" y="214">SLAB PULL</text><text x="516" y="186">MELT RISES</text>
+</svg>

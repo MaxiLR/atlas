@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The main window: the one core command, the core's event and dragging the window by its bar. URLs open from the core, so the webview gets no shell, filesystem, HTTP or opener permission.",
+  "windows": ["main"],
+  "permissions": [
+    "allow-core-request",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "core:window:allow-start-dragging"
+  ]
+}

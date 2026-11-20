@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 100 100">
+  <image href="data:image/svg+xml;base64,PHN2ZyBvbmxvYWQ9ImFsZXJ0KDEpIi8+" width="10" height="10"/>
+  <use xlink:href="data:image/svg+xml;utf8,&lt;svg id='x' onload='alert(1)'/&gt;#x"/>
+  <a href="data:text/html,&lt;script&gt;alert(1)&lt;/script&gt;"><circle r="5"/></a>
+  <rect width="20" height="20" fill="url(data:image/png;base64,AAAA)" stroke="url('data:image/svg+xml,x')"/>
+  <path d="M0 0H50" style="stroke:url(&quot;data:image/png;base64,AAAA&quot;)"/>
+</svg>

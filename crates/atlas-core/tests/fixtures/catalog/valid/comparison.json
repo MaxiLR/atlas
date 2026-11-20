@@ -1,0 +1,35 @@
+{
+  "root": "table",
+  "elements": {
+    "table": {
+      "type": "comparison",
+      "props": {
+        "caption": "The same collision, three outcomes",
+        "columns": [
+          "Ocean meets continent",
+          "Ocean meets ocean",
+          "Continent meets continent"
+        ],
+        "rows": [
+          {
+            "label": "What sinks",
+            "cells": [
+              "The oceanic plate",
+              "The older, colder plate",
+              "Neither, for long"
+            ]
+          },
+          {
+            "label": "What forms",
+            "cells": [
+              "A trench and a volcanic arc",
+              "An island arc",
+              "A high mountain belt"
+            ]
+          }
+        ]
+      },
+      "children": []
+    }
+  }
+}

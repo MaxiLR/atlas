@@ -1,0 +1,54 @@
+[workspace]
+resolver = "3"
+members = ["crates/atlas-core", "src-tauri"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+authors = ["MaxiLR"]
+publish = false
+
+[workspace.dependencies]
+atlas-core = { path = "crates/atlas-core" }
+
+# Shell
+tauri = { version = "2.12.7", features = [] }
+tauri-build = { version = "2.7.6", features = [] }
+tauri-plugin-opener = "2.7.3"
+tauri-plugin-dialog = "2.8.4"
+security-framework = "3.7.0"
+# The webview's print operation, for the PDF export.
+objc2 = "0.6.5"
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSDictionary", "NSGeometry", "NSString", "NSURL"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "objc2-core-foundation", "NSPrintInfo", "NSPrintOperation", "NSPrinter", "NSResponder", "NSView", "NSWindow"] }
+objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std", "objc2-app-kit", "WKWebView"] }
+
+# Core
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "sync", "time", "net", "io-util"] }
+futures = "0.3.34"
+async-trait = "0.1.92"
+thiserror = "2.0.21"
+uuid = { version = "1.29.3", features = ["v4", "v7", "serde"] }
+chrono = { version = "0.4.45", features = ["serde", "clock"] }
+rusqlite = { version = "0.43.0", features = ["bundled"] }
+ts-rs = { version = "12.0.1", features = ["uuid-impl", "chrono-impl", "serde-json-impl", "no-serde-warnings"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "http2", "charset", "json", "stream"] }
+url = { version = "2.5.8", features = ["serde"] }
+sha2 = "0.11.1"
+base64 = "0.23.1"
+rand = "0.10.4"
+jsonwebtoken = { version = "12.0.0", features = ["rust_crypto", "use_pem"] }
+jsonschema = { version = "0.61.2", default-features = false }
+quick-xml = "0.42.0"
+
+# Tests
+tempfile = "3.27.0"
+axum = "0.8.9"
+
+[workspace.lints.cargo]
+# The whole dependency set of v1 is declared up front so feature work never
+# edits a manifest; a dependency stays unused until its feature lands.
+unused_dependencies = "allow"

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 100 100">
+  <a><animate attributeName="href" to="javascript:alert(1)"/><text x="0" y="10">x</text></a>
+  <set attributeName="xlink:href" to="javascript:alert(2)"/>
+  <rect width="10" height="10">
+    <set attributeName="fill" to="url(http://evil.example/p#q)" begin="0s"/>
+    <animate attributeName="onclick" values="alert(3)"/>
+  </rect>
+  <animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="1s"/>
+  <animateMotion path="M0 0H10" dur="1s"/>
+  <discard begin="0s"/>
+  <circle r="10" cx="50" cy="50"/>
+</svg>

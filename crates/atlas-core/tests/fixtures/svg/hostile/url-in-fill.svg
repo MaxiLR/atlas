@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <rect width="10" height="10" fill="url(http://evil.example/p.svg#g)"/>
+  <rect x="10" width="10" height="10" stroke="url('https://evil.example/#a')"/>
+  <rect x="20" width="10" height="10" fill="url(#missing)"/>
+  <rect x="30" width="10" height="10" fill="URL(//evil.example/x.svg#y)"/>
+  <path d="M0 50H100" clip-path="url(http://evil.example/c.svg#c)" marker-end="url(//evil.example/m.svg#m)" filter="url(https://evil.example/f.svg#f)" mask="url(https://evil.example/k.svg#k)"/>
+</svg>

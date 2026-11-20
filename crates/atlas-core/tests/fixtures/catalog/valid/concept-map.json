@@ -1,0 +1,39 @@
+{
+  "root": "map",
+  "elements": {
+    "map": {
+      "type": "concept-map",
+      "props": {
+        "caption": "How plates, density and subduction connect",
+        "nodes": [
+          {
+            "id": "oceanic",
+            "label": "Oceanic plate"
+          },
+          {
+            "id": "continental",
+            "label": "Continental plate"
+          },
+          {
+            "id": "trench",
+            "label": "Trench"
+          }
+        ],
+        "links": [
+          {
+            "from": "oceanic",
+            "to": "continental",
+            "label": "sinks beneath",
+            "directed": true
+          },
+          {
+            "from": "oceanic",
+            "to": "trench",
+            "label": "bends into"
+          }
+        ]
+      },
+      "children": []
+    }
+  }
+}

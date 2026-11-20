@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 100 100">
+  <defs><path id="local" d="M0 0H10"/></defs>
+  <use href="http://evil.example/sprite.svg#icon"/>
+  <use xlink:href="//evil.example/a.svg#b" x="10"/>
+  <use href="#local"/>
+  <image href="https://evil.example/tracker.png" width="1" height="1"/>
+  <image xlink:href="file:///etc/passwd"/>
+  <line x1="0" y1="0" x2="100" y2="100" stroke="currentColor"/>
+</svg>

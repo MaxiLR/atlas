@@ -60,8 +60,13 @@ pub const PROPOSE_DEEP_DIVES: Prompt = Prompt {
     source: include_str!("../../../../prompts/propose-deep-dives.md"),
 };
 
+pub const EXPLAIN_DIFFERENTLY: Prompt = Prompt {
+    name: "explain-differently",
+    source: include_str!("../../../../prompts/explain-differently.md"),
+};
+
 /// Every prompt the core embeds.
-pub const ALL: [Prompt; 9] = [
+pub const ALL: [Prompt; 10] = [
     DRAFT_LADDER,
     PLACEMENT_QUESTION,
     BUILD_INDEX,
@@ -71,6 +76,7 @@ pub const ALL: [Prompt; 9] = [
     REPAIR_BLOCK,
     REPAIR_RECORD,
     DEFINE,
+    EXPLAIN_DIFFERENTLY,
 ];
 
 impl Prompt {

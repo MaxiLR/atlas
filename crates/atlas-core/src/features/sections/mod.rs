@@ -20,12 +20,24 @@ use uuid::Uuid;
 
 use super::Features;
 use crate::CoreDeps;
+use crate::harness::prompts::Prompt;
 use crate::ports::EventSink;
 use crate::protocol::{
     CoreError, CoreEvent, SectionVersion, SectionView, VersionStyle, VersionSummary,
 };
 use crate::provider::ModelProvider;
 use crate::store::{NodeKind, NodeRecord, Store, StoredSectionVersion};
+
+/// A new version written in place of the section's current one.
+pub(crate) struct Rewrite {
+    /// The version rewritten: its record goes with the request as the
+    /// account of that version.
+    pub(crate) parent: Uuid,
+    /// Added to the section's own instructions.
+    pub(crate) instructions: String,
+    /// The prompt the instructions come from, stored with the version.
+    pub(crate) prompt: Prompt,
+}
 
 /// What a generation, or a request that joined it, answers.
 type Outcome = Result<SectionView, CoreError>;
@@ -170,18 +182,19 @@ impl Feature {
 
     /// Generates a new version of the section `node` in `style`, streamed as
     /// events; once complete it is stored with its record, becomes current
-    /// and the section is read. `parent` is the version the new one rewrites:
-    /// its record goes with the request as the account of that version. A
-    /// generation already running for the section is joined instead.
+    /// and the section is read. With a `rewrite`, the request is the
+    /// rewrite's: its instructions and the record of the version it
+    /// rewrites go with it. A generation already running for the section is
+    /// joined instead.
     pub(crate) async fn generate(
         &self,
         cx: &Features,
         node: Uuid,
         style: VersionStyle,
-        parent: Option<Uuid>,
+        rewrite: Option<Rewrite>,
     ) -> Result<SectionView, CoreError> {
         let node = self.section_node(node)?;
-        self.run(cx, node, style, parent, false).await
+        self.run(cx, node, style, rewrite.as_ref(), false).await
     }
 
     /// Drives a new generation or joins the running one. With
@@ -192,14 +205,14 @@ impl Feature {
         cx: &Features,
         node: NodeRecord,
         style: VersionStyle,
-        parent: Option<Uuid>,
+        rewrite: Option<&Rewrite>,
         reuse_stored: bool,
     ) -> Outcome {
         match self.claim(node.id, reuse_stored)? {
             Claim::Stored(version) => self.opened(cx, &node, *version),
             Claim::Join(run) => join(run).await,
             Claim::Drive(stop, driving) => {
-                let outcome = self.write(cx, &node, style, parent, &stop).await;
+                let outcome = self.write(cx, &node, style, rewrite, &stop).await;
                 driving.finish(&outcome);
                 outcome
             }

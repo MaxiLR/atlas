@@ -2,10 +2,11 @@
 //!
 //! The request is the write-section prompt with the catalog's instructions,
 //! and the context the core selects from the course memory loaded from the
-//! store. The stream goes through the splitter: prose is reported as it
-//! arrives, each shown block is opened as a placeholder and completed once
-//! validated, repaired or replaced by its fallback, and the record block
-//! never leaves the core. The generation is complete once the provider
+//! store; a rewrite adds its own instructions and the record of the version
+//! it rewrites. The stream goes through the splitter: prose is reported as
+//! it arrives, each shown block is opened as a placeholder and completed
+//! once validated, repaired or replaced by its fallback, and the record
+//! block never leaves the core. The generation is complete once the provider
 //! reported completion, every shown block is resolved and the record is
 //! resolved; only then is anything stored, in one transaction. A stop drops
 //! the stream and whatever repair is under way at once.
@@ -24,7 +25,7 @@ use futures::StreamExt;
 use uuid::Uuid;
 
 use super::grounding::{Grounding, refuses_search};
-use super::{Feature, Features, Outcome, Stop, stopped};
+use super::{Feature, Features, Outcome, Rewrite, Stop, stopped};
 use crate::course_map;
 use crate::domain::conventions::ConventionOrigin;
 use crate::domain::course_map::MapEntry;
@@ -57,6 +58,8 @@ struct Plan {
     entry: MapEntry,
     /// The index keys of the sections after it, which a promise may name.
     later: Vec<String>,
+    /// The prompts the request was built from, stored with the version.
+    prompt: String,
 }
 
 /// How a generation ended without a version to store.
@@ -214,10 +217,10 @@ impl Feature {
         cx: &Features,
         node: &NodeRecord,
         style: VersionStyle,
-        parent: Option<Uuid>,
+        rewrite: Option<&Rewrite>,
         stop: &Stop,
     ) -> Outcome {
-        let plan = self.plan(cx, node, style, parent).await?;
+        let plan = self.plan(cx, node, style, rewrite).await?;
         let emit = Emitter {
             events: self.events.as_ref(),
             generation_id: Uuid::new_v4(),
@@ -256,7 +259,7 @@ impl Feature {
         cx: &Features,
         node: &NodeRecord,
         style: VersionStyle,
-        parent: Option<Uuid>,
+        rewrite: Option<&Rewrite>,
     ) -> Result<Plan, CoreError> {
         let course = node.course_id;
         let record = self
@@ -319,26 +322,36 @@ impl Feature {
             }
         })?;
         let mut input = context.input();
-        if let Some(parent) = parent {
-            input.push_str("\n\n");
-            input.push_str(&self.rewritten(node, parent)?);
-        }
-        let instructions = format!(
+        let mut instructions = format!(
             "{}\n\n## Catalog visuals\n\n{}",
             prompts::WRITE_SECTION.text(),
             catalog::prompt()
         );
+        let (task, prompt) = match rewrite {
+            Some(rewrite) => {
+                input.push_str("\n\n");
+                input.push_str(&self.rewritten(node, rewrite.parent)?);
+                instructions.push_str("\n\n");
+                instructions.push_str(&rewrite.instructions);
+                (
+                    Task::ExplainDifferently,
+                    format!("{}+{}", prompts::WRITE_SECTION.id(), rewrite.prompt.id()),
+                )
+            }
+            None => (Task::WriteSection, prompts::WRITE_SECTION.id()),
+        };
         Ok(Plan {
             node: node.id,
             course,
             style,
             request: ProviderRequest {
                 model: cx.models.current(cx).await?,
-                ..ProviderRequest::new(Task::WriteSection, instructions, input)
+                ..ProviderRequest::new(task, instructions, input)
             },
             ladder: memory.ladder,
             entry,
             later,
+            prompt,
         })
     }
 
@@ -621,7 +634,7 @@ impl Feature {
                     status: record.status,
                 },
                 model: plan.request.model.clone(),
-                prompt: prompts::WRITE_SECTION.id(),
+                prompt: plan.prompt.clone(),
             };
             (version, applied.fixed)
         })?;

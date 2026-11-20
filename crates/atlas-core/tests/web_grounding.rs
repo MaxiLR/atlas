@@ -18,6 +18,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use atlas_core::Core;
 use atlas_core::domain::conventions::{Convention, ConventionOrigin};
+use atlas_core::harness::citations::{Citations, PlacedCitations};
 use atlas_core::protocol::{
     Activity, Block, BlockContent, Citation, CoreError, CoreEvent, CoreRequest, CoreResponse,
     GenerationEvent, GenerationOutcome, GenerationTarget, Model, SectionView, Source, VersionStyle,
@@ -605,4 +606,56 @@ async fn a_plan_limit_during_the_stream_is_not_mistaken_for_a_refusal() {
     let next = harness.open(KINDS_OF_BOUNDARY).await.expect("written");
     assert_eq!(harness.searches(), [true, true]);
     assert!(!next.version.written_without_search);
+}
+
+// -- the citation helper ---------------------------------------------------------
+
+/// Places `cited` on an output whose prose runs are `prose` (output start,
+/// block, characters), once the output is complete.
+fn placed_on(prose: &[(u32, u32, u32)], cited: &[(&str, u32, u32)]) -> PlacedCitations {
+    let mut citations = Citations::new();
+    for &(start, block, chars) in prose {
+        citations.prose(start, block, chars);
+    }
+    for &(url, start, end) in cited {
+        citations.cite(ProviderCitation {
+            url: url.to_owned(),
+            title: url.to_owned(),
+            start,
+            end,
+        });
+    }
+    citations.finish();
+    citations.into_placed()
+}
+
+#[test]
+fn a_range_running_past_its_block_is_cut_at_the_block_end() {
+    // Block 0 is output 0..10, a fence 10..30, block 2 is output 30..40.
+    let placed = placed_on(&[(0, 0, 10), (30, 2, 10)], &[("a", 4, 35)]);
+    assert_eq!(placed.citations, [citation(0, 4, 10, 1)]);
+}
+
+#[test]
+fn a_block_split_by_the_record_keeps_counting_its_own_text() {
+    // Block 0 is output 0..10, the record 10..30, block 0 again 30..40.
+    let placed = placed_on(&[(0, 0, 10), (30, 0, 10)], &[("a", 32, 36), ("a", 5, 34)]);
+    assert_eq!(
+        placed.citations,
+        [citation(0, 12, 16, 1), citation(0, 5, 14, 1)]
+    );
+    assert_eq!(placed.sources, [source(1, "a", "a")]);
+}
+
+#[test]
+fn a_range_inside_a_block_before_any_prose_marks_the_start_of_the_first_prose() {
+    // A figure is output 0..20, block 1 is output 20..30.
+    let placed = placed_on(&[(20, 1, 10)], &[("a", 5, 9)]);
+    assert_eq!(placed.citations, [citation(1, 0, 0, 1)]);
+}
+
+#[test]
+fn a_citation_of_an_output_without_prose_is_dropped() {
+    let placed = placed_on(&[], &[("a", 0, 4)]);
+    assert_eq!(placed, PlacedCitations::default());
 }

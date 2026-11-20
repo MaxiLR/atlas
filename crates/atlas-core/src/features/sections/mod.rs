@@ -9,6 +9,7 @@
 //! and a stop request ends it at once.
 
 mod generation;
+mod grounding;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -35,6 +36,9 @@ pub(crate) struct Feature {
     events: Arc<dyn EventSink>,
     /// The generation running for each section.
     runs: Mutex<HashMap<Uuid, Run>>,
+    /// The route refused the search tool this session: sections are written
+    /// without it.
+    search_refused: AtomicBool,
 }
 
 /// A generation under way, shared by every request for its section.
@@ -116,6 +120,7 @@ impl Feature {
             provider: deps.provider.clone(),
             events: deps.events.clone(),
             runs: Mutex::default(),
+            search_refused: AtomicBool::new(false),
         })
     }
 

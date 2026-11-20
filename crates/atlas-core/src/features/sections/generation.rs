@@ -9,13 +9,21 @@
 //! reported completion, every shown block is resolved and the record is
 //! resolved; only then is anything stored, in one transaction. A stop drops
 //! the stream and whatever repair is under way at once.
+//!
+//! The request turns the hosted web search on. The provider's citations are
+//! placed on the prose blocks as they arrive ([`super::grounding`]) and stored
+//! with the version's numbered sources. When the route refuses the search
+//! tool, before or during the stream, the section is written once more without
+//! it and stored as written without search, and every later section of the
+//! session is written without it.
 
 use std::collections::HashMap;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use futures::StreamExt;
 use uuid::Uuid;
 
+use super::grounding::{Grounding, refuses_search};
 use super::{Feature, Features, Outcome, Stop, stopped};
 use crate::course_map;
 use crate::domain::conventions::ConventionOrigin;
@@ -23,6 +31,7 @@ use crate::domain::course_map::MapEntry;
 use crate::domain::ladder::Ladder;
 use crate::domain::profile::CandidateProfile;
 use crate::domain::record::StoredRecord;
+use crate::harness::citations::PlacedCitations;
 use crate::harness::context::{Budget, CourseMemory, IndexKeys, section_context};
 use crate::harness::record::{apply_conventions, resolve as resolve_record};
 use crate::harness::splitter::{ReservedKind, SplitEvent, Splitter};
@@ -31,8 +40,8 @@ use crate::harness::{catalog, prompts};
 use crate::index_tree::in_index_order;
 use crate::ports::EventSink;
 use crate::protocol::{
-    Activity, Block, BlockContent, BlockKind, CoreError, CoreEvent, GenerationEvent,
-    GenerationOutcome, GenerationTarget, Goal, VersionStyle,
+    Activity, Block, BlockContent, BlockKind, Citation, CoreError, CoreEvent, GenerationEvent,
+    GenerationOutcome, GenerationTarget, Goal, Source, VersionStyle,
 };
 use crate::provider::{ProviderError, ProviderEvent, ProviderRequest, Task};
 use crate::store::{CheckBlock, NewSectionVersion, NodeRecord, StoreError, StoredSectionVersion};
@@ -55,6 +64,12 @@ enum Ended {
     Stopped,
     Incomplete(Option<String>),
     Failed(CoreError),
+    /// The route refused the search tool; `streamed` tells whether the
+    /// stream had begun.
+    SearchRefused {
+        error: ProviderError,
+        streamed: bool,
+    },
 }
 
 impl From<CoreError> for Ended {
@@ -96,6 +111,7 @@ impl Ended {
                 },
                 error,
             ),
+            Self::SearchRefused { error, .. } => Self::Failed(error.into()).into_outcome(),
         }
     }
 }
@@ -105,6 +121,9 @@ struct Written {
     blocks: Vec<Block>,
     checks: Vec<CheckBlock>,
     record: StoredRecord,
+    grounding: PlacedCitations,
+    /// Written after the route refused the search tool.
+    without_search: bool,
 }
 
 /// The section as it arrives: the blocks resolved so far, the prose block
@@ -166,6 +185,13 @@ impl Emitter<'_> {
             event,
         });
     }
+
+    /// Reports each citation placed, with its source.
+    fn citations(&self, placed: Vec<(Citation, Source)>) {
+        for (citation, source) in placed {
+            self.event(GenerationEvent::CitationAdded { citation, source });
+        }
+    }
 }
 
 /// The kind a shown block is opened as; none for the record.
@@ -205,7 +231,7 @@ impl Feature {
         let written = tokio::select! {
             biased;
             () = stop.requested() => Err(Ended::Stopped),
-            written = self.stream(&plan, &emit, &stop.requested) => written,
+            written = self.ground(&plan, &emit, &stop.requested) => written,
         };
         match written.and_then(|written| Ok(self.store_version(&plan, written)?)) {
             Ok(version) => {
@@ -339,19 +365,63 @@ impl Feature {
         ))
     }
 
-    /// Streams the section through the splitter, resolving each shown block
-    /// as it closes, then resolves the record. What the agent is doing is
-    /// reported as it changes: writing from the start and whenever text
-    /// arrives again after a search or a retry.
-    async fn stream(
+    /// Writes the section with web search, unless the route refused it
+    /// earlier in the session; on a refusal, writes it once more without
+    /// search and remembers the refusal. Whatever streamed before the
+    /// refusal is void, as after a retry.
+    async fn ground(
         &self,
         plan: &Plan,
         emit: &Emitter<'_>,
         stopped: &AtomicBool,
     ) -> Result<Written, Ended> {
-        let mut stream = self.provider.stream(plan.request.clone()).await?;
+        if !self.search_refused.load(Ordering::Acquire) {
+            match self.stream(plan, emit, stopped, true).await {
+                Err(Ended::SearchRefused { streamed, .. }) => {
+                    self.search_refused.store(true, Ordering::Release);
+                    if streamed {
+                        emit.event(GenerationEvent::Activity {
+                            activity: Activity::Retrying { attempt: 2 },
+                        });
+                    }
+                }
+                written => return written,
+            }
+        }
+        self.stream(plan, emit, stopped, false).await
+    }
+
+    /// Streams the section through the splitter, with web search when
+    /// `search` holds, resolving each shown block as it closes and placing
+    /// each citation as the text it cites arrives, then resolves the record.
+    /// What the agent is doing is reported as it changes: writing from the
+    /// start and whenever text arrives again after a search or a retry.
+    async fn stream(
+        &self,
+        plan: &Plan,
+        emit: &Emitter<'_>,
+        stopped: &AtomicBool,
+        search: bool,
+    ) -> Result<Written, Ended> {
+        let ended = |error: ProviderError, streamed: bool| {
+            if search && refuses_search(&error) {
+                Ended::SearchRefused { error, streamed }
+            } else {
+                error.into()
+            }
+        };
+        let request = ProviderRequest {
+            web_search: search,
+            ..plan.request.clone()
+        };
+        let mut stream = self
+            .provider
+            .stream(request)
+            .await
+            .map_err(|error| ended(error, false))?;
         let mut splitter = Splitter::new();
         let mut section = Section::default();
+        let mut grounding = Grounding::default();
         let mut activity = None;
         let mut report = |now: Activity| {
             if activity.as_ref() != Some(&now) {
@@ -366,22 +436,24 @@ impl Feature {
             let event = stream
                 .next()
                 .await
-                .unwrap_or(Err(ProviderError::Incomplete { request_id: None }))?;
+                .unwrap_or(Err(ProviderError::Incomplete { request_id: None }))
+                .map_err(|error| ended(error, true))?;
             match event {
                 ProviderEvent::TextDelta(text) => {
                     report(Activity::Writing);
                     for split in splitter.push(text.as_bytes()) {
                         self.take(plan, emit, &mut section, split, stopped).await;
                     }
+                    emit.citations(grounding.push(&text));
                 }
                 ProviderEvent::Searching => report(Activity::Searching),
                 ProviderEvent::Retrying { attempt } => {
                     splitter = Splitter::new();
                     section = Section::default();
+                    grounding = Grounding::default();
                     report(Activity::Retrying { attempt });
                 }
-                // Citations are not kept yet.
-                ProviderEvent::Citation(_) => {}
+                ProviderEvent::Citation(citation) => emit.citations(grounding.cite(citation)),
                 ProviderEvent::Completed => break,
                 ProviderEvent::Incomplete { reason } => return Err(Ended::Incomplete(reason)),
             }
@@ -390,6 +462,8 @@ impl Feature {
         for split in splitter.finish() {
             self.take(plan, emit, &mut section, split, stopped).await;
         }
+        let (last, grounding) = grounding.finish();
+        emit.citations(last);
 
         // A section deleted while it was written is not stored, so no repair
         // is spent on its record.
@@ -409,6 +483,8 @@ impl Feature {
             blocks: section.blocks,
             checks: section.checks,
             record,
+            grounding,
+            without_search: !search,
         })
     }
 
@@ -522,6 +598,8 @@ impl Feature {
             blocks,
             checks,
             record,
+            grounding,
+            without_search,
         } = written;
         self.store.insert_version_with(plan.node, |existing| {
             let applied = apply_conventions(
@@ -535,9 +613,9 @@ impl Feature {
                 style: plan.style,
                 blocks,
                 checks,
-                citations: Vec::new(),
-                sources: Vec::new(),
-                written_without_search: false,
+                citations: grounding.citations,
+                sources: grounding.sources,
+                written_without_search: without_search,
                 record: StoredRecord {
                     record: applied.record,
                     status: record.status,

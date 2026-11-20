@@ -23,9 +23,13 @@ The existing ChatGPT sign-in is replaced, not joined by a second route:
   and Codex's authorisation parameters. Atlas sends `originator=atlas`; it does
   not pose as OMP or the Codex CLI.
 - The callback is the one OpenAI allowlists for that client,
-  `http://localhost:1455/auth/callback`, listened on at `127.0.0.1:1455`. When
-  the port cannot be bound the sign-in fails and says so; Atlas never falls
-  back to another port and never stops whatever holds it.
+  `http://localhost:1455/auth/callback`. `localhost` resolves to both
+  loopback addresses and browsers often try `::1` first, so Atlas listens on
+  `127.0.0.1:1455` and `[::1]:1455`; otherwise a program holding only `::1`
+  would receive the code. When either address cannot be bound the sign-in
+  fails and says so; only a system without IPv6 loopback is served on
+  `127.0.0.1` alone. Atlas never falls back to another port, never binds a
+  wildcard address and never stops whatever holds the port.
 - The identity comes from the ID token's claims, which must name the
   authorisation server and the Codex client. The tokens arrive straight from
   the token endpoint over TLS, so no signature is checked.

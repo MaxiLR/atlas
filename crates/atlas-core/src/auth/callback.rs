@@ -1,11 +1,17 @@
 //! The loopback listener the browser returns to. The Codex client allowlists
 //! one callback, `http://localhost:1455/auth/callback`, so the listener takes
-//! that port on `127.0.0.1` or fails; it never falls back to another port and
-//! never stops whatever holds it.
+//! that port or fails; it never falls back to another port and never stops
+//! whatever holds it.
+//!
+//! `localhost` resolves to both `127.0.0.1` and `::1`, and browsers commonly
+//! try `::1` first, so the listener takes the port on both loopback
+//! addresses: a program holding only `::1` would otherwise receive the
+//! authorisation code. Another program on either address fails the sign-in.
+//! Only a system without IPv6 loopback is served on `127.0.0.1` alone.
 
 use std::collections::HashMap;
 use std::io;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 use std::time::Duration;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -28,14 +34,35 @@ pub(super) fn redirect_uri(port: u16) -> String {
 }
 
 pub(super) struct CallbackListener {
-    listener: TcpListener,
+    ipv4: TcpListener,
+    /// `None` only where the system has no IPv6 loopback.
+    ipv6: Option<TcpListener>,
 }
 
 impl CallbackListener {
-    /// Listens on `127.0.0.1` at `port`.
+    /// Listens on `127.0.0.1` and `::1` at `port`. Fails with
+    /// [`io::ErrorKind::AddrInUse`] when either is taken, holding neither.
     pub async fn bind(port: u16) -> io::Result<Self> {
-        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, port)).await?;
-        Ok(Self { listener })
+        let ipv4 = TcpListener::bind((Ipv4Addr::LOCALHOST, port)).await?;
+        let ipv6 = match TcpListener::bind((Ipv6Addr::LOCALHOST, port)).await {
+            Ok(ipv6) => Some(ipv6),
+            Err(error) if no_ipv6_loopback(&error) => None,
+            // Dropping `ipv4` here releases it.
+            Err(error) => return Err(error),
+        };
+        Ok(Self { ipv4, ipv6 })
+    }
+
+    /// The next connection on either loopback address.
+    async fn accept(&self) -> io::Result<TcpStream> {
+        let accepted = match &self.ipv6 {
+            Some(ipv6) => tokio::select! {
+                accepted = self.ipv4.accept() => accepted,
+                accepted = ipv6.accept() => accepted,
+            },
+            None => self.ipv4.accept().await,
+        };
+        accepted.map(|(stream, _)| stream)
     }
 
     /// Waits for the browser to reach the callback path and returns its
@@ -43,7 +70,7 @@ impl CallbackListener {
     pub async fn wait(self) -> io::Result<HashMap<String, String>> {
         let base = Url::parse("http://localhost/").expect("a valid base URL");
         loop {
-            let (mut stream, _) = self.listener.accept().await?;
+            let mut stream = self.accept().await?;
             let Ok(Ok(target)) = tokio::time::timeout(READ_TIMEOUT, read_target(&mut stream)).await
             else {
                 continue;
@@ -60,6 +87,18 @@ impl CallbackListener {
             return Ok(url.query_pairs().into_owned().collect());
         }
     }
+}
+
+/// Whether `error`, binding `::1`, means the system has no IPv6 loopback:
+/// the address is not configured or the family is not supported. Any other
+/// error, a taken port above all, fails the sign-in.
+fn no_ipv6_loopback(error: &io::Error) -> bool {
+    // `EAFNOSUPPORT`, which `io::ErrorKind` does not name.
+    const FAMILY_NOT_SUPPORTED: i32 = if cfg!(target_os = "linux") { 97 } else { 47 };
+    matches!(
+        error.kind(),
+        io::ErrorKind::AddrNotAvailable | io::ErrorKind::Unsupported
+    ) || error.raw_os_error() == Some(FAMILY_NOT_SUPPORTED)
 }
 
 /// Reads a request head and returns the target of a `GET`.

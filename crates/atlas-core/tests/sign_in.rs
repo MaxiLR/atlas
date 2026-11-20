@@ -89,6 +89,7 @@ struct AuthState {
     /// The form of every token request, in order.
     token_forms: Vec<HashMap<String, String>>,
     codes: HashSet<String>,
+    code_counter: u32,
     counter: u32,
 }
 
@@ -154,8 +155,8 @@ async fn authorize(
             .append_pair("state", &param("state"));
         return Redirect::to(callback.as_str()).into_response();
     }
-    state.counter += 1;
-    let code = format!("code-{}", state.counter);
+    state.code_counter += 1;
+    let code = format!("code-{}", state.code_counter);
     state.codes.insert(code.clone());
     callback
         .query_pairs_mut()
@@ -439,14 +440,48 @@ async fn a_dropped_sign_in_frees_the_callback_port() {
     let pending = auth.start().await.expect("the attempt starts");
     assert!(
         std::net::TcpListener::bind(("127.0.0.1", 1455)).is_err(),
-        "the attempt listens on the callback port"
+        "the attempt listens on the IPv4 callback port"
     );
+    if ipv6_loopback() {
+        assert!(
+            std::net::TcpListener::bind(("::1", 1455)).is_err(),
+            "the attempt listens on the IPv6 callback port"
+        );
+    }
     drop(pending);
 
     assert!(
         std::net::TcpListener::bind(("127.0.0.1", 1455)).is_ok(),
-        "dropping the attempt frees the port"
+        "dropping the attempt frees the IPv4 port"
     );
+    if ipv6_loopback() {
+        assert!(
+            std::net::TcpListener::bind(("::1", 1455)).is_ok(),
+            "dropping the attempt frees the IPv6 port"
+        );
+    }
+}
+
+#[tokio::test]
+async fn an_ipv6_callback_port_conflict_prevents_sign_in_and_releases_ipv4() {
+    let harness = Harness::new().await;
+    let _occupied =
+        std::net::TcpListener::bind(("::1", 1455)).expect("the IPv6 callback port is free");
+
+    let started = harness.auth.start().await;
+
+    assert!(
+        matches!(
+            started,
+            Err(AuthError::CallbackUnavailable { port: 1455, .. })
+        ),
+        "a conflicting IPv6 listener must prevent the browser sign-in"
+    );
+    assert!(
+        std::net::TcpListener::bind(("127.0.0.1", 1455)).is_ok(),
+        "a failed dual-loopback bind releases its IPv4 listener"
+    );
+    assert_eq!(harness.server.token_request_count(), 0);
 }
 
 /// Opens nothing.
@@ -455,6 +490,70 @@ struct IdleBrowser;
 impl Browser for IdleBrowser {
     fn open(&self, _url: &Url) -> Result<(), BrowserError> {
         Ok(())
+    }
+}
+
+/// Whether this system has an IPv6 loopback to listen on.
+fn ipv6_loopback() -> bool {
+    std::net::TcpListener::bind(("::1", 0)).is_ok()
+}
+
+/// Approves like [`RedirectingBrowser`], but returns to the callback on
+/// `host` instead of resolving `localhost`.
+struct LoopbackBrowser {
+    host: &'static str,
+}
+
+impl Browser for LoopbackBrowser {
+    fn open(&self, url: &Url) -> Result<(), BrowserError> {
+        let url = url.clone();
+        let host = self.host;
+        tokio::spawn(async move {
+            let client = reqwest::Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .expect("an HTTP client");
+            let Ok(page) = client.get(url).send().await else {
+                return;
+            };
+            let Some(mut callback) = page
+                .headers()
+                .get(reqwest::header::LOCATION)
+                .and_then(|location| location.to_str().ok())
+                .and_then(|location| Url::parse(location).ok())
+            else {
+                return;
+            };
+            callback.set_host(Some(host)).expect("a loopback host");
+            let _ = client.get(callback).send().await;
+        });
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn a_callback_on_either_loopback_address_completes_the_sign_in() {
+    let mut hosts = vec!["127.0.0.1"];
+    if ipv6_loopback() {
+        hosts.push("[::1]");
+    }
+    for host in hosts {
+        let harness = Harness::new().await;
+        let auth = PlanAuth::new(PlanAuthDeps {
+            endpoints: Endpoints::local(&harness.server.inner.base),
+            secrets: harness.secrets.clone(),
+            browser: Arc::new(LoopbackBrowser { host }),
+            clock: harness.clock.clone(),
+        });
+
+        let pending = auth.start().await.expect("the attempt starts");
+        let login = tokio::time::timeout(Duration::from_secs(10), pending.finish())
+            .await
+            .unwrap_or_else(|_| panic!("the callback on {host} is accepted"))
+            .unwrap_or_else(|error| panic!("the sign-in through {host} fails: {error}"));
+
+        assert_eq!(login.identity.email, EMAIL, "through {host}");
+        assert_eq!(harness.server.token_requests("authorization_code").len(), 1);
     }
 }
 

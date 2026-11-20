@@ -696,16 +696,15 @@ fn listed_models() -> Reply {
 }
 
 /// The core on the plan provider, against `server`, capturing into `capture`.
+#[allow(clippy::field_reassign_with_default)]
 fn plan_core(
     dir: &Path,
     server: &TestServer,
     signed_in: bool,
     capture: Option<Arc<Capture>>,
 ) -> LiveCore {
-    let ports = FakePorts {
-        endpoints: server.endpoints(),
-        ..FakePorts::default()
-    };
+    let mut ports = FakePorts::default();
+    ports.endpoints = server.endpoints();
     if signed_in {
         sign_in(ports.secrets.as_ref());
     }

@@ -75,10 +75,3 @@ impl Features {
         })
     }
 }
-
-/// The answer of a feature that is not built yet.
-pub(crate) fn unavailable(feature: &str) -> CoreError {
-    CoreError::Unavailable {
-        feature: feature.to_owned(),
-    }
-}

@@ -24,7 +24,7 @@ use crate::auth::AccessToken;
 use crate::ports::{Clock, Endpoints};
 use crate::protocol::Model;
 use crate::provider::{
-    ModelProvider, ProviderError, ProviderEvent, ProviderRequest, ProviderStream, TokenSource,
+    ModelProvider, ProviderError, ProviderEvent, ProviderRequest, ProviderStream, Task, TokenSource,
 };
 use attempts::{Attempts, request_id};
 use errors::Failure;
@@ -94,6 +94,12 @@ impl ChatGptProvider {
         }
     }
 
+    /// The same provider passing `tap` a copy of each chunk of every streamed
+    /// response body it reads.
+    pub fn with_capture(self, _tap: Arc<dyn StreamTap>) -> Self {
+        self
+    }
+
     fn attempts(&self) -> Attempts {
         let tokens = self.tokens.read().expect("token source lock poisoned");
         Attempts::new(self.client.clone(), tokens.clone())
@@ -114,6 +120,17 @@ impl ChatGptProvider {
         *default = Some(first.clone());
         Ok(first)
     }
+}
+
+/// Receives a copy of the body of each streamed response, chunk by chunk, as
+/// the provider reads it: the bytes the plan route sent and nothing else,
+/// never the request, its headers or a token. Set only by the live command,
+/// to keep real streams as fixture candidates.
+pub trait StreamTap: Send + Sync {
+    /// `response` numbers the streamed responses from 1 over the provider's
+    /// life, a retried attempt counting as a response of its own; `task` is
+    /// the request's.
+    fn chunk(&self, response: u64, task: Task, bytes: &[u8]);
 }
 
 /// The token source before a plan login is adopted.

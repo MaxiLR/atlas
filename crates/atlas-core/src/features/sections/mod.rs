@@ -9,7 +9,7 @@
 //! and a stop request ends it at once.
 
 mod generation;
-mod grounding;
+pub(super) mod grounding;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};

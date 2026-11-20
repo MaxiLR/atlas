@@ -66,7 +66,8 @@ fn chars(text: &str) -> u32 {
 
 /// Whether the route refused the hosted search tool: the unsupported
 /// capability is `tools`, one of its entries, or the search tool itself.
-pub(super) fn refuses_search(error: &ProviderError) -> bool {
+/// Side-chat replies are grounded the same way.
+pub(crate) fn refuses_search(error: &ProviderError) -> bool {
     matches!(
         error,
         ProviderError::Unsupported { param: Some(param), .. }

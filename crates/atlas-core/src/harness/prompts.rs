@@ -65,8 +65,13 @@ pub const EXPLAIN_DIFFERENTLY: Prompt = Prompt {
     source: include_str!("../../../../prompts/explain-differently.md"),
 };
 
+pub const SIDE_CHAT_REPLY: Prompt = Prompt {
+    name: "side-chat-reply",
+    source: include_str!("../../../../prompts/side-chat-reply.md"),
+};
+
 /// Every prompt the core embeds.
-pub const ALL: [Prompt; 10] = [
+pub const ALL: [Prompt; 11] = [
     DRAFT_LADDER,
     PLACEMENT_QUESTION,
     BUILD_INDEX,
@@ -77,6 +82,7 @@ pub const ALL: [Prompt; 10] = [
     REPAIR_RECORD,
     DEFINE,
     EXPLAIN_DIFFERENTLY,
+    SIDE_CHAT_REPLY,
 ];
 
 impl Prompt {

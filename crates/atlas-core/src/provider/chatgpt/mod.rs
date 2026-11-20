@@ -12,6 +12,7 @@ pub use request::{build_responses_body, models_url, request_headers, responses_u
 pub use stream::{ResponseFailure, ResponsesEvent, ResponsesStreamParser};
 
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
@@ -64,6 +65,14 @@ pub struct ChatGptProvider {
     clock: Arc<dyn Clock>,
     /// The first model listed, used when a request names none.
     default_model: Mutex<Option<String>>,
+    /// Where a copy of each streamed body goes; the live command's only.
+    capture: Option<Arc<Capture>>,
+}
+
+/// A tap and the count of the responses it has been given.
+struct Capture {
+    tap: Arc<dyn StreamTap>,
+    responses: AtomicU64,
 }
 
 impl ChatGptProvider {
@@ -76,6 +85,7 @@ impl ChatGptProvider {
             tokens: RwLock::new(tokens),
             clock,
             default_model: Mutex::new(None),
+            capture: None,
         }
     }
 
@@ -96,8 +106,14 @@ impl ChatGptProvider {
 
     /// The same provider passing `tap` a copy of each chunk of every streamed
     /// response body it reads.
-    pub fn with_capture(self, _tap: Arc<dyn StreamTap>) -> Self {
-        self
+    pub fn with_capture(self, tap: Arc<dyn StreamTap>) -> Self {
+        Self {
+            capture: Some(Arc::new(Capture {
+                tap,
+                responses: AtomicU64::new(0),
+            })),
+            ..self
+        }
     }
 
     fn attempts(&self) -> Attempts {
@@ -156,6 +172,7 @@ fn unbuildable(_: reqwest::Error) -> ProviderError {
 #[async_trait]
 impl ModelProvider for ChatGptProvider {
     async fn stream(&self, request: ProviderRequest) -> Result<ProviderStream, ProviderError> {
+        let task = request.task;
         let body = match request.model {
             Some(_) => build_responses_body(&request, ""),
             None => build_responses_body(&request, &self.default_model().await?),
@@ -172,6 +189,7 @@ impl ModelProvider for ChatGptProvider {
             clock: self.clock.clone(),
             step: Step::Open,
             pending: VecDeque::new(),
+            capture: self.capture.clone().map(|capture| (capture, task)),
         };
         Ok(Box::pin(futures::stream::unfold(exchange, Exchange::next)))
     }
@@ -224,6 +242,8 @@ struct Reading {
     response: Response,
     parser: ResponsesStreamParser,
     request_id: Option<String>,
+    /// The response's number for the capture, when there is one.
+    captured: Option<u64>,
 }
 
 /// One streamed response through all its attempts.
@@ -234,6 +254,8 @@ struct Exchange {
     step: Step,
     /// Items ready for the caller, in order.
     pending: VecDeque<Result<ProviderEvent, ProviderError>>,
+    /// The capture, with the request's task.
+    capture: Option<(Arc<Capture>, Task)>,
 }
 
 impl Exchange {
@@ -251,17 +273,28 @@ impl Exchange {
                 Step::Open => match self.attempts.send(&self.request).await {
                     Ok(response) => {
                         let request_id = request_id(response.headers());
+                        let captured = self.capture.as_ref().map(|(capture, _)| {
+                            capture.responses.fetch_add(1, Ordering::Relaxed) + 1
+                        });
                         self.step = Step::Read(Box::new(Reading {
                             response,
                             parser: ResponsesStreamParser::new(request_id.clone()),
                             request_id,
+                            captured,
                         }));
                     }
                     Err(failure) => self.recover(failure).await,
                 },
                 Step::Read(mut reading) => {
                     let (events, open) = match reading.response.chunk().await {
-                        Ok(Some(chunk)) => (reading.parser.feed(&chunk), true),
+                        Ok(Some(chunk)) => {
+                            if let (Some((capture, task)), Some(number)) =
+                                (&self.capture, reading.captured)
+                            {
+                                capture.tap.chunk(number, *task, &chunk);
+                            }
+                            (reading.parser.feed(&chunk), true)
+                        }
                         // Without a terminal event, the ended stream is broken.
                         Ok(None) => (std::mem::take(&mut reading.parser).finish(), false),
                         Err(_) => {

@@ -665,8 +665,10 @@ fn plan_core(
     signed_in: bool,
     capture: Option<Arc<Capture>>,
 ) -> LiveCore {
-    let mut ports = FakePorts::default();
-    ports.endpoints = server.endpoints();
+    let ports = FakePorts {
+        endpoints: server.endpoints(),
+        ..FakePorts::default()
+    };
     if signed_in {
         sign_in(ports.secrets.as_ref());
     }
@@ -821,4 +823,113 @@ async fn with_an_empty_secret_store_the_fake_gets_no_request_either() {
 
     assert!(matches!(result, Err(LiveError::SignInFirst)), "{result:?}");
     assert!(harness.provider.requests().is_empty());
+}
+
+#[tokio::test]
+async fn a_failed_ladder_skips_every_task_after_it() {
+    let provider = FakeProvider::new(FakeScript::sample()).answer(
+        Task::DraftLadder,
+        [Err(ProviderError::PlanLimit {
+            resets_at: None,
+            request_id: None,
+        })],
+    );
+    let harness = start(provider, true);
+
+    let report = harness.run(&LiveTask::ALL).await;
+
+    assert_eq!(
+        line(&report, LiveTask::DraftLadder).result,
+        LiveResult::Failed(CoreError::PlanLimit { resets_at: None })
+    );
+    for task in &LiveTask::ALL[1..] {
+        assert_eq!(line(&report, *task).result, LiveResult::Skipped, "{task:?}");
+    }
+    let tasks: Vec<Task> = harness
+        .provider
+        .requests()
+        .iter()
+        .map(|request| request.task)
+        .collect();
+    assert_eq!(tasks, vec![Task::DraftLadder]);
+}
+
+#[tokio::test]
+async fn the_model_asked_for_is_the_one_every_request_names() {
+    let dir = tempfile::tempdir().unwrap();
+    let ports = FakePorts::default();
+    sign_in(ports.secrets.as_ref());
+    let provider = Arc::new(succeeding());
+    let core = LiveCore::new(ports.deps(
+        dir.path().join("atlas.sqlite3"),
+        provider.clone(),
+        Arc::new(atlas_core::testing::RecordingEvents::default()),
+    ))
+    .unwrap()
+    .with_model(Some("gpt-older".to_owned()));
+
+    let report = live::run(&[LiveTask::Define], &core, &mut std::io::sink())
+        .await
+        .unwrap();
+
+    assert_eq!(
+        line(&report, LiveTask::Define).model.as_deref(),
+        Some("gpt-older")
+    );
+    assert_eq!(report.models.unwrap().current.as_deref(), Some("gpt-older"));
+    let models: Vec<_> = provider
+        .requests()
+        .into_iter()
+        .map(|request| request.model)
+        .collect();
+    assert_eq!(models, vec![Some("gpt-older".to_owned())]);
+}
+
+#[tokio::test]
+async fn with_a_usage_login_the_report_carries_a_usage_reading() {
+    let usage = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/usage/five-hour-weekly.json"
+    ))
+    .unwrap();
+    let server = TestServer::start([Route::get(
+        "/chatgpt/backend-api/wham/usage",
+        [Reply::new(200, "application/json", usage)],
+    )])
+    .await;
+    let dir = tempfile::tempdir().unwrap();
+    let ports = FakePorts {
+        endpoints: server.endpoints(),
+        ..FakePorts::default()
+    };
+    sign_in(ports.secrets.as_ref());
+    let login = json!({
+        "accessToken": "usage-access-live",
+        "refreshToken": "usage-refresh-live",
+        "expiresAt": "2030-01-01T00:00:00Z",
+        "signedInAt": "2025-12-01T00:00:00Z",
+        "accountId": "account-live",
+        "email": "engineer@example.com",
+        "plan": "pro",
+    });
+    ports
+        .secrets
+        .write(SecretRecord::UsageLogin, &login.to_string())
+        .unwrap();
+    let core = LiveCore::new(ports.deps(
+        dir.path().join("atlas.sqlite3"),
+        Arc::new(succeeding()),
+        Arc::new(atlas_core::testing::RecordingEvents::default()),
+    ))
+    .unwrap();
+
+    let report = live::run(&[LiveTask::Define], &core, &mut std::io::sink())
+        .await
+        .unwrap();
+
+    match &report.usage {
+        Ok(UsageState::Connected { reading }) => assert!(!reading.windows.is_empty()),
+        other => panic!("expected a usage reading, got {other:?}"),
+    }
+    assert!(report.table().contains("5h"), "{}", report.table());
 }

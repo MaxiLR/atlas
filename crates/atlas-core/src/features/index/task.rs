@@ -22,15 +22,13 @@ use crate::provider::{OutputSchema, Task};
 /// The fewest chapters a broad pass has.
 const MIN_CHAPTERS: usize = 2;
 
-/// The index and its course map as the model writes them. The map's fields
-/// default to empty, so an answer without them is checked as a map that
-/// plans nothing.
+/// The index and its course map as the model writes them. The schema
+/// requires every field; a section or a course with nothing to name answers
+/// with empty lists.
 #[derive(Debug, Deserialize)]
 pub(super) struct IndexAnswer {
     chapters: Vec<ChapterAnswer>,
-    #[serde(default)]
     concepts: Vec<ConceptAnswer>,
-    #[serde(default)]
     conventions: Vec<ConventionAnswer>,
 }
 
@@ -45,9 +43,7 @@ struct SectionAnswer {
     title: String,
     /// One line on what it covers.
     summary: String,
-    #[serde(default)]
     introduces: Vec<String>,
-    #[serde(default)]
     relies_on: Vec<String>,
 }
 
@@ -191,7 +187,7 @@ impl StructuredTask for BuildIndex<'_> {
             schema: json!({
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["chapters"],
+                "required": ["chapters", "concepts", "conventions"],
                 "properties": {
                     "chapters": {
                         "type": "array",
@@ -208,7 +204,7 @@ impl StructuredTask for BuildIndex<'_> {
                                     "items": {
                                         "type": "object",
                                         "additionalProperties": false,
-                                        "required": ["title", "summary"],
+                                        "required": ["title", "summary", "introduces", "relies_on"],
                                         "properties": {
                                             "title": { "type": "string" },
                                             "summary": {
@@ -387,6 +383,7 @@ pub(super) fn input(
 mod tests {
     use super::*;
     use crate::domain::ladder::Rung;
+    use crate::harness::structured::strict_faults;
 
     #[test]
     fn without_a_profile_every_rung_is_unknown() {
@@ -414,5 +411,14 @@ mod tests {
             "{input}"
         );
         assert!(!input.contains("Misconceptions"), "{input}");
+    }
+
+    #[test]
+    fn the_schema_is_one_the_codex_backend_accepts() {
+        let ladder = Ladder { rungs: Vec::new() };
+
+        let faults = strict_faults(&BuildIndex { ladder: &ladder }.schema().schema);
+
+        assert!(faults.is_empty(), "{faults:#?}");
     }
 }

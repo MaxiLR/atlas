@@ -15,8 +15,10 @@ import {
   QuestionnaireSubmit,
   QuestionnaireTitle,
 } from "@/components/ui/questionnaire";
+import { Spinner } from "@/components/ui/spinner";
 import type { PlacementAnswer } from "@/core/generated/PlacementAnswer";
 import type { PlacementQuestion } from "@/core/generated/PlacementQuestion";
+import { cn } from "@/lib/utils";
 
 import { Actions, continueStyle, groupFocusStyle } from "./actions";
 
@@ -44,6 +46,8 @@ function takesText(target: EventTarget | null): boolean {
  * One placement question: the question, its four options with the keys 1 to
  * 4 and Not sure with 0, set apart. Enter continues once an option is chosen.
  * Focus starts on the question. Nothing marks an answer right or wrong.
+ * While the answer is out the options lock, the chosen one stays drawn, and
+ * the foot says what is happening.
  */
 export function QuestionForm({
   question,
@@ -57,12 +61,19 @@ export function QuestionForm({
   onAnswer: (answer: PlacementAnswer) => void;
 }) {
   const [choice, setChoice] = useState<string | null>(null);
+  // A question can show while the request before it is still out; only its
+  // own answer locks it.
+  const [sent, setSent] = useState(false);
+  const answering = busy && sent;
   const form = useRef<HTMLFormElement>(null);
   const group = useRef<HTMLFieldSetElement>(null);
   const options = question.options.length;
   const name = `question-${question.id}`;
 
-  useEffect(() => group.current?.focus(), []);
+  // On the question when it shows, and again when a failed answer unlocks it.
+  useEffect(() => {
+    if (!answering) group.current?.focus();
+  }, [answering]);
 
   useEffect(() => {
     if (busy) return;
@@ -92,6 +103,7 @@ export function QuestionForm({
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (choice === null || busy) return;
+    setSent(true);
     onAnswer(
       choice === NOT_SURE
         ? { type: "NotSure" }
@@ -105,10 +117,19 @@ export function QuestionForm({
       item={name}
       onSubmit={submit}
       onKeyDown={continueOnEnter}
-      aria-busy={busy || undefined}
       className="gap-0"
     >
-      <QuestionnaireItem name={name} ref={group} className={groupFocusStyle}>
+      {/* Questionnaire flags an item invalid once submitted while none of its
+          enabled choices is chosen, which a locked group always is: mounting
+          the group afresh when it locks keeps it valid, and leaves the live
+          status in the foot in place so it is announced. */}
+      <QuestionnaireItem
+        key={answering ? "locked" : "open"}
+        name={name}
+        ref={group}
+        aria-busy={answering || undefined}
+        className={groupFocusStyle}
+      >
         <QuestionnaireTitle>{question.stem}</QuestionnaireTitle>
         <QuestionnaireChoices className="mt-4">
           {question.options.map((text, index) => (
@@ -117,7 +138,11 @@ export function QuestionForm({
               value={String(index)}
               shortcut={String(index + 1)}
               checked={choice === String(index)}
+              disabled={answering}
               onChange={() => setChoice(String(index))}
+              className={cn(
+                choice === String(index) && "data-disabled:opacity-100",
+              )}
             >
               {text}
             </QuestionnaireChoice>
@@ -126,8 +151,12 @@ export function QuestionForm({
             value={NOT_SURE}
             shortcut="0"
             checked={choice === NOT_SURE}
+            disabled={answering}
             onChange={() => setChoice(NOT_SURE)}
-            className="mt-3 border-transparent bg-wash text-muted-foreground hover:not-data-checked:border-transparent hover:not-data-checked:bg-wash-strong"
+            className={cn(
+              "mt-3 border-transparent bg-wash text-muted-foreground hover:not-data-checked:border-transparent hover:not-data-checked:bg-wash-strong",
+              choice === NOT_SURE && "data-disabled:opacity-100",
+            )}
           >
             Not sure
           </QuestionnaireChoice>
@@ -135,6 +164,9 @@ export function QuestionForm({
       </QuestionnaireItem>
       <Actions
         failure={failure}
+        pending={
+          answering ? "Choosing what comes next from your answer." : null
+        }
         note="Nothing is marked right or wrong here. Your answers only decide where the course starts."
       >
         <QuestionnaireSubmit
@@ -142,7 +174,11 @@ export function QuestionForm({
           disabled={busy || choice === null}
         >
           Continue
-          <CornerDownLeftIcon aria-hidden className="opacity-60" />
+          {answering ? (
+            <Spinner aria-hidden className="text-current" />
+          ) : (
+            <CornerDownLeftIcon aria-hidden className="opacity-60" />
+          )}
         </QuestionnaireSubmit>
       </Actions>
     </Questionnaire>

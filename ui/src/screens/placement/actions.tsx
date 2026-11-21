@@ -16,14 +16,18 @@ export const groupFocusStyle =
 
 /**
  * The foot of a placement form: a muted note, or what went wrong, beside
- * Continue. Below 760 px Continue spans the column above the note.
+ * Continue. While a request is out, what it is doing replaces the note.
+ * Below 760 px Continue spans the column above the note.
  */
 export function Actions({
   note,
+  pending = null,
   failure,
   children,
 }: {
   note: ReactNode;
+  /** What the request that is out is doing, while it is out. */
+  pending?: string | null;
   /** Why the last request did not go through, when it did not. */
   failure: string | null;
   children: ReactNode;
@@ -36,7 +40,15 @@ export function Actions({
             {failure}
           </p>
         )}
-        <p>{note}</p>
+        {/* Live before the request goes out, so what it is doing is
+            announced; a status only while it is out. */}
+        <div aria-live="polite" role={pending !== null ? "status" : undefined}>
+          {pending !== null ? (
+            <p className="text-body">{pending}</p>
+          ) : (
+            <p>{note}</p>
+          )}
+        </div>
       </div>
       {children}
     </div>

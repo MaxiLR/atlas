@@ -1,8 +1,9 @@
 //! The ChatGPT plan provider wired to the session, through `Core::handle`: the
 //! provider the shell builds, which takes its tokens from the plan login,
-//! against one local server for the authorisation server and the plan route
-//! (`/auth/…` and `/api/…` on `127.0.0.1`), with a secret store in memory, a
-//! browser that follows only local redirects, and a fake clock.
+//! against one local server for the authorisation server, the plan route and
+//! the usage endpoint (`/auth/…`, `/api/…` and `/chatgpt/…` on `127.0.0.1`),
+//! with a secret store in memory, a browser that follows only local
+//! redirects, and a fake clock.
 //!
 //! The Codex callback port is fixed, so each harness holds [`CALLBACK_PORT`]
 //! and the tests run one at a time.
@@ -15,7 +16,7 @@ use std::time::Duration;
 use atlas_core::ports::{Browser, BrowserError, Clock, Endpoints};
 use atlas_core::protocol::{
     Account, CoreError, CoreEvent, CoreRequest, CoreResponse, Model, ModelList, PlanUsage, Session,
-    SignedOutReason,
+    SignedOutReason, UsageState,
 };
 use atlas_core::protocol::{Goal, PlacementAnswer, PlacementState, PlacementStep, SelfRating};
 use atlas_core::provider::{FakeProvider, FakeScript, Task};
@@ -29,6 +30,8 @@ use axum::extract::{Form, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Json, Redirect, Response};
 use axum::routing::{get, post};
+use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use jsonwebtoken::{Algorithm, EncodingKey, Header};
 use serde_json::{Value, json};
 use tempfile::TempDir;
@@ -39,12 +42,15 @@ use uuid::Uuid;
 const EMAIL: &str = "grace@example.com";
 const SUBJECT: &str = "user-9Kd1";
 const KEY_ID: &str = "wiring-key-1";
+/// The workspace every access token names.
+const ACCOUNT: &str = "acct-wiring";
 
 const CODEX_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 const AUTHORIZE: &str = "/auth/oauth/authorize";
 const TOKEN: &str = "/auth/oauth/token";
 const RESPONSES: &str = "/api/responses";
 const MODELS: &str = "/api/models";
+const USAGE: &str = "/chatgpt/backend-api/wham/usage";
 
 /// Held by every harness: sign-in listens on the one registered port.
 static CALLBACK_PORT: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -121,11 +127,14 @@ impl Reply {
     }
 }
 
-/// A request to the plan route as the server received it.
+/// A request to the plan route or the usage endpoint as the server received
+/// it.
 #[derive(Debug, Clone)]
 struct Call {
     path: String,
     bearer: Option<String>,
+    /// The `chatgpt-account-id` header.
+    account: Option<String>,
 }
 
 #[derive(Default)]
@@ -175,10 +184,20 @@ impl ServerInner {
         jsonwebtoken::encode(&header, &claims, &key).expect("a signed ID token")
     }
 
-    /// Issues a fresh access and refresh token.
+    /// Issues a fresh access and refresh token. The access token is an
+    /// unsigned JWT naming the account, as OpenAI's do.
     fn issue(&self, state: &mut ServerState) -> (String, String) {
         state.counter += 1;
-        let access = format!("access-{}", state.counter);
+        let claims = json!({
+            "https://api.openai.com/auth": { "chatgpt_account_id": ACCOUNT },
+            "n": state.counter,
+        });
+        let access = [
+            URL_SAFE_NO_PAD.encode(json!({ "alg": "none" }).to_string()),
+            URL_SAFE_NO_PAD.encode(claims.to_string()),
+            "signature".to_owned(),
+        ]
+        .join(".");
         let refresh = format!("refresh-{}", state.counter);
         state.live_refresh.insert(refresh.clone());
         state.access_tokens.push(access.clone());
@@ -258,6 +277,17 @@ fn bearer(headers: &HeaderMap) -> Option<String> {
         .map(str::to_owned)
 }
 
+fn call(path: &str, headers: &HeaderMap) -> Call {
+    Call {
+        path: path.to_owned(),
+        bearer: bearer(headers),
+        account: headers
+            .get("chatgpt-account-id")
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned),
+    }
+}
+
 fn reply(reply: Reply) -> Response {
     Response::builder()
         .status(StatusCode::from_u16(reply.status).expect("a valid status"))
@@ -268,10 +298,7 @@ fn reply(reply: Reply) -> Response {
 }
 
 async fn models(State(server): State<Arc<ServerInner>>, headers: HeaderMap) -> Response {
-    server.state().calls.push(Call {
-        path: MODELS.to_owned(),
-        bearer: bearer(&headers),
-    });
+    server.state().calls.push(call(MODELS, &headers));
     reply(Reply::json(
         200,
         &json!({
@@ -290,16 +317,27 @@ async fn responses(
     _body: Bytes,
 ) -> Response {
     let mut state = server.state();
-    state.calls.push(Call {
-        path: RESPONSES.to_owned(),
-        bearer: bearer(&headers),
-    });
+    state.calls.push(call(RESPONSES, &headers));
     let next = if state.responses.len() > 1 {
         state.responses.pop_front()
     } else {
         state.responses.front().cloned()
     };
     reply(next.unwrap_or_else(|| Reply::sse(&completed())))
+}
+
+/// The usage endpoint: always the five-hour and weekly windows.
+async fn usage(State(server): State<Arc<ServerInner>>, headers: HeaderMap) -> Response {
+    server.state().calls.push(call(USAGE, &headers));
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/usage/five-hour-weekly.json"
+    );
+    reply(Reply {
+        status: 200,
+        content_type: "application/json",
+        body: std::fs::read_to_string(path).expect("the usage fixture"),
+    })
 }
 
 struct FakeServer {
@@ -322,6 +360,7 @@ impl FakeServer {
             .route(TOKEN, post(token))
             .route(MODELS, get(models))
             .route(RESPONSES, post(responses))
+            .route(USAGE, get(usage))
             .with_state(inner.clone());
         tokio::spawn(async move {
             axum::serve(listener, app)
@@ -362,6 +401,17 @@ impl FakeServer {
             .iter()
             .filter(|call| call.path == path)
             .map(|call| call.bearer.clone())
+            .collect()
+    }
+
+    /// Every call to `path`, in order.
+    fn calls(&self, path: &str) -> Vec<Call> {
+        self.inner
+            .state()
+            .calls
+            .iter()
+            .filter(|call| call.path == path)
+            .cloned()
             .collect()
     }
 }
@@ -704,6 +754,61 @@ async fn a_completed_sign_in_reports_the_plan_list_without_a_list_request() {
         .position(|event| matches!(event, CoreEvent::ModelsChanged { .. }))
         .expect("the list is reported");
     assert!(signed < listed, "the list follows the session: {events:?}");
+}
+
+// ---------------------------------------------------------------------------
+// The usage meter reads with the plan login
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn a_completed_sign_in_awaits_one_usage_reading_with_the_plan_login() {
+    let harness = Harness::start().await;
+
+    assert_eq!(harness.sign_in().await, signed_in(PlanUsage::On));
+    harness
+        .event(|event| {
+            matches!(
+                event,
+                CoreEvent::UsageChanged {
+                    usage: UsageState::Connected { .. }
+                }
+            )
+        })
+        .await;
+
+    let events = harness.events();
+    let signed = events
+        .iter()
+        .position(|event| {
+            event
+                == &CoreEvent::SessionChanged {
+                    session: signed_in(PlanUsage::On),
+                }
+        })
+        .expect("the session change is reported");
+    let usage: Vec<&UsageState> = events[signed..]
+        .iter()
+        .filter_map(|event| match event {
+            CoreEvent::UsageChanged { usage } => Some(usage),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(usage[0], &UsageState::AwaitingReading, "{events:?}");
+    match usage[1] {
+        UsageState::Connected { reading } => {
+            let names: Vec<&str> = reading.windows.iter().map(|w| w.name.as_str()).collect();
+            assert_eq!(names, ["7d", "5h"]);
+            assert_eq!(reading.stale, None);
+        }
+        other => panic!("expected the reading, got {other:?}"),
+    }
+    // Long enough for a second reading, were one taken.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let reads = harness.server.calls(USAGE);
+    assert_eq!(reads.len(), 1, "one reading: {reads:?}");
+    let token = harness.server.access_tokens()[0].clone();
+    assert_eq!(reads[0].bearer.as_deref(), Some(token.as_str()));
+    assert_eq!(reads[0].account.as_deref(), Some(ACCOUNT));
 }
 
 // ---------------------------------------------------------------------------

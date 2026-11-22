@@ -14,7 +14,7 @@ use atlas_core::live::{
     Report, Search, Structured, TaskReport, Validity,
 };
 use atlas_core::ports::{SecretRecord, SecretStore};
-use atlas_core::protocol::{CoreError, Model, UsageState};
+use atlas_core::protocol::{CoreError, Model, UsageFailure, UsageState};
 use atlas_core::provider::chatgpt::ChatGptProvider;
 use atlas_core::provider::{ModelProvider, ProviderError, ProviderEvent, ProviderRequest, Task};
 use atlas_core::testing::{FakePorts, FakeProvider, FakeScript, FakeTokenSource};
@@ -339,7 +339,13 @@ async fn with_every_task_succeeding_the_report_lists_eight_passes_with_their_det
         vec![model("gpt-newest"), model("gpt-older")],
         "the models are listed in the order reported"
     );
-    assert_eq!(report.usage, Ok(UsageState::NotConnected));
+    // The usage endpoint is a closed port here: the reading fails.
+    assert_eq!(
+        report.usage,
+        Ok(UsageState::FirstReadFailed {
+            reason: UsageFailure::Network
+        })
+    );
 
     let table = report.table();
     for task in LiveTask::ALL {
@@ -921,7 +927,7 @@ async fn the_model_asked_for_is_the_one_every_request_names() {
 }
 
 #[tokio::test]
-async fn with_a_usage_login_the_report_carries_a_usage_reading() {
+async fn the_report_carries_a_usage_reading_taken_with_the_plan_login() {
     let usage = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/tests/fixtures/usage/five-hour-weekly.json"
@@ -938,19 +944,6 @@ async fn with_a_usage_login_the_report_carries_a_usage_reading() {
         ..FakePorts::default()
     };
     sign_in(ports.secrets.as_ref());
-    let login = json!({
-        "accessToken": "usage-access-live",
-        "refreshToken": "usage-refresh-live",
-        "expiresAt": "2030-01-01T00:00:00Z",
-        "signedInAt": "2025-12-01T00:00:00Z",
-        "accountId": "account-live",
-        "email": "engineer@example.com",
-        "plan": "pro",
-    });
-    ports
-        .secrets
-        .write(SecretRecord::UsageLogin, &login.to_string())
-        .unwrap();
     let core = LiveCore::new(ports.deps(
         dir.path().join("atlas.sqlite3"),
         Arc::new(succeeding()),
@@ -967,4 +960,16 @@ async fn with_a_usage_login_the_report_carries_a_usage_reading() {
         other => panic!("expected a usage reading, got {other:?}"),
     }
     assert!(report.table().contains("5h"), "{}", report.table());
+    let reads: Vec<_> = server
+        .requests()
+        .into_iter()
+        .filter(|request| request.path == "/chatgpt/backend-api/wham/usage")
+        .collect();
+    assert!(!reads.is_empty(), "the usage endpoint was read");
+    for read in &reads {
+        assert_eq!(
+            read.header("authorization"),
+            Some(format!("Bearer {TOKEN}").as_str())
+        );
+    }
 }

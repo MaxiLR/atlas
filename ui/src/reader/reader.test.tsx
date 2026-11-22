@@ -238,13 +238,20 @@ describe("the reader frame", () => {
     ).toBeVisible();
   });
 
-  it("shows the Connect usage action at the foot of the index", async () => {
+  it("shows the plan's usage at the foot of the index, with no connection step", async () => {
     const { user } = renderApp();
     await openPlateTectonics(user);
 
-    await user.click(screen.getByRole("button", { name: "Connect usage" }));
-
-    expect(await screen.findByText(/QWRT-7KPD/)).toBeVisible();
+    const meter = await screen.findByRole("region", { name: "Plan usage" });
+    expect(
+      await within(meter).findByRole("img", {
+        name: /^5-hour window, 38% used/,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      within(meter).getByRole("img", { name: /^Weekly window, 61% used/ }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Connect usage" })).toBeNull();
   });
 });
 

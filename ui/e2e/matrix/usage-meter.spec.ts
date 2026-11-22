@@ -2,9 +2,6 @@ import { expect, test, type Page, type TestInfo } from "@playwright/test";
 
 import { openApp } from "../support/app.ts";
 
-/** One step of the fake core's pace in Vite mode `fake`. */
-const STEP = 80;
-
 /** The bar texts of the fake core's reading: 2h 14m and 3 days to reset. */
 const FIVE_HOURS = "5-hour window, 38% used, 55% of the window elapsed";
 const WEEKLY = "Weekly window, 61% used, 57% of the window elapsed";
@@ -29,29 +26,16 @@ async function openMeter(page: Page, testInfo: TestInfo, scenario: string) {
 const narrow = (testInfo: TestInfo) =>
   (testInfo.project.use.viewport?.width ?? 1440) < 1024;
 
-test("Connect usage shows the device code, then the bars", async ({
+test("signed in, the meter shows the bars with no connection step", async ({
   page,
 }, testInfo) => {
-  const meter = await openMeter(page, testInfo, "usage-not-connected");
-  await expect(meter.getByRole("img")).toHaveCount(0);
-  const now = await page.evaluate(() => Date.now());
-  await page.clock.pauseAt(now + 1_000);
+  const meter = await openMeter(page, testInfo, "default");
 
-  await meter.getByRole("button", { name: "Connect usage" }).click();
-
-  const dialog = page.getByRole("dialog", { name: "Connect usage" });
-  await expect(dialog.getByText("QWRT-7KPD")).toBeVisible();
-  await expect(dialog).toContainText(
-    "OpenAI's page has opened in your browser",
-  );
-  await expect(dialog).toContainText("Code expires in 15m");
-  await expect(dialog.getByRole("button", { name: "Cancel" })).toBeVisible();
-
-  await page.clock.runFor(STEP);
-
-  await expect(dialog).toHaveCount(0);
   await expect(meter.getByRole("img", { name: FIVE_HOURS })).toBeVisible();
   await expect(meter.getByRole("img", { name: WEEKLY })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Connect usage" })).toHaveCount(
+    0,
+  );
 });
 
 test("the stale reading keeps the bars, marked, with the reason on focus", async ({

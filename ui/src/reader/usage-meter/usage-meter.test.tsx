@@ -55,10 +55,11 @@ function connected(
 }
 
 /**
- * The meter over a core that reports `usage`. `requests` records what the
- * meter asked; `emit` sends the meter an event from the core.
+ * Mounts the meter over a core that reports `usage` and waits until the
+ * meter has that answer. `requests` records what the meter asked; `emit`
+ * sends the meter an event from the core.
  */
-async function renderMeter(usage: UsageState, folded = false) {
+async function mountMeter(usage: UsageState, folded = false) {
   const requests: CoreRequest[] = [];
   const listeners = new Set<(event: CoreEvent) => void>();
   const client: CoreClient = {
@@ -79,12 +80,52 @@ async function renderMeter(usage: UsageState, folded = false) {
       </AtlasStoreProvider>
     </CoreProvider>,
   );
-  const meter = await screen.findByRole("region", { name: "Plan usage" });
+  // The answer to the meter's GetUsage reaches the store in a later task.
+  await act(async () => {
+    const { promise, resolve } = Promise.withResolvers<void>();
+    setTimeout(resolve, 0);
+    await promise;
+  });
   const emit = (event: CoreEvent) =>
     act(() => {
       for (const listener of listeners) listener(event);
     });
-  return { meter, requests, emit, user: userEvent.setup() };
+  return { requests, emit, user: userEvent.setup() };
+}
+
+/** The mounted meter in a state that shows it; `meter` is its region. */
+async function renderMeter(usage: UsageState, folded = false) {
+  const mounted = await mountMeter(usage, folded);
+  const meter = await screen.findByRole("region", { name: "Plan usage" });
+  return { meter, ...mounted };
+}
+
+/** Every state of the meter, by its tag. */
+const states: [string, UsageState][] = [
+  ["NoPlanLogin", { type: "NoPlanLogin" }],
+  ["AwaitingReading", { type: "AwaitingReading" }],
+  ["Connected", connected([fiveHours, weekly, monthly])],
+  ["FirstReadFailed", { type: "FirstReadFailed", reason: "Auth" }],
+];
+
+/**
+ * The meter reporting `usage` has no usage login to start, and still shows
+ * a reading the core sends afterwards.
+ */
+async function expectNoConnectUsage(usage: UsageState, folded: boolean) {
+  const { emit } = await mountMeter(usage, folded);
+
+  expect(screen.queryByRole("button", { name: "Connect usage" })).toBeNull();
+  expect(screen.queryByRole("dialog")).toBeNull();
+
+  await emit({ type: "UsageChanged", usage: connected([weekly]) });
+
+  expect(
+    screen.getByRole("img", {
+      name: "Weekly window, 61% used, 47% of the window elapsed",
+    }),
+  ).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Connect usage" })).toBeNull();
 }
 
 const elapse = (ms: number) => act(() => vi.advanceTimersByTime(ms));
@@ -100,72 +141,61 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("the usage meter, not connected", () => {
-  it("is empty but for Connect usage, which starts the usage login", async () => {
-    const { meter, requests, user } = await renderMeter({
-      type: "NotConnected",
-    });
-
-    expect(within(meter).getAllByRole("button")).toHaveLength(1);
-    expect(within(meter).queryAllByRole("img")).toHaveLength(0);
-    await user.click(
-      within(meter).getByRole("button", { name: "Connect usage" }),
-    );
-
-    expect(requests.map(({ type }) => type)).toContain("ConnectUsage");
+describe("the usage meter in every state", () => {
+  it.each(states)("offers no Connect usage in %s", async (_tag, usage) => {
+    await expectNoConnectUsage(usage, false);
   });
 });
 
-describe("connecting usage", () => {
-  const connecting: UsageState = {
-    type: "Connecting",
-    userCode: "QWRT-7KPD",
-    verificationUrl: "https://auth.openai.com/codex/device",
-    expiresAt: new Date(NOW + 15 * MINUTE).toISOString(),
-  };
+describe("the usage meter without a plan login", () => {
+  it("shows nothing, and the bars once a reading arrives", async () => {
+    const { requests, emit } = await mountMeter({ type: "NoPlanLogin" });
 
-  it("shows the device code in a dialog with where to enter it and the time left", async () => {
-    await renderMeter(connecting);
-
-    const dialog = screen.getByRole("dialog", { name: "Connect usage" });
-    expect(within(dialog).getByText("QWRT-7KPD")).toBeVisible();
-    expect(dialog).toHaveTextContent(
-      "OpenAI's page has opened in your browser",
-    );
-    expect(dialog).toHaveTextContent("Code expires in 15m");
-
-    await elapse(MINUTE);
-    expect(dialog).toHaveTextContent("Code expires in 14m");
-  });
-
-  it("copies the code", async () => {
-    const { user } = await renderMeter(connecting);
-
-    await user.click(screen.getByRole("button", { name: "Copy code" }));
-
-    expect(await navigator.clipboard.readText()).toBe("QWRT-7KPD");
-  });
-
-  it("cancels the usage login from the dialog", async () => {
-    const { requests, user } = await renderMeter(connecting);
-
-    await user.click(
-      within(screen.getByRole("dialog")).getByRole("button", {
-        name: "Cancel",
-      }),
-    );
-
-    expect(requests.map(({ type }) => type)).toContain("CancelConnectUsage");
-  });
-
-  it("closes once the usage login completes and shows the bars", async () => {
-    const { emit } = await renderMeter(connecting);
+    expect(requests).toEqual([{ type: "GetUsage" }]);
+    expect(screen.queryByRole("region", { name: "Plan usage" })).toBeNull();
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
+    expect(screen.queryAllByRole("img")).toHaveLength(0);
 
     await emit({ type: "UsageChanged", usage: connected([fiveHours, weekly]) });
 
-    expect(screen.queryByRole("dialog")).toBeNull();
+    const meter = screen.getByRole("region", { name: "Plan usage" });
+    expect(within(meter).getAllByRole("img")).toHaveLength(2);
+  });
+
+  it("goes away when the plan login ends, and comes back with the next one", async () => {
+    const { emit } = await renderMeter(connected([fiveHours, weekly]));
+
+    await emit({ type: "UsageChanged", usage: { type: "NoPlanLogin" } });
+    expect(screen.queryByRole("region", { name: "Plan usage" })).toBeNull();
+    expect(screen.queryAllByRole("img")).toHaveLength(0);
+
+    await emit({ type: "UsageChanged", usage: { type: "AwaitingReading" } });
     expect(
-      screen.getByRole("img", {
+      within(screen.getByRole("region", { name: "Plan usage" })).getByRole(
+        "status",
+      ),
+    ).toHaveTextContent("Reading usage");
+  });
+});
+
+describe("the usage meter, awaiting its first reading", () => {
+  it("announces Reading usage, with nothing to press", async () => {
+    const { meter } = await renderMeter({ type: "AwaitingReading" });
+
+    expect(within(meter).getByRole("status")).toHaveTextContent(
+      "Reading usage",
+    );
+    expect(within(meter).queryAllByRole("button")).toHaveLength(0);
+  });
+
+  it("shows the bars once the reading arrives", async () => {
+    const { meter, emit } = await renderMeter({ type: "AwaitingReading" });
+
+    await emit({ type: "UsageChanged", usage: connected([fiveHours, weekly]) });
+
+    expect(within(meter).queryByText("Reading usage")).toBeNull();
+    expect(
+      within(meter).getByRole("img", {
         name: "5-hour window, 38% used, 55% of the window elapsed",
       }),
     ).toBeInTheDocument();
@@ -294,7 +324,7 @@ describe("the usage meter, connected", () => {
 describe("a stale reading", () => {
   it.each<[UsageFailure, string]>([
     ["Network", "the network could not be reached"],
-    ["Auth", "OpenAI no longer accepts the usage login"],
+    ["Auth", "OpenAI did not accept the plan login"],
     ["Rejected", "OpenAI refused the request"],
     ["Timeout", "OpenAI did not answer in time"],
     ["Cancelled", "the reading was cancelled"],
@@ -324,7 +354,7 @@ describe("a stale reading", () => {
 });
 
 describe("a usage meter that cannot read", () => {
-  it("says usage could not be read when the first reading failed, and offers to try again", async () => {
+  it("says usage could not be read when the first reading failed, and Try again asks for usage again", async () => {
     const { meter, requests, user } = await renderMeter({
       type: "FirstReadFailed",
       reason: "Timeout",
@@ -333,20 +363,21 @@ describe("a usage meter that cannot read", () => {
     expect(meter).toHaveTextContent(
       "Usage could not be read: OpenAI did not answer in time.",
     );
+    expect(requests).toEqual([{ type: "GetUsage" }]);
     await user.click(within(meter).getByRole("button", { name: "Try again" }));
 
-    expect(requests.map(({ type }) => type)).toContain("ConnectUsage");
+    expect(requests).toEqual([{ type: "GetUsage" }, { type: "GetUsage" }]);
   });
 
-  it("offers Connect usage again once the usage login ended", async () => {
-    const { meter, requests, user } = await renderMeter({ type: "SignedOut" });
+  it("says the plan login was not accepted when that is why", async () => {
+    const { meter } = await renderMeter({
+      type: "FirstReadFailed",
+      reason: "Auth",
+    });
 
-    expect(within(meter).queryAllByRole("img")).toHaveLength(0);
-    await user.click(
-      within(meter).getByRole("button", { name: "Connect usage" }),
+    expect(meter).toHaveTextContent(
+      "Usage could not be read: OpenAI did not accept the plan login.",
     );
-
-    expect(requests.map(({ type }) => type)).toContain("ConnectUsage");
   });
 });
 
@@ -389,5 +420,27 @@ describe("the folded meter in a narrow window", () => {
     const tooltip = await screen.findByRole("tooltip");
     expect(tooltip).toHaveTextContent("5-hour");
     expect(tooltip).toHaveTextContent("38% · resets in 2h 15m");
+  });
+
+  it.each(states)("offers no Connect usage in %s", async (_tag, usage) => {
+    await expectNoConnectUsage(usage, true);
+  });
+
+  it("shows nothing without a plan login", async () => {
+    await mountMeter({ type: "NoPlanLogin" }, true);
+
+    expect(screen.queryByRole("region", { name: "Plan usage" })).toBeNull();
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
+  });
+
+  it("Try again after a failed first reading asks for usage again", async () => {
+    const { meter, requests, user } = await renderMeter(
+      { type: "FirstReadFailed", reason: "Network" },
+      true,
+    );
+
+    await user.click(within(meter).getByRole("button", { name: "Try again" }));
+
+    expect(requests).toEqual([{ type: "GetUsage" }, { type: "GetUsage" }]);
   });
 });

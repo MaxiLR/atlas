@@ -409,9 +409,9 @@ fn request_tag(request: &CoreRequest) -> &'static str {
         CoreRequest::OpenSideChat { .. } => "OpenSideChat",
         CoreRequest::SendSideChatMessage { .. } => "SendSideChatMessage",
         CoreRequest::StopSideChatReply { .. } => "StopSideChatReply",
+        CoreRequest::DeleteGlossaryEntry { .. } => "DeleteGlossaryEntry",
+        CoreRequest::DeleteSideChat { .. } => "DeleteSideChat",
         CoreRequest::GetUsage => "GetUsage",
-        CoreRequest::ConnectUsage => "ConnectUsage",
-        CoreRequest::CancelConnectUsage => "CancelConnectUsage",
         CoreRequest::SetWindowFocused { .. } => "SetWindowFocused",
         CoreRequest::GetExportDocument { .. } => "GetExportDocument",
         CoreRequest::ExportPdf { .. } => "ExportPdf",
@@ -563,9 +563,15 @@ fn every_request() -> Vec<(CoreRequest, &'static str)> {
             CoreRequest::StopSideChatReply { chat_id: id(0x80) },
             "side_chats",
         ),
+        (
+            CoreRequest::DeleteGlossaryEntry { entry_id: id(0x70) },
+            "define",
+        ),
+        (
+            CoreRequest::DeleteSideChat { chat_id: id(0x80) },
+            "side_chats",
+        ),
         (CoreRequest::GetUsage, "usage"),
-        (CoreRequest::ConnectUsage, "usage"),
-        (CoreRequest::CancelConnectUsage, "usage"),
         (CoreRequest::SetWindowFocused { focused: true }, "usage"),
         (CoreRequest::GetExportDocument { course_id }, "export"),
         (CoreRequest::ExportPdf { course_id }, "export"),
@@ -607,9 +613,9 @@ fn every_request_round_trips_with_its_stable_tag() {
         "OpenSideChat",
         "SendSideChatMessage",
         "StopSideChatReply",
+        "DeleteGlossaryEntry",
+        "DeleteSideChat",
         "GetUsage",
-        "ConnectUsage",
-        "CancelConnectUsage",
         "SetWindowFocused",
         "GetExportDocument",
         "ExportPdf",
@@ -965,15 +971,8 @@ fn every_value_the_responses_carry_round_trips() {
         assert_name_round_trip(&state, name);
     }
     for (state, tag) in [
-        (UsageState::NotConnected, "NotConnected"),
-        (
-            UsageState::Connecting {
-                user_code: "ABCD-1234".to_owned(),
-                verification_url: "https://auth.openai.com/codex/device".to_owned(),
-                expires_at: time(),
-            },
-            "Connecting",
-        ),
+        (UsageState::NoPlanLogin, "NoPlanLogin"),
+        (UsageState::AwaitingReading, "AwaitingReading"),
         (
             UsageState::Connected {
                 reading: usage_reading(Some(UsageFailure::Network)),
@@ -986,7 +985,6 @@ fn every_value_the_responses_carry_round_trips() {
             },
             "FirstReadFailed",
         ),
-        (UsageState::SignedOut, "SignedOut"),
     ] {
         assert_tagged_round_trip(&state, tag);
     }
@@ -1109,7 +1107,7 @@ fn every_event_round_trips_with_its_stable_tag() {
             prompts: vec!["How fast?".to_owned(), "Where?".to_owned()],
         },
         CoreEvent::UsageChanged {
-            usage: UsageState::NotConnected,
+            usage: UsageState::NoPlanLogin,
         },
     ];
     let tags: Vec<_> = events.iter().map(event_tag).collect();
@@ -1375,8 +1373,6 @@ async fn requests_for_features_not_built_yet_answer_unavailable_naming_the_featu
         "SendSideChatMessage",
         "StopSideChatReply",
         "GetUsage",
-        "ConnectUsage",
-        "CancelConnectUsage",
         "SetWindowFocused",
         "GetExportDocument",
         "ExportPdf",
@@ -1397,7 +1393,7 @@ async fn requests_for_features_not_built_yet_answer_unavailable_naming_the_featu
         );
     }
 
-    assert_eq!(unbuilt, 0);
+    assert_eq!(unbuilt, 2);
     assert!(provider.requests().is_empty());
     assert_eq!(events.take(), []);
     // The thin loop still answers beside them.
@@ -1473,6 +1469,20 @@ fn the_committed_bindings_are_exactly_what_the_protocol_generates() {
     );
     for (file, text) in &reachable {
         assert_eq!(&generated[file], text, "{file} is stale");
+    }
+}
+
+#[test]
+fn the_generated_requests_have_no_usage_login_and_the_two_deletes() {
+    let request = &generated_files()["CoreRequest.ts"];
+    for removed in ["\"ConnectUsage\"", "\"CancelConnectUsage\""] {
+        assert!(!request.contains(removed), "{removed} is still generated");
+    }
+    for added in [
+        "\"type\": \"DeleteGlossaryEntry\", entryId: string",
+        "\"type\": \"DeleteSideChat\", chatId: string",
+    ] {
+        assert!(request.contains(added), "{added} is not generated");
     }
 }
 

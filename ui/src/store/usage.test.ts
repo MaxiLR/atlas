@@ -85,12 +85,36 @@ describe("a failed usage reading", () => {
     });
   });
 
-  it("drops the windows once the usage login ends", () => {
+  it("drops the windows once the plan login ends", () => {
     const after = applyEvent(connected, {
       type: "UsageChanged",
-      usage: { type: "SignedOut" },
+      usage: { type: "NoPlanLogin" },
     });
 
-    expect(selectUsage(after)).toEqual<UsageState>({ type: "SignedOut" });
+    expect(selectUsage(after)).toEqual<UsageState>({ type: "NoPlanLogin" });
+  });
+
+  it("has no windows to keep for the next plan login's failed first reading", () => {
+    const signedOut = applyEvent(connected, {
+      type: "UsageChanged",
+      usage: { type: "NoPlanLogin" },
+    });
+    const awaiting = applyEvent(signedOut, {
+      type: "UsageChanged",
+      usage: { type: "AwaitingReading" },
+    });
+    expect(selectUsage(awaiting)).toEqual<UsageState>({
+      type: "AwaitingReading",
+    });
+
+    const after = applyEvent(awaiting, {
+      type: "UsageChanged",
+      usage: { type: "FirstReadFailed", reason: "Auth" },
+    });
+
+    expect(selectUsage(after)).toEqual<UsageState>({
+      type: "FirstReadFailed",
+      reason: "Auth",
+    });
   });
 });

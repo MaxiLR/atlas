@@ -45,14 +45,14 @@ const exercised: CoreRequest["type"][] = [
   "Define",
   "LookupWikipedia",
   "ListGlossary",
+  "DeleteGlossaryEntry",
   "ListSideChats",
   "StartSideChat",
   "OpenSideChat",
   "SendSideChatMessage",
   "StopSideChatReply",
+  "DeleteSideChat",
   "GetUsage",
-  "ConnectUsage",
-  "CancelConnectUsage",
   "SetWindowFocused",
   "GetExportDocument",
   "ExportPdf",
@@ -123,6 +123,32 @@ describe("SignIn", () => {
     );
     expect(state().navigation.screen).toBe("library");
   });
+
+  it("starts the usage meter: awaiting a reading, then the reading", async () => {
+    const { store, state, events } = startFake("first-launch");
+
+    await store.send({ type: "SignIn" });
+    await vi.waitFor(() =>
+      expect(selectUsage(state())?.type).toBe("Connected"),
+    );
+
+    const usage = events.flatMap((event) =>
+      event.type === "UsageChanged" ? [event.usage] : [],
+    );
+    expect(usage.map((reported) => reported.type)).toEqual([
+      "AwaitingReading",
+      "Connected",
+    ]);
+    const reading = selectUsage(state());
+    expect(reading).toMatchObject({
+      type: "Connected",
+      reading: { stale: null },
+    });
+    expect(
+      reading?.type === "Connected" &&
+        reading.reading.windows.slice(0, 2).map((window) => window.name),
+    ).toEqual(["5h", "7d"]);
+  });
 });
 
 describe("CancelSignIn", () => {
@@ -156,8 +182,8 @@ describe("EnablePlanUsage", () => {
 });
 
 describe("SignOut", () => {
-  it("ends the plan login and the usage login together, keeping the courses", async () => {
-    const { store, state } = startFake("usage-reading");
+  it("ends the plan login and the usage meter with it, keeping the courses", async () => {
+    const { store, state, events } = startFake("usage-reading");
     await store.send({ type: "GetUsage" });
     expect(selectUsage(state())?.type).toBe("Connected");
 
@@ -168,7 +194,11 @@ describe("SignOut", () => {
       reason: { type: "SignedOut" },
     });
     expect(state().navigation.screen).toBe("signIn");
-    expect(selectUsage(state())).toEqual({ type: "NotConnected" });
+    expect(events).toContainEqual({
+      type: "UsageChanged",
+      usage: { type: "NoPlanLogin" },
+    });
+    expect(selectUsage(state())).toEqual({ type: "NoPlanLogin" });
     const { courses } = await store.send({ type: "ListCourses" });
     expect(courses.map((course) => course.topic)).toContain("Plate tectonics");
   });
@@ -958,6 +988,26 @@ describe("ListGlossary", () => {
   });
 });
 
+describe("DeleteGlossaryEntry", () => {
+  it("is not built yet: it fails as unavailable, naming define, and the entry stays", async () => {
+    const { store, state } = startFake();
+    const course = await openCourse(store, "Plate tectonics");
+    const { entries } = await store.send({
+      type: "ListGlossary",
+      courseId: course.id,
+    });
+
+    await expect(
+      store.send({ type: "DeleteGlossaryEntry", entryId: entries[0]!.id }),
+    ).rejects.toEqual({ type: "Unavailable", feature: "define" });
+
+    await store.send({ type: "ListGlossary", courseId: course.id });
+    expect(
+      state().glossary.byCourse[course.id]?.map((entry) => entry.term),
+    ).toEqual(["asthenosphere"]);
+  });
+});
+
 describe("ListSideChats", () => {
   it("lists the course's side chats with their passage", async () => {
     const { store, state } = startFake();
@@ -1090,52 +1140,77 @@ describe("StopSideChatReply", () => {
   });
 });
 
+describe("DeleteSideChat", () => {
+  it("is not built yet: it fails as unavailable, naming side_chats", async () => {
+    const { store } = startFake();
+    const course = await openCourse(store, "Plate tectonics");
+    const { chat } = await store.send({
+      type: "StartSideChat",
+      courseId: course.id,
+      anchor: null,
+    });
+
+    await expect(
+      store.send({ type: "DeleteSideChat", chatId: chat.id }),
+    ).rejects.toEqual({ type: "Unavailable", feature: "side_chats" });
+  });
+});
+
 describe("GetUsage", () => {
-  it("reports the meter empty until usage is connected", async () => {
-    const { store, state } = startFake();
+  it("answers that there is no plan login while signed out", async () => {
+    const { store, state } = startFake("first-launch");
+
+    const { usage } = await store.send({ type: "GetUsage" });
+
+    expect(usage).toEqual({ type: "NoPlanLogin" });
+    expect(selectUsage(state())).toEqual({ type: "NoPlanLogin" });
+  });
+
+  it("takes a reading when signed in without one, with no connection step", async () => {
+    const { core, store, state } = startFake();
 
     await store.send({ type: "GetUsage" });
 
-    expect(selectUsage(state())).toEqual({ type: "NotConnected" });
-  });
-});
-
-describe("ConnectUsage", () => {
-  it("shows the device code, then the first reading", async () => {
-    const valve = createValve();
-    const { store, state } = startFake("default", { pace: valve.pace });
-
-    const { usage } = await store.send({ type: "ConnectUsage" });
-
-    expect(usage).toMatchObject({
-      type: "Connecting",
-      userCode: expect.stringMatching(/\S/),
-      verificationUrl: expect.stringMatching(/^https:\/\//),
-    });
-    expect(selectUsage(state())?.type).toBe("Connecting");
-    valve.open();
     await vi.waitFor(() =>
-      expect(selectUsage(state())?.type).toBe("Connected"),
+      expect(selectUsage(state())).toMatchObject({
+        type: "Connected",
+        reading: { stale: null },
+      }),
     );
-    const reading = selectUsage(state());
+    const usage = selectUsage(state());
     expect(
-      reading?.type === "Connected" &&
-        reading.reading.windows.slice(0, 2).map((window) => window.name),
-    ).toEqual(["5h", "7d"]);
+      usage?.type === "Connected" &&
+        usage.reading.windows
+          .slice(0, 2)
+          .map((window) => [window.name, window.used]),
+    ).toEqual([
+      ["5h", 0.38],
+      ["7d", 0.61],
+    ]);
+    expect(core.opened).toEqual([]);
   });
-});
 
-describe("CancelConnectUsage", () => {
-  it("abandons the usage sign-in", async () => {
-    const valve = createValve();
-    const { store, state } = startFake("default", { pace: valve.pace });
-    await store.send({ type: "ConnectUsage" });
+  it("answers that the first reading failed, and reads again when asked again", async () => {
+    const { core, store, state } = startFake();
+    core.world.usageFailure = "Timeout";
 
-    await store.send({ type: "CancelConnectUsage" });
-    valve.open();
-    await drained();
+    await store.send({ type: "GetUsage" });
+    await vi.waitFor(() =>
+      expect(selectUsage(state())).toEqual({
+        type: "FirstReadFailed",
+        reason: "Timeout",
+      }),
+    );
 
-    expect(selectUsage(state())).toEqual({ type: "NotConnected" });
+    core.world.usageFailure = null;
+    await store.send({ type: "GetUsage" });
+
+    await vi.waitFor(() =>
+      expect(selectUsage(state())).toMatchObject({
+        type: "Connected",
+        reading: { stale: null },
+      }),
+    );
   });
 });
 

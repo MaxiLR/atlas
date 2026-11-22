@@ -1116,13 +1116,9 @@ async fn a_token_about_to_expire_is_still_used_for_a_generation_when_the_token_e
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn sign_out_ends_the_plan_login_and_the_usage_login_together() {
+async fn sign_out_ends_the_plan_login_and_empties_the_usage_meter() {
     let harness = Harness::plan().await;
     harness.sign_in().await;
-    harness
-        .secrets
-        .write(SecretRecord::UsageLogin, "usage-login-record")
-        .expect("a usage login is present");
     let requests = harness.server.seen(TOKEN).len() + harness.authorizations().len();
 
     let session = harness.session_request(CoreRequest::SignOut).await;
@@ -1137,10 +1133,28 @@ async fn sign_out_ends_the_plan_login_and_the_usage_login_together() {
         "the Codex login is cleared locally, without a request"
     );
     assert!(harness.secrets.get(SecretRecord::PlanLogin).is_none());
-    assert!(harness.secrets.get(SecretRecord::UsageLogin).is_none());
-    assert!(harness.events.all().contains(&CoreEvent::UsageChanged {
-        usage: UsageState::NotConnected
-    }));
+    let events = harness.events.all();
+    let ended = events
+        .iter()
+        .position(|event| {
+            event
+                == &CoreEvent::SessionChanged {
+                    session: out.clone(),
+                }
+        })
+        .expect("the sign-out is reported");
+    assert!(
+        events[ended..].contains(&CoreEvent::UsageChanged {
+            usage: UsageState::NoPlanLogin
+        }),
+        "the meter empties with the sign-out: {events:?}"
+    );
+    assert_eq!(
+        harness.request(CoreRequest::GetUsage).await,
+        Ok(CoreResponse::Usage {
+            usage: UsageState::NoPlanLogin
+        })
+    );
     assert_eq!(
         harness.create_course().await,
         Err(CoreError::SignInRequired)
@@ -1148,39 +1162,14 @@ async fn sign_out_ends_the_plan_login_and_the_usage_login_together() {
 }
 
 #[tokio::test]
-async fn a_failed_plan_sign_out_still_ends_the_usage_login() {
+async fn a_failed_plan_sign_out_is_reported() {
     let harness = Harness::plan().await;
     harness.sign_in().await;
-    harness
-        .secrets
-        .write(SecretRecord::UsageLogin, "usage-login-record")
-        .expect("a usage login is present");
     harness.secrets.fail_deletes_of(SecretRecord::PlanLogin);
 
     let result = harness.request(CoreRequest::SignOut).await;
 
     assert!(result.is_err(), "the failure is reported: {result:?}");
-    assert!(harness.secrets.get(SecretRecord::UsageLogin).is_none());
-}
-
-#[tokio::test]
-async fn a_failed_usage_sign_out_still_ends_the_plan_login() {
-    let harness = Harness::plan().await;
-    harness.sign_in().await;
-    harness
-        .secrets
-        .write(SecretRecord::UsageLogin, "usage-login-record")
-        .expect("a usage login is present");
-    harness.secrets.fail_deletes_of(SecretRecord::UsageLogin);
-
-    let result = harness.request(CoreRequest::SignOut).await;
-
-    assert!(result.is_err(), "the failure is reported: {result:?}");
-    assert!(harness.secrets.get(SecretRecord::PlanLogin).is_none());
-    assert_eq!(
-        harness.session().await,
-        signed_out(Some(SignedOutReason::SignedOut))
-    );
 }
 
 // ---------------------------------------------------------------------------

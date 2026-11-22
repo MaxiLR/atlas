@@ -23,6 +23,27 @@ describe("the Tauri core client", () => {
     ]);
   });
 
+  it("sends a delete request through the command and answers Done", async () => {
+    const calls: [string, unknown][] = [];
+    mockIPC((command, payload) => {
+      calls.push([command, payload]);
+      return { type: "Done" };
+    });
+
+    const response = await createTauriCore().call({
+      type: "DeleteGlossaryEntry",
+      entryId: "e",
+    });
+
+    expect(response).toEqual({ type: "Done" });
+    expect(calls).toEqual([
+      [
+        CORE_COMMAND,
+        { request: { type: "DeleteGlossaryEntry", entryId: "e" } },
+      ],
+    ]);
+  });
+
   it("rejects with the core's error", async () => {
     mockIPC(() => Promise.reject({ type: "SignInRequired" }));
 
@@ -38,12 +59,12 @@ describe("the Tauri core client", () => {
 
     await emit(CORE_EVENT, {
       type: "UsageChanged",
-      usage: { type: "NotConnected" },
+      usage: { type: "NoPlanLogin" },
     });
     stop();
 
     expect(seen).toEqual<CoreEvent[]>([
-      { type: "UsageChanged", usage: { type: "NotConnected" } },
+      { type: "UsageChanged", usage: { type: "NoPlanLogin" } },
     ]);
   });
 });

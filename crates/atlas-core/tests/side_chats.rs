@@ -12,6 +12,7 @@
 mod support;
 
 use std::collections::VecDeque;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -199,6 +200,8 @@ struct Harness {
     events: Arc<RecordingEvents>,
     core: Core,
     store: Store,
+    /// The database file, for reading what is left under the store.
+    path: PathBuf,
     course: Uuid,
     sample: SampleCourse,
 }
@@ -223,9 +226,65 @@ impl Harness {
             events,
             core,
             store,
+            path,
             course,
             sample,
         }
+    }
+
+    async fn delete(&self, chat: Uuid) -> Result<CoreResponse, CoreError> {
+        self.core
+            .handle(CoreRequest::DeleteSideChat { chat_id: chat })
+            .await
+    }
+
+    async fn side_chat_count(&self) -> u32 {
+        match self
+            .core
+            .handle(CoreRequest::OpenCourse {
+                course_id: self.course,
+            })
+            .await
+        {
+            Ok(CoreResponse::Course { course }) => course.side_chat_count,
+            other => panic!("expected the course, got {other:?}"),
+        }
+    }
+
+    /// The chat's stored quote and deletion time, read under the store.
+    fn raw_chat(&self, chat: Uuid) -> (Option<String>, Option<String>) {
+        rusqlite::Connection::open(&self.path)
+            .unwrap()
+            .query_row(
+                "SELECT quote, deleted_at FROM side_chats WHERE id = ?1",
+                [chat.to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap()
+    }
+
+    /// Every stored message of the chat, deleted or not, read under the
+    /// store: text, citations, sources and deletion time.
+    fn raw_messages(&self, chat: Uuid) -> Vec<RawMessage> {
+        let connection = rusqlite::Connection::open(&self.path).unwrap();
+        let mut statement = connection
+            .prepare(
+                "SELECT text, citations, sources, deleted_at FROM side_chat_messages
+                 WHERE chat_id = ?1 ORDER BY rowid",
+            )
+            .unwrap();
+        statement
+            .query_map([chat.to_string()], |row| {
+                Ok(RawMessage {
+                    text: row.get(0)?,
+                    citations: row.get(1)?,
+                    sources: row.get(2)?,
+                    deleted_at: row.get(3)?,
+                })
+            })
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap()
     }
 
     async fn start(&self, anchor: Option<Anchor>) -> SideChat {
@@ -856,4 +915,165 @@ async fn nothing_said_in_a_chat_reaches_the_course_memory_or_a_later_section_req
     }
     assert_eq!(harness.memory(), before);
     assert!(harness.store.current_record(LITHOSPHERE).unwrap().is_some());
+}
+
+// -- deleting a chat --------------------------------------------------------------
+
+#[derive(Debug, PartialEq, Eq)]
+struct RawMessage {
+    text: String,
+    citations: String,
+    sources: String,
+    deleted_at: Option<String>,
+}
+
+/// The chats a side-chats-changed event names.
+fn changed_chats(events: &[CoreEvent]) -> Vec<Uuid> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            CoreEvent::SideChatsChanged { chat, .. } => Some(chat.id),
+            _ => None,
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn a_deleted_chat_leaves_the_list_and_the_count_and_its_passage_and_messages_are_erased() {
+    let harness = Harness::new();
+    let doomed = harness.start(Some(anchor())).await;
+    harness.provider.reply(Script::Events(vec![
+        Ok(ProviderEvent::TextDelta(format!("{REPLY} {SENTINEL}"))),
+        cite(SPEED_URL, SPEED_TITLE, 0, 36),
+        completed(),
+    ]));
+    harness
+        .send(doomed.id, "How fast do plates move?")
+        .await
+        .expect("replied");
+    let kept = harness.start(None).await;
+    harness.provider.reply(answer("Heat from the core."));
+    harness
+        .send(kept.id, "What drives the plates?")
+        .await
+        .expect("replied");
+    let kept_thread = harness.open(kept.id).await;
+    let kept_listed = harness.list().await;
+    assert_eq!(kept_listed.len(), 2);
+    assert_eq!(harness.side_chat_count().await, 2);
+    let kept_messages = harness.raw_messages(kept.id);
+    harness.events.take();
+
+    assert_eq!(harness.delete(doomed.id).await, Ok(CoreResponse::Done));
+
+    assert_eq!(changed_chats(&harness.events.take()), Vec::<Uuid>::new());
+    let listed = harness.list().await;
+    assert_eq!(
+        listed,
+        kept_listed
+            .into_iter()
+            .filter(|chat| chat.id == kept.id)
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(harness.side_chat_count().await, 1);
+    let opened = harness
+        .core
+        .handle(CoreRequest::OpenSideChat { chat_id: doomed.id })
+        .await;
+    assert!(
+        matches!(opened, Err(CoreError::NotFound { .. })),
+        "expected not found, got {opened:?}"
+    );
+
+    // The chat and its messages stay as tombstones with their content
+    // erased; the other chat is as it was.
+    let (quote, deleted_at) = harness.raw_chat(doomed.id);
+    assert_eq!(quote.as_deref(), Some(""), "the passage is erased");
+    assert!(deleted_at.is_some(), "the chat is tombstoned");
+    let messages = harness.raw_messages(doomed.id);
+    assert_eq!(messages.len(), 2, "both messages are kept as tombstones");
+    for message in &messages {
+        assert!(message.deleted_at.is_some(), "tombstoned: {message:?}");
+        assert_eq!(
+            (
+                message.text.as_str(),
+                message.citations.as_str(),
+                message.sources.as_str()
+            ),
+            ("", "", ""),
+            "erased: {message:?}"
+        );
+    }
+    assert_eq!(harness.raw_messages(kept.id), kept_messages);
+    assert_eq!(harness.open(kept.id).await, kept_thread);
+}
+
+#[tokio::test]
+async fn deleting_a_chat_while_its_reply_streams_stops_it_and_stores_nothing_after() {
+    let harness = Harness::new();
+    let chat = harness.start(None).await;
+    let other = harness.start(None).await;
+    harness.provider.reply(Script::Held(
+        "Convection carries heat upward. It also".to_owned(),
+        format!(" drags the plates along. {SENTINEL}\n"),
+    ));
+    harness.events.take();
+
+    let (sent, after_done) =
+        tokio::join!(harness.send(chat.id, "What does convection do?"), async {
+            harness.provider.held.notified().await;
+            let deleted = harness.delete(chat.id).await;
+            // What is stored and announced from the moment Done answers.
+            let at_done = harness.raw_messages(chat.id);
+            harness.events.take();
+            // Lets a reply that was not stopped run to its end.
+            harness.provider.release.notify_one();
+            (deleted, at_done)
+        });
+    let (deleted, at_done) = after_done;
+
+    assert_eq!(deleted, Ok(CoreResponse::Done));
+    // The pending send settled; whatever it answered, nothing of the chat
+    // holds text, then or now.
+    let _ = sent;
+    for messages in [at_done, harness.raw_messages(chat.id)] {
+        assert!(
+            messages
+                .iter()
+                .all(|message| message.text.is_empty() && message.deleted_at.is_some()),
+            "nothing of the chat is kept: {messages:?}"
+        );
+    }
+    let events = harness.events.take();
+    assert!(
+        !changed_chats(&events).contains(&chat.id),
+        "no side-chats-changed for the chat after Done: {events:?}"
+    );
+
+    // The other chat still replies, and the deleted one cannot.
+    harness.provider.reply(answer("It drags the plates along."));
+    harness
+        .send(other.id, "And what does it drag?")
+        .await
+        .expect("the other chat replies");
+    let resent = harness.send(chat.id, "Hello?").await;
+    assert!(
+        matches!(resent, Err(CoreError::NotFound { .. })),
+        "expected not found, got {resent:?}"
+    );
+}
+
+#[tokio::test]
+async fn deleting_an_unknown_or_already_deleted_chat_is_not_found() {
+    let harness = Harness::new();
+    let chat = harness.start(None).await;
+    assert_eq!(harness.delete(chat.id).await, Ok(CoreResponse::Done));
+
+    for id in [chat.id, Uuid::new_v4()] {
+        let answer = harness.delete(id).await;
+        assert!(
+            matches!(answer, Err(CoreError::NotFound { .. })),
+            "expected not found for {id}, got {answer:?}"
+        );
+    }
 }

@@ -19,10 +19,16 @@ use atlas_core::protocol::{
 use atlas_core::provider::{FakeProvider, FakeScript};
 use atlas_core::store::{NewGlossaryEntry, NewSectionVersion, Store};
 use atlas_core::testing::{FakePorts, RecordingEvents};
+use axum::Router;
+use axum::http::StatusCode;
 use serde_json::json;
 use support::sample_course::sample_course;
 use support::server::{Reply, Route, TestServer};
 use tempfile::TempDir;
+use tokio::net::TcpListener;
+use tokio::sync::Notify;
+use tokio::task::JoinHandle;
+use url::Url;
 use uuid::Uuid;
 
 /// A term with a space and non-ASCII letters, and the summary path it is
@@ -102,6 +108,8 @@ struct Harness {
     core: Core,
     /// The same database file, for laying entries down and reading them.
     store: Store,
+    /// The database file, for reading what is left under the store.
+    path: PathBuf,
     course: Uuid,
     version: Uuid,
 }
@@ -152,6 +160,7 @@ impl Harness {
             _dir: dir,
             core,
             store,
+            path,
             course,
             version: read.version,
         }
@@ -372,4 +381,103 @@ async fn an_unknown_entry_is_not_found_and_requests_nothing() {
         "expected not found, got {answer:?}"
     );
     assert!(server.requests().is_empty());
+}
+
+// -- a lookup for an entry deleted meanwhile ----------------------------------
+
+/// A Wikipedia that tells when a request arrives and answers it, with the
+/// summary of the Mohorovičić discontinuity under `status`, only once
+/// released.
+struct HeldWikipedia {
+    url: Url,
+    received: Arc<Notify>,
+    release: Arc<Notify>,
+    server: JoinHandle<()>,
+}
+
+impl HeldWikipedia {
+    async fn start(status: u16) -> Self {
+        let received = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind a free port");
+        let address = listener.local_addr().expect("the bound address");
+        let app = Router::new().fallback({
+            let (received, release) = (received.clone(), release.clone());
+            move || async move {
+                received.notify_one();
+                release.notified().await;
+                (
+                    StatusCode::from_u16(status).expect("a valid status"),
+                    axum::Json(moho_summary()),
+                )
+            }
+        });
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app)
+                .await
+                .expect("the held server runs");
+        });
+        Self {
+            url: Url::parse(&format!("http://{address}/")).expect("a valid URL"),
+            received,
+            release,
+            server,
+        }
+    }
+
+    fn endpoints(&self) -> Endpoints {
+        Endpoints::local(&self.url)
+    }
+}
+
+impl Drop for HeldWikipedia {
+    fn drop(&mut self) {
+        self.server.abort();
+    }
+}
+
+#[tokio::test]
+async fn a_lookup_that_finishes_for_an_entry_deleted_meanwhile_is_dropped() {
+    // A found article and a failed lookup alike.
+    for status in [200, 500] {
+        let server = HeldWikipedia::start(status).await;
+        let harness = Harness::new(server.endpoints());
+        let entry = harness.define(MOHO);
+
+        let (looked_up, deleted) = tokio::join!(
+            harness
+                .core
+                .handle(CoreRequest::LookupWikipedia { entry_id: entry }),
+            async {
+                server.received.notified().await;
+                let deleted = harness
+                    .core
+                    .handle(CoreRequest::DeleteGlossaryEntry { entry_id: entry })
+                    .await;
+                server.release.notify_one();
+                deleted
+            }
+        );
+
+        assert_eq!(deleted, Ok(CoreResponse::Done), "status {status}");
+        assert!(
+            matches!(looked_up, Err(CoreError::NotFound { .. })),
+            "status {status}: expected not found, got {looked_up:?}"
+        );
+        let (term, wikipedia): (String, Option<String>) = rusqlite::Connection::open(&harness.path)
+            .unwrap()
+            .query_row(
+                "SELECT term, wikipedia FROM glossary_entries WHERE id = ?1",
+                [entry.to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            (term.as_str(), wikipedia),
+            ("", None),
+            "status {status}: nothing is written"
+        );
+    }
 }

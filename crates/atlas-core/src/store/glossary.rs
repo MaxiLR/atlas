@@ -138,6 +138,11 @@ impl Store {
         changed_one(changed, || format!("glossary entry {entry}"))
     }
 
+    /// Deletes a glossary entry for good; not built yet.
+    pub fn delete_glossary_entry(&self, entry: Uuid) -> Result<(), StoreError> {
+        Err(StoreError::NotFound(format!("glossary entry {entry}")))
+    }
+
     fn glossary_entries(
         &self,
         condition: &str,

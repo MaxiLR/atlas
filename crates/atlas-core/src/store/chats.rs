@@ -189,4 +189,9 @@ impl Store {
             .collect::<Result<_, _>>()?;
         Ok(messages)
     }
+
+    /// Deletes a side chat with its messages for good; not built yet.
+    pub fn delete_side_chat(&self, chat: Uuid) -> Result<(), StoreError> {
+        Err(StoreError::NotFound(format!("side chat {chat}")))
+    }
 }

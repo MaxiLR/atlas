@@ -121,6 +121,8 @@ export interface FakeWorld {
   /** How many questions placement asks a new course, four to six. */
   placementQuestions: number;
   placementFailure: PlacementFailure | null;
+  /** Why the session cannot be read, until it is asked again. */
+  sessionUnreadable: CoreError | null;
 }
 
 export const account = { email: "candidate@example.com" };
@@ -147,6 +149,7 @@ export function createWorld(clock: FakeClock): FakeWorld {
     fault: null,
     placementQuestions: 4,
     placementFailure: null,
+    sessionUnreadable: null,
   };
 }
 

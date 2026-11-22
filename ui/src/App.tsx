@@ -1,5 +1,6 @@
-import { useCallback, useEffect } from "react";
+import { useEffect } from "react";
 
+import { Notices } from "@/app/notices";
 import {
   AtlasStoreProvider,
   failureInStore,
@@ -7,8 +8,6 @@ import {
   useAtlasStore,
 } from "@/app/store";
 import { WindowFocus } from "@/app/window-focus";
-import { Button } from "@/components/ui/button";
-import { describeError } from "@/core/client";
 import { Reader } from "@/reader/reader";
 import { ExportScreen } from "@/screens/export/export-screen";
 import { useExportedCourse } from "@/screens/export/route";
@@ -53,37 +52,20 @@ function Screen() {
 
 /**
  * Asks the core for the session, then shows the screen. While the core has
- * not answered, a loading line; when it refused, its reason with Retry above
- * the screen, so the rest of Atlas stays reachable.
+ * not answered, a loading line; when it refused, the screen, so the rest of
+ * Atlas stays reachable, and a notice says why with Retry.
  */
 function Session() {
   const { send } = useAtlasStore();
-  const { known, error } = useAtlas((state) => ({
-    known: state.session.session !== null,
-    error: state.session.error,
-  }));
-  const ask = useCallback(() => {
+  const opening = useAtlas(
+    (state) => state.session.session === null && state.session.error === null,
+  );
+
+  useEffect(() => {
     send({ type: "GetSession" }).catch(failureInStore);
   }, [send]);
 
-  useEffect(ask, [ask]);
-
-  if (!known && error === null) {
-    return <p role="status">Opening Atlas…</p>;
-  }
-  return (
-    <>
-      {error !== null && (
-        <div className="flex items-center gap-2 p-4">
-          <p role="alert">{describeError(error)}</p>
-          <Button variant="ghost" onClick={ask}>
-            Retry
-          </Button>
-        </div>
-      )}
-      <Screen />
-    </>
-  );
+  return opening ? <p role="status">Opening Atlas…</p> : <Screen />;
 }
 
 /**
@@ -99,6 +81,7 @@ export function App() {
           <>
             <WindowFocus />
             <Session />
+            <Notices />
           </>
         ) : (
           <ExportScreen key={exported} courseId={exported} />

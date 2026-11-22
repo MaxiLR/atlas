@@ -482,8 +482,17 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
 
   async function handle(request: CoreRequest): Promise<CoreResponse> {
     switch (request.type) {
-      case "GetSession":
+      case "GetSession": {
+        const unreadable = world.sessionUnreadable;
+        if (unreadable !== null) {
+          // Requests made together, as React's development mode makes on
+          // mount, are one ask; one made after the failure was answered
+          // reads the session.
+          setTimeout(() => (world.sessionUnreadable = null));
+          fail(unreadable);
+        }
         return { type: "Session", session: world.session };
+      }
 
       case "SignIn": {
         if (world.session.type !== "SignedOut") {

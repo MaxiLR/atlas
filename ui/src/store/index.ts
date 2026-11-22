@@ -41,7 +41,13 @@ import {
   type NavigationAction,
   type NavigationSlice,
 } from "./navigation";
-import { initialNotices, type NoticesSlice } from "./notices";
+import {
+  initialNotices,
+  noticeClosed,
+  noticeShown,
+  type Notice,
+  type NoticesSlice,
+} from "./notices";
 import {
   initialPlacement,
   placementChanged,
@@ -57,7 +63,12 @@ import {
   type SectionDisplay,
   type SectionsSlice,
 } from "./sections";
-import { initialSession, type SessionSlice } from "./session";
+import {
+  initialSession,
+  SESSION_NOTICE,
+  sessionNotice,
+  type SessionSlice,
+} from "./session";
 import {
   chatChanged,
   chatOpened,
@@ -395,14 +406,22 @@ export function applyResponse(
   response: CoreResponse,
 ): AtlasState {
   switch (response.type) {
-    case "Session":
+    case "Session": {
       // SignIn answers SigningIn; when the browser came back first, the
       // session it reported is newer than that answer.
-      return request.type === "SignIn" &&
+      if (
+        request.type === "SignIn" &&
         response.session.type === "SigningIn" &&
         state.session.session?.type === "SignedIn"
-        ? state
-        : sessionChanged(state, response.session);
+      ) {
+        return state;
+      }
+      const changed = sessionChanged(state, response.session);
+      // The session was read: the notice saying it could not be goes.
+      return request.type === "GetSession"
+        ? { ...changed, notices: noticeClosed(changed.notices, SESSION_NOTICE) }
+        : changed;
+    }
     case "Models":
       return { ...state, models: { list: response.list } };
     case "Courses":
@@ -572,7 +591,11 @@ export function applyFailure(
         navigation: { ...state.navigation, nextFrom: null },
       };
     case "GetSession":
-      return { ...state, session: { ...state.session, error } };
+      return {
+        ...state,
+        session: { ...state.session, error },
+        notices: noticeShown(state.notices, sessionNotice(error)),
+      };
     case "SendSideChatMessage":
       return {
         ...state,
@@ -616,7 +639,9 @@ export function applyNavigation(
   state: AtlasState,
   action: NavigationAction,
 ): AtlasState {
-  return { ...state, navigation: navigate(state.navigation, action) };
+  return action.type === "DismissNotice"
+    ? { ...state, notices: noticeClosed(state.notices, action.id) }
+    : { ...state, navigation: navigate(state.navigation, action) };
 }
 
 /** A section as the reading column shows it; null before it was opened. */
@@ -666,4 +691,9 @@ export function selectSideChats(
 /** The usage meter: the last reading stays, stale, when a later one fails. */
 export function selectUsage(state: AtlasState): UsageState | null {
   return state.usage.state;
+}
+
+/** The notices showing, oldest first. */
+export function selectNotices(state: AtlasState): Notice[] {
+  return state.notices;
 }

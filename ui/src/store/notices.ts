@@ -31,12 +31,14 @@ export function noticeShown(
   notices: NoticesSlice,
   notice: Notice,
 ): NoticesSlice {
-  void notice;
-  return notices;
+  return notices.some(({ id }) => id === notice.id)
+    ? notices.map((shown) => (shown.id === notice.id ? notice : shown))
+    : [...notices, notice];
 }
 
 /** Closes the notice of cause `id`, when one is showing. */
 export function noticeClosed(notices: NoticesSlice, id: string): NoticesSlice {
-  void id;
-  return notices;
+  return notices.some((notice) => notice.id === id)
+    ? notices.filter((notice) => notice.id !== id)
+    : notices;
 }

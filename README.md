@@ -1,3 +1,5 @@
+<img src="src-tauri/icons/128x128@2x.png" alt="The Atlas app icon: a white A circled by an indigo orbit on a near-black rounded square" width="128">
+
 # Atlas
 
 A desktop app that teaches any topic broad first, then deep. It runs on the
@@ -159,6 +161,15 @@ repair` works but costs a request each time.
 
 The command does not judge the quality of what the prompts write, and does not
 check a record against its prose; judge those by using the app.
+
+## App icon
+
+The icon's master is `docs/design/app-icon/Atlas.icon`, an Icon Composer file
+(open it from Xcode's Icon Composer). `docs/design/app-icon/app-icon.png` is its
+macOS rendering placed on Apple's icon grid: an 824 px body centred on a 1024 px
+canvas. The bundle's icons in `src-tauri/icons/` are generated from that PNG
+with `tauri icon`; keep only the files `bundle.icon` in
+`src-tauri/tauri.conf.json` lists, plus `icon.png`.
 
 ## Licence
 

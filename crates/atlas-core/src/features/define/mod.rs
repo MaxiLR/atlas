@@ -98,6 +98,17 @@ impl Feature {
         Ok(self.store.glossary(course_id)?)
     }
 
+    /// Removes a glossary entry; not built yet.
+    pub(crate) async fn delete_entry(
+        &self,
+        _cx: &Features,
+        _entry_id: Uuid,
+    ) -> Result<(), CoreError> {
+        Err(CoreError::Unavailable {
+            feature: "define".to_owned(),
+        })
+    }
+
     /// The course the anchored block belongs to.
     fn course_of(&self, anchor: &Anchor) -> Result<Uuid, CoreError> {
         let not_found = || CoreError::NotFound {

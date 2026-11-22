@@ -182,7 +182,7 @@ pub struct Report {
     /// The models listed, in the order the plan reports them.
     pub models: Result<ModelList, CoreError>,
     pub tasks: Vec<TaskReport>,
-    /// The usage meter after the run: a reading when a usage login exists.
+    /// The usage meter after the run, read with the plan login.
     pub usage: Result<UsageState, CoreError>,
     /// The streams written, when the run captured them.
     pub captured: Option<Result<Vec<PathBuf>, String>>,

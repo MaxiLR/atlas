@@ -18,7 +18,7 @@ impl EventSink for Tap {
         let completed = completes_a_generation(&event);
         self.events.emit(event);
         if completed && let Some(meter) = self.meter.upgrade() {
-            meter.generation_completed();
+            meter.read_now();
         }
     }
 }

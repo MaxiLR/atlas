@@ -129,23 +129,21 @@ impl Feature {
         }
     }
 
-    /// Ends the Codex login and the usage meter's login together; a failure
-    /// of one does not keep the other signed in.
-    pub(crate) async fn sign_out(&self, cx: &Features) -> Result<Session, CoreError> {
+    /// Ends the Codex login. The usage meter, which reads with it, hears of
+    /// it through the session's change.
+    pub(crate) async fn sign_out(&self, _cx: &Features) -> Result<Session, CoreError> {
         let mut attempt = self.attempt.lock().await;
         if let Some(pending) = attempt.take() {
             pending.abort();
         }
         self.login.state().signing_in = None;
         let plan = self.login.auth.sign_out().await;
-        let usage = cx.usage.sign_out(cx).await;
         self.login.state().reason = Some(SignedOutReason::SignedOut);
         let session = self.login.changed()?;
         // Signed out, the plan provider has no list to read; whatever reading
         // fails here is read again on the next need.
         let _ = self.models.session_changed(!self.plan_route, || {}).await;
         plan.map_err(auth_error)?;
-        usage?;
         Ok(session)
     }
 

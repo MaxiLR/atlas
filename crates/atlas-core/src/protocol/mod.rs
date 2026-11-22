@@ -59,7 +59,7 @@ pub enum CoreRequest {
     CancelSignIn,
     /// Ask again for permission to use the plan.
     EnablePlanUsage,
-    /// End the plan login and the usage meter's login together.
+    /// End the plan login.
     SignOut,
     /// Open ChatGPT's usage settings in the browser.
     OpenManageUsage,
@@ -149,14 +149,14 @@ pub enum CoreRequest {
     SendSideChatMessage { chat_id: Uuid, text: String },
     /// Stop the reply streaming in a side chat.
     StopSideChatReply { chat_id: Uuid },
+    /// Remove an entry from the course's glossary.
+    DeleteGlossaryEntry { entry_id: Uuid },
+    /// Remove a side chat and its messages.
+    DeleteSideChat { chat_id: Uuid },
 
     // Usage.
-    /// The usage meter as it stands.
+    /// The usage meter as it stands, read with the plan login.
     GetUsage,
-    /// Start the usage meter's own sign-in.
-    ConnectUsage,
-    /// Abandon the usage meter's sign-in.
-    CancelConnectUsage,
     /// Whether the window has focus; readings pause without it.
     SetWindowFocused { focused: bool },
 

@@ -5,7 +5,8 @@ use chrono::{DateTime, Utc};
 use serde_json::{Map, Value};
 
 use super::json::{after, moment, number, plan_words, text};
-use super::{Usage, UsageLogin, UsageReader, Window, object_of, send, under};
+use super::{Usage, UsageReader, Window, object_of, send, under};
+use crate::auth::AccessToken;
 use crate::protocol::{UsageFailure, UsageLevel};
 
 const USAGE: &[&str] = &["backend-api", "wham", "usage"];
@@ -27,13 +28,12 @@ struct Name {
 }
 
 impl UsageReader {
-    /// Reads the account's usage windows. A 401 ends the login (`Auth`).
-    pub async fn read(&self, login: &UsageLogin) -> Result<Usage, UsageFailure> {
+    /// Reads the account's usage windows with `token`. A 401 is `Auth`.
+    pub async fn read(&self, token: &AccessToken) -> Result<Usage, UsageFailure> {
         let response = send(
             self.http
                 .get(under(&self.endpoints.chatgpt, USAGE))
-                .bearer_auth(login.access_token.secret())
-                .header("ChatGPT-Account-Id", &login.account.account_id),
+                .bearer_auth(token.secret()),
         )
         .await?;
         if response.status().as_u16() == 401 {

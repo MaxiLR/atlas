@@ -214,10 +214,14 @@ impl Core {
             CoreRequest::StopSideChatReply { chat_id } => {
                 cx.side_chats.stop_reply(cx, chat_id).await.map(done)
             }
+            CoreRequest::DeleteGlossaryEntry { entry_id } => {
+                cx.define.delete_entry(cx, entry_id).await.map(done)
+            }
+            CoreRequest::DeleteSideChat { chat_id } => {
+                cx.side_chats.delete(cx, chat_id).await.map(done)
+            }
 
             CoreRequest::GetUsage => cx.usage.get(cx).await.map(usage),
-            CoreRequest::ConnectUsage => cx.usage.connect(cx).await.map(usage),
-            CoreRequest::CancelConnectUsage => cx.usage.cancel_connect(cx).await.map(usage),
             CoreRequest::SetWindowFocused { focused } => {
                 cx.usage.set_window_focused(cx, focused).await.map(done)
             }

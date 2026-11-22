@@ -1,19 +1,7 @@
 //! Reading loosely typed answers the way Headroom reads them.
 
-use base64::Engine;
-use base64::alphabet::URL_SAFE;
-use base64::engine::DecodePaddingMode;
-use base64::engine::general_purpose::{GeneralPurpose, GeneralPurposeConfig};
 use chrono::{DateTime, TimeDelta, Utc};
-use serde_json::{Map, Value};
-
-/// Base64url with or without padding, tolerating stray trailing bits.
-const LENIENT_BASE64URL: GeneralPurpose = GeneralPurpose::new(
-    &URL_SAFE,
-    GeneralPurposeConfig::new()
-        .with_decode_allow_trailing_bits(true)
-        .with_decode_padding_mode(DecodePaddingMode::Indifferent),
-);
+use serde_json::Value;
 
 /// `value` as non-empty text.
 pub(super) fn text(value: Option<&Value>) -> Option<&str> {
@@ -64,15 +52,4 @@ pub(super) fn plan_words(plan: Option<&Value>) -> Option<String> {
     let mut chars = words.chars();
     let first = chars.next()?;
     Some(first.to_uppercase().chain(chars).collect())
-}
-
-/// The payload of a JWT, unverified.
-pub(super) fn claims(token: Option<&Value>) -> Option<Map<String, Value>> {
-    let payload = token?.as_str()?.split('.').nth(1)?;
-    let normalised = payload.replace('+', "-").replace('/', "_");
-    let bytes = LENIENT_BASE64URL.decode(normalised).ok()?;
-    match serde_json::from_slice(&bytes) {
-        Ok(Value::Object(claims)) => Some(claims),
-        _ => None,
-    }
 }

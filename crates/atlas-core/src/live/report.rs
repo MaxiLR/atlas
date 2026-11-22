@@ -162,9 +162,8 @@ fn memory_line(memory: &Memory) -> String {
 fn usage_line(usage: &Result<UsageState, crate::protocol::CoreError>) -> String {
     match usage {
         Err(error) => format!("could not be read: {error}"),
-        Ok(UsageState::NotConnected) => "no usage login".to_owned(),
-        Ok(UsageState::Connecting { .. }) => "the usage login is waiting for its code".to_owned(),
-        Ok(UsageState::SignedOut) => "the usage login has ended".to_owned(),
+        Ok(UsageState::NoPlanLogin) => "no plan login".to_owned(),
+        Ok(UsageState::AwaitingReading) => "no reading yet".to_owned(),
         Ok(UsageState::FirstReadFailed { reason }) => format!("the reading failed: {reason:?}"),
         Ok(UsageState::Connected { reading }) => {
             let windows: Vec<String> = reading.windows.iter().map(window).collect();

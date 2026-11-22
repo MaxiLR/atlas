@@ -257,6 +257,13 @@ impl Feature {
         Ok(())
     }
 
+    /// Removes a side chat with its messages; not built yet.
+    pub(crate) async fn delete(&self, _cx: &Features, _chat_id: Uuid) -> Result<(), CoreError> {
+        Err(CoreError::Unavailable {
+            feature: "side_chats".to_owned(),
+        })
+    }
+
     /// Takes the chat's reply slot, unless a reply is streaming in it.
     fn claim(&self, chat: Uuid) -> Result<(Arc<Stop>, Running<'_>), CoreError> {
         let mut running = lock(&self.running);

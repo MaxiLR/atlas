@@ -1,9 +1,8 @@
 //! The desktop shell: one window that shows only the app, one command into
-//! the core, one event out, and the core's ports on the Mac (the Keychain,
-//! the system browser, the app's data folder, and the PDF printer with its
-//! hidden window).
+//! the core, one event out, and the core's ports on the Mac (the secrets
+//! file, the system browser, the app's data folder, and the PDF printer with
+//! its hidden window).
 
-mod keychain;
 mod navigation;
 mod pdf;
 mod ports;
@@ -20,9 +19,9 @@ use atlas_core::provider::{ProviderChoice, for_session};
 use atlas_core::{Core, CoreDeps};
 use tauri::{Emitter, Manager, State, Url};
 
-use keychain::Keychain;
 use pdf::WebviewPdfExporter;
 use ports::{ForwardedEvents, SystemBrowser};
+use secrets::{SecretsFile, secrets_path};
 
 pub use pdf::{EXPORT_CAPABILITY, EXPORT_WINDOW};
 
@@ -92,7 +91,7 @@ pub fn run() {
                     }
                 })),
                 clock,
-                secrets: Arc::new(Keychain::atlas()),
+                secrets: Arc::new(SecretsFile::new(secrets_path(&data_dir))),
                 browser: Arc::new(SystemBrowser(app.handle().clone())),
                 pdf: Arc::new(WebviewPdfExporter::new(app.handle().clone(), app_url)),
                 endpoints,

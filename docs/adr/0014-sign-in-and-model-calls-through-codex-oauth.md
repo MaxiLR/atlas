@@ -1,6 +1,7 @@
 # ADR-0014: Sign-in and model calls through Codex OAuth
 
-- Status: Accepted
+- Status: Accepted; its line that the usage meter keeps its own login is
+  superseded by ADR-0015
 - Date: 2026-11-20
 - Supersedes: the sign-in and transport of ADR-0002
 

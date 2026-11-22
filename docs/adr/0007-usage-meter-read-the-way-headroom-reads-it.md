@@ -1,6 +1,6 @@
 # ADR-0007: The usage meter reads usage the way Headroom does
 
-- Status: Accepted
+- Status: Accepted; its second sign-in is superseded by ADR-0015
 - Date: 2026-11-18
 
 ## Context

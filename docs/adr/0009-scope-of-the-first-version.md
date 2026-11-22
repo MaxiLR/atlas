@@ -1,6 +1,6 @@
 # ADR-0009: Scope of the first version
 
-- Status: Accepted
+- Status: Accepted; its Keychain line is superseded by ADR-0015
 - Date: 2026-11-18
 
 ## Context

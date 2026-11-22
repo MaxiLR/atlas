@@ -131,7 +131,7 @@ version that produced it.
   it with `testing::FakePorts`, a `FakeProvider` and a database in a temp dir,
   and reach outside services only through `tests/support/server.rs`. The
   interface uses the in-browser fake core. No test or check may use the
-  network, the real Keychain or the real app-data folder.
+  network or the real app-data folder, where the secrets file lives.
 - The interface makes no network request; every outside call goes through the
   core. The fake core exists only in Vite mode `fake` and is never part of the
   production bundle.

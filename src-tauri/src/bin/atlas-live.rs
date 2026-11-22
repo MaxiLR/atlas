@@ -1,17 +1,11 @@
 //! `atlas-live`: runs each selected harness task once against the real
 //! ChatGPT plan, on a throwaway course, and prints the report. It uses the
-//! plan login the app saved in the Keychain and never signs in itself.
+//! plan login the app saved in its secrets file and never signs in itself.
 //!
 //! ```sh
 //! cargo run -p atlas-app --bin atlas-live -- --all
 //! cargo run -p atlas-app --bin atlas-live -- --task write-section --capture /tmp/streams
 //! ```
-
-// The app's Keychain store, shared with the shell; only `Keychain::atlas` is
-// used here.
-#[allow(dead_code)]
-#[path = "../keychain.rs"]
-mod keychain;
 
 use std::path::Path;
 use std::process::ExitCode;
@@ -19,6 +13,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use atlas_app::secrets::{SecretsFile, live_secrets_path};
 use atlas_core::CoreDeps;
 use atlas_core::live::{self, Args, ArgsError, Capture, LiveCore, LiveTask};
 use atlas_core::ports::{
@@ -28,8 +23,6 @@ use atlas_core::protocol::CoreEvent;
 use atlas_core::provider::chatgpt::ChatGptProvider;
 use tauri::Url;
 use uuid::Uuid;
-
-use keychain::Keychain;
 
 /// How long the warning stands before the first request.
 const GRACE: Duration = Duration::from_secs(5);
@@ -59,6 +52,10 @@ async fn main() -> ExitCode {
 }
 
 async fn run(args: Args, dir: &Path) -> ExitCode {
+    let Some(home) = std::env::var_os("HOME") else {
+        eprintln!("HOME is not set, so the app's secrets file cannot be found");
+        return ExitCode::FAILURE;
+    };
     let endpoints = Endpoints::production();
     let clock: Arc<dyn Clock> = Arc::new(SystemClock);
     let capture = args
@@ -75,7 +72,7 @@ async fn run(args: Args, dir: &Path) -> ExitCode {
         provider: Arc::new(provider),
         events: Arc::new(Quiet),
         clock,
-        secrets: Arc::new(Keychain::atlas()),
+        secrets: Arc::new(SecretsFile::new(live_secrets_path(Path::new(&home)))),
         browser: Arc::new(NoBrowser),
         pdf: Arc::new(NoPdf),
         endpoints,

@@ -1,6 +1,6 @@
 [package]
 name = "atlas-app"
-description = "Atlas desktop shell: windows, commands, events and Keychain."
+description = "Atlas desktop shell: windows, commands, events and the secrets file."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -30,7 +30,6 @@ tokio.workspace = true
 uuid.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
-security-framework.workspace = true
 objc2.workspace = true
 objc2-foundation.workspace = true
 objc2-app-kit.workspace = true

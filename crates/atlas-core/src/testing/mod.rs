@@ -1,6 +1,6 @@
 //! In-memory fakes for every port and for the model provider. Tests compose
-//! the core from these; nothing here touches the network, the Keychain or the
-//! app's data folder.
+//! the core from these; nothing here touches the network or the app's data
+//! folder, where the secrets file lives.
 
 use std::collections::HashMap;
 use std::path::PathBuf;

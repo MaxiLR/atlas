@@ -76,6 +76,54 @@ for (const width of widths) {
           ).toBeVisible();
         }
       });
+
+      test("links an entry whose article was found, and opening it leaves the app where it was", async ({
+        page,
+      }) => {
+        await page.getByRole("button", { name: "Plate tectonics" }).click();
+        await page
+          .getByRole("navigation", { name: "Index" })
+          .getByRole("button", { name: "Convergent boundaries" })
+          .click();
+        const article = page.getByRole("article", {
+          name: "Convergent boundaries",
+        });
+        await article
+          .getByRole("button", { name: "asthenosphere", exact: true })
+          .click();
+        const popover = page.getByRole("dialog", {
+          name: "Definition of asthenosphere",
+        });
+        await expect(popover).toContainText(
+          "The asthenosphere is the mechanically weak",
+        );
+        await page.keyboard.press("Escape");
+        await expect(popover).toBeHidden();
+
+        await page.getByRole("button", { name: "Glossary 1" }).click();
+        const panel = page.getByRole("complementary", { name: "Side panel" });
+        const entry = panel
+          .getByRole("list", { name: "Glossary" })
+          .getByRole("listitem");
+        const link = entry.getByRole("link", {
+          name: "Wikipedia article on asthenosphere",
+        });
+        await expect(link).toBeVisible();
+        await expect(link).toHaveText("Wikipedia");
+        await expect(link).toHaveAttribute(
+          "href",
+          "https://en.wikipedia.org/wiki/Asthenosphere",
+        );
+        await expect(
+          entry.getByRole("button", { name: "Convergent boundaries" }),
+        ).toBeVisible();
+
+        const before = page.url();
+        await link.click();
+        expect(page.url()).toBe(before);
+        await expect(panel).toBeVisible();
+        await expect(article).toBeAttached();
+      });
     });
   }
 }

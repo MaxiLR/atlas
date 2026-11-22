@@ -298,3 +298,77 @@ describe("the glossary in the reader", () => {
     ).toBeVisible();
   });
 });
+
+describe("an entry's Wikipedia article", () => {
+  it("is a link beside the section control that opens the found article through the core", async () => {
+    const { list, requests, user } = renderList();
+
+    await list([
+      {
+        ...entry("asthenosphere", "2026-11-17T10:00:00.000Z"),
+        wikipedia: {
+          type: "Found",
+          title: "Asthenosphere",
+          extract: "The asthenosphere is the weak region of the upper mantle.",
+          url: "https://en.wikipedia.org/wiki/Asthenosphere",
+        },
+      },
+    ]);
+
+    const item = within(
+      screen.getByRole("list", { name: "Glossary" }),
+    ).getByRole("listitem");
+    expect(
+      within(item).getByRole("button", { name: "Convergent boundaries" }),
+    ).toBeVisible();
+    const link = within(item).getByRole("link", {
+      name: "Wikipedia article on asthenosphere",
+    });
+    expect(link).toHaveTextContent("Wikipedia");
+    expect(link).toHaveAttribute(
+      "href",
+      "https://en.wikipedia.org/wiki/Asthenosphere",
+    );
+
+    await user.click(link);
+
+    expect(requests).toContainEqual({
+      type: "OpenExternal",
+      url: "https://en.wikipedia.org/wiki/Asthenosphere",
+    });
+    expect(
+      requests.filter((request) => request.type === "LookupWikipedia"),
+    ).toEqual([]);
+  });
+
+  it("is absent from entries never looked up, with no article or whose lookup failed, and the list looks none up", async () => {
+    const { list, requests } = renderList();
+
+    await list([
+      entry("rift", "2026-11-17T10:00:00.000Z"),
+      {
+        ...entry("fingernails", "2026-11-17T11:00:00.000Z"),
+        wikipedia: { type: "NoArticle" },
+      },
+      {
+        ...entry("trench", "2026-11-17T12:00:00.000Z"),
+        wikipedia: { type: "Failed", error: { type: "Offline" } },
+      },
+    ]);
+
+    const items = within(
+      screen.getByRole("list", { name: "Glossary" }),
+    ).getAllByRole("listitem");
+    expect(items).toHaveLength(3);
+    for (const item of items) {
+      expect(
+        within(item).getByRole("button", { name: "Convergent boundaries" }),
+      ).toBeVisible();
+      expect(within(item).queryByRole("link")).toBeNull();
+      expect(item).not.toHaveTextContent("Wikipedia");
+    }
+    expect(
+      requests.filter((request) => request.type === "LookupWikipedia"),
+    ).toEqual([]);
+  });
+});

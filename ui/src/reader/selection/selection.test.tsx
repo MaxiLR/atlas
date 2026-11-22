@@ -305,9 +305,14 @@ describe("the definition popover", () => {
     ).toBeNull();
     await waitFor(() => expect(popover).toHaveTextContent(SUBDUCTION_ARTICLE));
 
-    await user.click(
-      within(popover).getByRole("link", { name: "Open article" }),
-    );
+    const link = within(popover).getByRole("link", {
+      name: "Wikipedia article on subduction",
+    });
+    expect(link).toHaveTextContent("Wikipedia");
+    expect(within(popover).queryByText("Open article")).toBeNull();
+    expect(within(popover).getAllByRole("link")).toEqual([link]);
+
+    await user.click(link);
     expect(core.opened).toContain("https://en.wikipedia.org/wiki/Subduction");
   });
 
@@ -342,9 +347,8 @@ describe("the definition popover", () => {
     await waitFor(() =>
       expect(popover).toHaveTextContent("No Wikipedia article matches"),
     );
-    expect(
-      within(popover).queryByRole("link", { name: "Open article" }),
-    ).toBeNull();
+    expect(within(popover).getByText("Wikipedia")).toBeVisible();
+    expect(within(popover).queryByRole("link")).toBeNull();
   });
 
   it("says when Wikipedia could not be reached", async () => {

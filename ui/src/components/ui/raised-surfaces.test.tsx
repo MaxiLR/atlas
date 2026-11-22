@@ -20,6 +20,7 @@ import {
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "./hover-card";
 import { Popover, PopoverContent, PopoverTrigger } from "./popover";
 import { Sheet, SheetContent, SheetTitle } from "./sheet";
+import { Notice } from "./sonner";
 
 beforeAll(() => {
   // Radix measures floating content; jsdom has no layout to observe.
@@ -89,6 +90,17 @@ const cases: [string, ReactNode, string[]][] = [
       </SheetContent>
     </Sheet>,
     ["Side chats"],
+  ],
+  [
+    "a notice",
+    <Notice
+      kind="error"
+      title="Session could not be read"
+      description="secrets.json is not valid JSON."
+      action={{ label: "Retry", onClick() {} }}
+      onDismiss={() => {}}
+    />,
+    ["Session could not be read", "secrets.json is not valid JSON."],
   ],
 ];
 

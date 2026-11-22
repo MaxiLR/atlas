@@ -35,7 +35,7 @@ export const initialNavigation: NavigationSlice = {
   overlay: null,
 };
 
-/** What the interface does on its own: screens, the panel, overlays. */
+/** What the interface does on its own: screens, the panel, overlays, notices. */
 export type NavigationAction =
   | { type: "ShowLibrary" }
   | { type: "ShowSettings" }
@@ -44,7 +44,9 @@ export type NavigationAction =
   /** Leaves the open side chat for the course's list. */
   | { type: "ShowSideChatList" }
   | { type: "OpenOverlay"; overlay: Overlay }
-  | { type: "CloseOverlay" };
+  | { type: "CloseOverlay" }
+  /** Closes the notice of cause `id`: Dismiss, or Sonner closing it. */
+  | { type: "DismissNotice"; id: string };
 
 /** The window after an action of the interface's own. */
 export function navigate(
@@ -66,6 +68,9 @@ export function navigate(
       return { ...nav, overlay: action.overlay };
     case "CloseOverlay":
       return { ...nav, overlay: null };
+    case "DismissNotice":
+      // A notice is not part of where the window is.
+      return nav;
     default:
       return unknownTag(action);
   }

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { selectSection, selectUsage } from "@/store";
-import { findSection, openCourse, startFake } from "@/test/fake-core";
+import { drained, findSection, openCourse, startFake } from "@/test/fake-core";
 
 import type { CoreEvent } from "../generated/CoreEvent";
 import { createFakeCore, scenarioNames } from "./index";
@@ -21,6 +21,7 @@ const named = [
   "usage-reading",
   "usage-stale",
   "usage-at-limit",
+  "session-unreadable",
 ];
 
 /** Opens Plate tectonics and asks for its first section never read. */
@@ -273,5 +274,28 @@ describe("the fake core's scenarios", () => {
       usage?.type === "Connected" &&
         usage.reading.windows.find((window) => window.level === "Limit"),
     ).toMatchObject({ used: 1 });
+  });
+
+  it("session-unreadable: the session cannot be read until it is asked again", async () => {
+    const { store, state } = startFake("session-unreadable");
+    // Asked twice at once, as React's development mode does on mount.
+    const together = [
+      store.send({ type: "GetSession" }),
+      store.send({ type: "GetSession" }),
+    ];
+    await Promise.all(
+      together.map((asked) =>
+        expect(asked).rejects.toMatchObject({ type: "Store" }),
+      ),
+    );
+    expect(state().notices.map((notice) => notice.id)).toEqual(["session"]);
+    await drained();
+
+    await store.send({ type: "GetSession" });
+
+    expect(state().session.session).toMatchObject({ type: "SignedIn" });
+    expect(state().notices).toEqual([]);
+    await store.send({ type: "ListCourses" });
+    expect(state().library.courses?.length).toBeGreaterThanOrEqual(2);
   });
 });

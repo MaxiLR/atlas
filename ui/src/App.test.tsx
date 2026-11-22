@@ -12,6 +12,7 @@ import { createGate } from "./test/gate";
 /**
  * The default scenario's core, except that the first `refusals` requests for
  * the session are refused as a core without the session feature refuses them.
+ * `asked` counts the requests for the session the core has answered.
  */
 function renderWithoutSession(refusals: number) {
   const core = createFakeCore({
@@ -19,14 +20,14 @@ function renderWithoutSession(refusals: number) {
     clock: createManualClock(startedAt),
     pace: () => Promise.resolve(),
   });
-  let refused = 0;
+  let asked = 0;
   const client: CoreClient = {
     call(request) {
-      if (request.type === "GetSession" && refused < refusals) {
-        refused += 1;
-        return Promise.reject({ type: "Unavailable", feature: "session" });
-      }
-      return core.call(request);
+      if (request.type !== "GetSession") return core.call(request);
+      asked += 1;
+      return asked <= refusals
+        ? Promise.reject({ type: "Unavailable", feature: "session" })
+        : core.call(request);
     },
     subscribe: (listener) => core.subscribe(listener),
   };
@@ -35,7 +36,14 @@ function renderWithoutSession(refusals: number) {
       <App />
     </CoreProvider>,
   );
-  return userEvent.setup();
+  return { user: userEvent.setup(), asked: () => asked };
+}
+
+/** The notice saying the session could not be read. */
+async function findSessionNotice() {
+  const notice = await screen.findByRole("alert");
+  expect(notice).toHaveTextContent("Session could not be read");
+  return notice;
 }
 
 function renderApp(scenario: string, pace: () => Promise<void>) {
@@ -163,27 +171,51 @@ describe("the core loop against the fake core", () => {
 });
 
 describe("a core that cannot say the session", () => {
-  it("shows the refusal and still opens the library and its courses", async () => {
-    const user = renderWithoutSession(Infinity);
+  it("says so in a notice with Retry, and still opens the library and its courses", async () => {
+    const { user } = renderWithoutSession(Infinity);
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "session is not available yet.",
-    );
+    const notice = await findSessionNotice();
+    expect(notice).toHaveTextContent("session is not available yet.");
+    expect(
+      within(notice).getByRole("button", { name: "Retry" }),
+    ).toBeInTheDocument();
+    // The notice is Sonner's, and the window has no banner of its own.
+    expect(
+      screen.getByRole("region", { name: /^Notifications/ }),
+    ).toContainElement(notice);
+    expect(screen.getAllByRole("alert")).toEqual([notice]);
+    expect(screen.getAllByRole("button", { name: "Retry" })).toHaveLength(1);
+
     const index = await openPlateTectonics(user);
     expect(within(index).getAllByRole("button").length).toBeGreaterThan(0);
   });
 
-  it("asks again with Retry", async () => {
-    const user = renderWithoutSession(1);
-    await screen.findByRole("alert");
+  it("closes the notice once Retry reads the session", async () => {
+    const { user } = renderWithoutSession(1);
+    const notice = await findSessionNotice();
 
-    await user.click(screen.getByRole("button", { name: "Retry" }));
+    await user.click(within(notice).getByRole("button", { name: "Retry" }));
 
-    await expect
-      .poll(() => screen.queryByText("session is not available yet."))
-      .toBeNull();
+    await expect.poll(() => screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText("Session could not be read")).toBeNull();
     expect(
       await screen.findByRole("button", { name: "Plate tectonics" }),
     ).toBeVisible();
+  });
+
+  it("keeps the notice when Retry fails again", async () => {
+    const { user, asked } = renderWithoutSession(2);
+    const notice = await findSessionNotice();
+
+    await user.click(within(notice).getByRole("button", { name: "Retry" }));
+    await expect.poll(asked).toBe(2);
+    // Long enough for Sonner to have closed it, had the store said so.
+    const { promise: settled, resolve } = Promise.withResolvers<void>();
+    setTimeout(resolve, 600);
+    await settled;
+
+    expect(await findSessionNotice()).toHaveTextContent(
+      "session is not available yet.",
+    );
   });
 });

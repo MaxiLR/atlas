@@ -41,6 +41,7 @@ import {
   type NavigationAction,
   type NavigationSlice,
 } from "./navigation";
+import { initialNotices, type NoticesSlice } from "./notices";
 import {
   initialPlacement,
   placementChanged,
@@ -75,6 +76,7 @@ import { initialUsage, usageChanged, type UsageSlice } from "./usage";
 export type { SectionDisplay } from "./sections";
 export type { ShownBlock, Stream } from "./stream";
 export type { NavigationAction, PanelTab, Screen } from "./navigation";
+export type { Notice, NoticeAction, NoticeKind } from "./notices";
 
 /** Everything the interface shows, fed by the core's events and responses. */
 export interface AtlasState {
@@ -88,6 +90,7 @@ export interface AtlasState {
   sideChats: SideChatsSlice;
   usage: UsageSlice;
   navigation: NavigationSlice;
+  notices: NoticesSlice;
 }
 
 export const initialState: AtlasState = {
@@ -101,6 +104,7 @@ export const initialState: AtlasState = {
   sideChats: initialSideChats,
   usage: initialUsage,
   navigation: initialNavigation,
+  notices: initialNotices,
 };
 
 function sessionChanged(state: AtlasState, session: Session): AtlasState {

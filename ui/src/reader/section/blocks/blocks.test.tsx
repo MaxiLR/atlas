@@ -10,6 +10,7 @@ import { CoreProvider } from "@/core/context";
 import type { Block } from "@/core/generated/Block";
 import type { BlockContent } from "@/core/generated/BlockContent";
 import type { BlockKind } from "@/core/generated/BlockKind";
+import type { CheckResult } from "@/core/generated/CheckResult";
 import type { Citation } from "@/core/generated/Citation";
 import type { CoreEvent } from "@/core/generated/CoreEvent";
 import type { CoreRequest } from "@/core/generated/CoreRequest";
@@ -764,5 +765,181 @@ describe("marks and selections", () => {
     expect(parts.at(-1)!.textContent).toBe(". That");
     const cited = screen.getByText(source.title);
     for (const part of parts) expect(part).not.toContainElement(cited);
+  });
+});
+
+describe("the check block", () => {
+  const FIRST = "Which plate sinks when old ocean floor meets young?";
+  const SECOND = "Why do two continents build mountains, not a trench?";
+  const firstOptions = [
+    "The old plate",
+    "The young plate",
+    "Neither",
+    "Both at once",
+  ];
+  const secondOptions = [
+    "Continental crust is too buoyant to sink",
+    "Continents move faster",
+    "Melt rises through them",
+    "The mantle is too cold",
+  ];
+  const answered: CheckResult = {
+    choice: 1,
+    correct: false,
+    key: 0,
+    explanation: "Older ocean floor is colder and denser.",
+  };
+
+  /** A check block of the two questions, each answered or not. */
+  function twoQuestions(
+    first: CheckResult | null = null,
+    second: CheckResult | null = null,
+  ): BlockContent {
+    return {
+      type: "Check",
+      questions: [
+        { index: 0, stem: FIRST, options: firstOptions, answer: first },
+        { index: 1, stem: SECOND, options: secondOptions, answer: second },
+      ],
+    };
+  }
+
+  const previous = () =>
+    screen.getByRole("button", { name: "Previous question" });
+  const next = () => screen.getByRole("button", { name: "Next question" });
+  const radio = (stem: string, text: string) =>
+    within(screen.getByRole("group", { name: stem })).getByRole("radio", {
+      name: text,
+    });
+
+  it("shows one of two questions at a time, with its position and arrows that stop at the ends", async () => {
+    const user = userEvent.setup();
+    const { section } = renderBlocks();
+    section([prose("Before the questions."), twoQuestions()]);
+
+    expect(
+      screen.getByRole("heading", { level: 2, name: "Check questions" }),
+    ).toBeVisible();
+    expect(screen.getByRole("group", { name: FIRST })).toBeVisible();
+    expect(screen.queryByRole("group", { name: SECOND })).toBeNull();
+    expect(screen.getByText("1 of 2")).toBeVisible();
+    expect(previous()).toHaveAttribute("aria-disabled", "true");
+    expect(next()).not.toHaveAttribute("aria-disabled", "true");
+
+    // Previous at the first question does nothing.
+    await user.click(previous());
+    expect(screen.getByText("1 of 2")).toBeVisible();
+    expect(screen.getByRole("group", { name: FIRST })).toBeVisible();
+
+    await user.click(next());
+
+    expect(screen.getByRole("group", { name: SECOND })).toBeVisible();
+    expect(screen.queryByRole("group", { name: FIRST })).toBeNull();
+    expect(screen.getByText("2 of 2")).toBeVisible();
+    expect(next()).toHaveAttribute("aria-disabled", "true");
+    expect(previous()).not.toHaveAttribute("aria-disabled", "true");
+    // At the end, Next keeps focus and stays on the last question.
+    expect(next()).toHaveFocus();
+    await user.click(next());
+    expect(screen.getByText("2 of 2")).toBeVisible();
+    expect(next()).toHaveFocus();
+
+    await user.click(previous());
+    expect(screen.getByRole("group", { name: FIRST })).toBeVisible();
+    expect(screen.getByText("1 of 2")).toBeVisible();
+  });
+
+  it("keeps the question not shown out of reach of Tab", async () => {
+    const user = userEvent.setup();
+    const { section } = renderBlocks();
+    section([twoQuestions()]);
+    const hidden = screen
+      .getByRole("group", { name: SECOND, hidden: true })
+      .closest("form")!;
+
+    const reached: Element[] = [];
+    for (let step = 0; step < 12; step += 1) {
+      await user.tab();
+      if (document.activeElement !== null) reached.push(document.activeElement);
+    }
+
+    expect(reached).toContain(previous());
+    expect(reached).toContain(next());
+    expect(reached).toContain(radio(FIRST, "The old plate"));
+    expect(reached.filter((element) => hidden.contains(element))).toEqual([]);
+  });
+
+  it("keeps each question's choice when moving away and back", async () => {
+    const user = userEvent.setup();
+    const { section } = renderBlocks();
+    section([twoQuestions()]);
+
+    await user.click(radio(FIRST, "Neither"));
+    await user.click(next());
+    await user.click(radio(SECOND, "Continents move faster"));
+    await user.click(previous());
+
+    expect(radio(FIRST, "Neither")).toBeChecked();
+    await user.click(next());
+    expect(radio(SECOND, "Continents move faster")).toBeChecked();
+  });
+
+  it("changes the choice, not the question, with the arrow keys in the option group", async () => {
+    const user = userEvent.setup();
+    const { section } = renderBlocks();
+    section([twoQuestions()]);
+
+    await user.click(radio(FIRST, "The old plate"));
+    await user.keyboard("{ArrowRight}");
+    expect(radio(FIRST, "The young plate")).toBeChecked();
+    expect(radio(FIRST, "The young plate")).toHaveFocus();
+    await user.keyboard("{ArrowDown}{ArrowLeft}{ArrowLeft}");
+    expect(radio(FIRST, "The old plate")).toBeChecked();
+    expect(screen.getByText("1 of 2")).toBeVisible();
+    expect(screen.queryByRole("group", { name: SECOND })).toBeNull();
+  });
+
+  it("has no arrows and no position for a single question", () => {
+    const { section } = renderBlocks();
+    section([
+      {
+        type: "Check",
+        questions: [
+          { index: 0, stem: FIRST, options: firstOptions, answer: null },
+        ],
+      },
+    ]);
+
+    expect(
+      screen.getByRole("heading", { level: 2, name: "Check question" }),
+    ).toBeVisible();
+    expect(screen.getByRole("group", { name: FIRST })).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "Previous question" }),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Next question" })).toBeNull();
+    expect(screen.queryByText(/^\d+ of \d+$/)).toBeNull();
+  });
+
+  it("opens on the first question not yet answered", () => {
+    const { section } = renderBlocks();
+    section([twoQuestions(answered, null)]);
+
+    expect(screen.getByRole("group", { name: SECOND })).toBeVisible();
+    expect(screen.queryByRole("group", { name: FIRST })).toBeNull();
+    expect(screen.getByText("2 of 2")).toBeVisible();
+    expect(previous()).not.toHaveAttribute("aria-disabled", "true");
+    expect(next()).toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("opens on the first question when every one is answered", () => {
+    const { section } = renderBlocks();
+    section([
+      twoQuestions(answered, { ...answered, choice: 0, correct: true }),
+    ]);
+
+    expect(screen.getByRole("group", { name: FIRST })).toBeVisible();
+    expect(screen.queryByRole("group", { name: SECOND })).toBeNull();
+    expect(screen.getByText("1 of 2")).toBeVisible();
   });
 });

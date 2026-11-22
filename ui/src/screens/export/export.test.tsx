@@ -3,7 +3,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { App } from "@/App";
 import { CoreProvider } from "@/core/context";
-import { createFakeCore, createManualClock } from "@/core/fake";
+import { createFakeCore, createManualClock, type FakeCore } from "@/core/fake";
 import { startedAt } from "@/test/fake-core";
 
 /**
@@ -74,14 +74,19 @@ const DIAGRAM = "From the trench to the volcanic arc, step by step.";
 /**
  * The app at the export route of Plate tectonics on the fake core, after the
  * candidate read Subduction, step by step, the first deep dive of Convergent
- * boundaries. `courseId` replaces the course's id in the route.
+ * boundaries. `courseId` replaces the course's id in the route; `prepare`
+ * changes the fake core's world first.
  */
-async function renderExport(courseId?: string) {
+async function renderExport(
+  courseId?: string,
+  prepare: (core: FakeCore) => void = () => {},
+) {
   const core = createFakeCore({
     scenario: "default",
     clock: createManualClock(startedAt),
     pace: () => Promise.resolve(),
   });
+  prepare(core);
   const course = core.world.courses.find(
     (each) => each.topic === "Plate tectonics",
   );
@@ -245,6 +250,65 @@ describe("the export route", () => {
     ).toBeNull();
     expect(screen.queryByText(/For plates with a subducting edge/)).toBeNull();
     expect(screen.queryByText(/side chat/i)).toBeNull();
+  });
+
+  it("lists every question of a check block, with no pager", async () => {
+    const SECOND = "Why does a collision of two continents build mountains?";
+    await renderExport(undefined, (core) => {
+      const convergent = core.world.courses
+        .flatMap((course) => course.chapters)
+        .flatMap((chapter) => chapter.sections)
+        .find((section) => section.sample.title === "Convergent boundaries")!;
+      for (const version of convergent.versions) {
+        version.blocks = version.blocks.map((block) =>
+          block.content.type === "Check"
+            ? {
+                ...block,
+                content: {
+                  ...block.content,
+                  questions: [
+                    ...block.content.questions,
+                    {
+                      index: block.content.questions.length,
+                      stem: SECOND,
+                      options: [
+                        "Continental crust is too buoyant to sink far.",
+                        "Continents move faster than ocean floor.",
+                        "Melt rises through the continent.",
+                        "The mantle under a continent is too cold.",
+                      ],
+                      answer: null,
+                    },
+                  ],
+                },
+              }
+            : block,
+        );
+      }
+    });
+
+    const convergent = await screen.findByRole("article", {
+      name: "Convergent boundaries",
+    });
+    expect(
+      within(convergent).getByRole("heading", {
+        level: 2,
+        name: "Check questions",
+      }),
+    ).toBeVisible();
+    expect(
+      within(convergent).getByText(
+        "A plate carrying young, warm ocean floor meets a plate carrying old, cold ocean floor. What happens next?",
+      ),
+    ).toBeVisible();
+    expect(within(convergent).getByText(SECOND)).toBeVisible();
+    expect(
+      within(convergent).getByText(
+        "Continental crust is too buoyant to sink far.",
+      ),
+    ).toBeVisible();
+    expect(screen.queryByRole("button", { name: /question$/ })).toBeNull();
+    expect(screen.queryByText(/^\d+ of \d+$/)).toBeNull();
   });
 
   it("signals ready once, after the diagram is drawn", async () => {

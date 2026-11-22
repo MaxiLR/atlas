@@ -8,3 +8,4 @@ mod keychain;
 mod navigation;
 mod pdf;
 mod provider_choice;
+mod secrets;

@@ -7,6 +7,7 @@ mod keychain;
 mod navigation;
 mod pdf;
 mod ports;
+pub mod secrets;
 #[cfg(test)]
 mod tests;
 

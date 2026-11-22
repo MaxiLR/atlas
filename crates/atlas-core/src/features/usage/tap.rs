@@ -1,10 +1,13 @@
 //! The event sink the other features emit through: every event goes on
 //! unchanged, then the meter hears what concerns it. A session that signed
 //! in has the meter await its first reading; one that signed out empties
-//! it; a generation that finished completed asks for a reading. Readings are
-//! taken off the emitting path.
+//! it; a generation that started or finished tells whether one is running,
+//! and one that finished completed asks for a reading. Readings are taken
+//! off the emitting path.
 
 use std::sync::{Arc, Weak};
+
+use uuid::Uuid;
 
 use super::Meter;
 use crate::ports::EventSink;
@@ -18,14 +21,22 @@ pub(super) struct Tap {
 impl EventSink for Tap {
     fn emit(&self, event: CoreEvent) {
         let heard = heard(&event);
+        let running = running(&event);
         self.events.emit(event);
-        let (Some(heard), Some(meter)) = (heard, self.meter.upgrade()) else {
+        if heard.is_none() && running.is_none() {
+            return;
+        }
+        let Some(meter) = self.meter.upgrade() else {
             return;
         };
+        if let Some((generation, running)) = running {
+            meter.generation(generation, running);
+        }
         match heard {
-            Heard::SignedIn => meter.signed_in(),
-            Heard::SignedOut => meter.signed_out(),
-            Heard::Completed => meter.read_now(),
+            Some(Heard::SignedIn) => meter.signed_in(),
+            Some(Heard::SignedOut) => meter.signed_out(),
+            Some(Heard::Completed) => meter.read_now(),
+            None => {}
         }
     }
 }
@@ -66,10 +77,26 @@ fn completes_a_generation(event: &CoreEvent) -> bool {
     )
 }
 
+/// The generation `event` starts or finishes, if it does: its id, and
+/// whether it runs from now on.
+fn running(event: &CoreEvent) -> Option<(Uuid, bool)> {
+    match event {
+        CoreEvent::Generation {
+            generation_id,
+            event: GenerationEvent::Started,
+            ..
+        } => Some((*generation_id, true)),
+        CoreEvent::Generation {
+            generation_id,
+            event: GenerationEvent::Finished { .. },
+            ..
+        } => Some((*generation_id, false)),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use uuid::Uuid;
-
     use super::*;
     use crate::protocol::{CoreError, GenerationTarget};
 
@@ -122,6 +149,46 @@ mod tests {
         assert_eq!(
             heard(&finished(GenerationOutcome::Completed)),
             Some(Heard::Completed)
+        );
+    }
+
+    #[test]
+    fn a_generation_runs_from_its_start_to_its_end_whatever_the_outcome() {
+        let generation = Uuid::from_u128(7);
+        let event = |event| CoreEvent::Generation {
+            generation_id: generation,
+            target: GenerationTarget::SideChat {
+                course_id: Uuid::nil(),
+                chat_id: Uuid::nil(),
+            },
+            event,
+        };
+        assert_eq!(
+            running(&event(GenerationEvent::Started)),
+            Some((generation, true))
+        );
+        for outcome in [
+            GenerationOutcome::Completed,
+            GenerationOutcome::Stopped,
+            GenerationOutcome::Failed {
+                error: CoreError::Offline,
+            },
+            GenerationOutcome::Incomplete { reason: None },
+        ] {
+            assert_eq!(
+                running(&event(GenerationEvent::Finished {
+                    outcome: outcome.clone()
+                })),
+                Some((generation, false)),
+                "{outcome:?}"
+            );
+        }
+        assert_eq!(
+            running(&event(GenerationEvent::TextDelta {
+                block: 0,
+                text: "text".to_owned()
+            })),
+            None
         );
     }
 }

@@ -56,15 +56,17 @@ function connected(
 
 /**
  * Mounts the meter over a core that reports `usage` and waits until the
- * meter has that answer. `requests` records what the meter asked; `emit`
- * sends the meter an event from the core.
+ * meter has that answer; a null `usage` is a core that has not answered yet.
+ * `requests` records what the meter asked; `emit` sends the meter an event
+ * from the core.
  */
-async function mountMeter(usage: UsageState, folded = false) {
+async function mountMeter(usage: UsageState | null, folded = false) {
   const requests: CoreRequest[] = [];
   const listeners = new Set<(event: CoreEvent) => void>();
   const client: CoreClient = {
     call(request: CoreRequest) {
       requests.push(request);
+      if (usage === null) return new Promise<CoreResponse>(() => {});
       const response: CoreResponse = { type: "Usage", usage };
       return Promise.resolve(response);
     },
@@ -98,6 +100,49 @@ async function renderMeter(usage: UsageState, folded = false) {
   const mounted = await mountMeter(usage, folded);
   const meter = await screen.findByRole("region", { name: "Plan usage" });
   return { meter, ...mounted };
+}
+
+const signedIn: CoreEvent = {
+  type: "SessionChanged",
+  session: {
+    type: "SignedIn",
+    account: { email: "candidate@example.com" },
+    planUsage: "On",
+  },
+};
+
+/**
+ * Two bars with no fill and no pace mark, hidden from assistive technology,
+ * a status saying Reading usage, and nothing to press.
+ */
+function expectEmptyBars(meter: HTMLElement) {
+  expect(within(meter).queryAllByRole("img")).toHaveLength(0);
+  const bars = within(meter).getAllByRole("img", { hidden: true });
+  expect(bars).toHaveLength(2);
+  for (const bar of bars) expect(bar).toBeEmptyDOMElement();
+  expect(within(meter).getByRole("status")).toHaveTextContent("Reading usage");
+  expect(within(meter).queryAllByRole("button")).toHaveLength(0);
+}
+
+/**
+ * The wide meter waiting for its first reading: the 5-hour and Weekly rows
+ * in place but hidden from assistive technology, their figures a placeholder
+ * with no text, their bars empty.
+ */
+function expectPendingRows(meter: HTMLElement) {
+  expect(within(meter).queryAllByRole("term")).toHaveLength(0);
+  expect(
+    within(meter)
+      .getAllByRole("term", { hidden: true })
+      .map((term) => term.textContent),
+  ).toEqual(["5-hour", "Weekly"]);
+  const figures = within(meter).getAllByRole("definition", { hidden: true });
+  expect(figures).toHaveLength(2);
+  for (const figure of figures) {
+    expect(figure).toHaveTextContent(/^$/);
+    expect(figure).not.toBeEmptyDOMElement();
+  }
+  expectEmptyBars(meter);
 }
 
 /** Every state of the meter, by its tag. */
@@ -188,6 +233,12 @@ describe("the usage meter, awaiting its first reading", () => {
     expect(within(meter).queryAllByRole("button")).toHaveLength(0);
   });
 
+  it("keeps the 5-hour and Weekly rows in place, figures as a skeleton and bars empty", async () => {
+    const { meter } = await renderMeter({ type: "AwaitingReading" });
+
+    expectPendingRows(meter);
+  });
+
   it("shows the bars once the reading arrives", async () => {
     const { meter, emit } = await renderMeter({ type: "AwaitingReading" });
 
@@ -199,6 +250,30 @@ describe("the usage meter, awaiting its first reading", () => {
         name: "5-hour window, 38% used, 55% of the window elapsed",
       }),
     ).toBeInTheDocument();
+  });
+});
+
+describe("the usage meter before the core has answered", () => {
+  it("shows the pending rows while the session is signed in", async () => {
+    const { emit, requests } = await mountMeter(null);
+    expect(requests).toEqual([{ type: "GetUsage" }]);
+
+    await emit(signedIn);
+
+    expectPendingRows(screen.getByRole("region", { name: "Plan usage" }));
+  });
+
+  it("shows nothing without a signed-in session", async () => {
+    const { emit } = await mountMeter(null);
+    expect(screen.queryByRole("region", { name: "Plan usage" })).toBeNull();
+
+    await emit({
+      type: "SessionChanged",
+      session: { type: "SignedOut", reason: null },
+    });
+
+    expect(screen.queryByRole("region", { name: "Plan usage" })).toBeNull();
+    expect(screen.queryAllByRole("img", { hidden: true })).toHaveLength(0);
   });
 });
 
@@ -379,6 +454,25 @@ describe("a usage meter that cannot read", () => {
       "Usage could not be read: OpenAI did not accept the plan login.",
     );
   });
+
+  it("gives way to a reading that arrives afterwards", async () => {
+    const { meter, emit } = await renderMeter({
+      type: "FirstReadFailed",
+      reason: "Network",
+    });
+
+    await emit({ type: "UsageChanged", usage: connected([fiveHours, weekly]) });
+
+    expect(meter).not.toHaveTextContent("Usage could not be read");
+    expect(
+      within(meter).queryByRole("button", { name: "Try again" }),
+    ).toBeNull();
+    expect(
+      within(meter).getByRole("img", {
+        name: "5-hour window, 38% used, 55% of the window elapsed",
+      }),
+    ).toBeInTheDocument();
+  });
 });
 
 describe("the folded meter in a narrow window", () => {
@@ -431,6 +525,35 @@ describe("the folded meter in a narrow window", () => {
 
     expect(screen.queryByRole("region", { name: "Plan usage" })).toBeNull();
     expect(screen.queryAllByRole("button")).toHaveLength(0);
+  });
+
+  it("shows the two empty bars only while awaiting the first reading", async () => {
+    const { meter } = await renderMeter({ type: "AwaitingReading" }, true);
+
+    expect(within(meter).queryAllByRole("term", { hidden: true })).toHaveLength(
+      0,
+    );
+    expect(
+      within(meter).queryAllByRole("definition", { hidden: true }),
+    ).toHaveLength(0);
+    expectEmptyBars(meter);
+  });
+
+  it("offers Try again as an icon, the sentence as its tooltip, after a failed first reading", async () => {
+    const { meter } = await renderMeter(
+      { type: "FirstReadFailed", reason: "Network" },
+      true,
+    );
+
+    expect(meter).not.toHaveTextContent("Usage could not be read");
+    const button = within(meter).getByRole("button", { name: "Try again" });
+    expect(button).not.toHaveTextContent("Try again");
+
+    act(() => button.focus());
+
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "Usage could not be read: the network could not be reached.",
+    );
   });
 
   it("Try again after a failed first reading asks for usage again", async () => {

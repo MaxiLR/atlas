@@ -92,3 +92,32 @@ test("below 1024 px only the bars show, and the figures appear on focus", async 
   await expect(tooltip).toContainText("5-hour");
   await expect(tooltip).toContainText("38% · resets in 2h 14m");
 });
+
+test("awaiting its first reading, the meter is as tall as with a reading", async ({
+  page,
+  context,
+}, testInfo) => {
+  const awaiting = await openMeter(page, testInfo, "usage-awaiting");
+  await expect(awaiting.getByRole("status")).toHaveText("Reading usage");
+  await expect(awaiting.getByRole("img")).toHaveCount(0);
+  const pending = await awaiting.boundingBox();
+
+  const reading = await openMeter(
+    await context.newPage(),
+    testInfo,
+    "usage-reading",
+  );
+  await expect(reading.getByRole("img", { name: FIVE_HOURS })).toBeVisible();
+  const read = await reading.boundingBox();
+
+  expect(pending?.height).toBeGreaterThan(0);
+  expect(pending?.height).toBe(read?.height);
+});
+
+test("after a failed first reading, the meter offers Try again", async ({
+  page,
+}, testInfo) => {
+  const meter = await openMeter(page, testInfo, "usage-first-read-failed");
+
+  await expect(meter.getByRole("button", { name: "Try again" })).toBeVisible();
+});

@@ -320,9 +320,13 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
     return finish({ type: "Completed" });
   }
 
-  /** A usage reading with the plan login, when there is one. */
+  /**
+   * A usage reading with the plan login, when there is one; none while a
+   * scenario holds the first reading back.
+   */
   function takeReading(): void {
     if (world.session.type !== "SignedIn") return;
+    if (world.firstReadingHeld && world.usage.type !== "Connected") return;
     if (world.usage.type === "Connected") {
       world.usage = {
         type: "Connected",

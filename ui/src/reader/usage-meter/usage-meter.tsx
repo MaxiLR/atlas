@@ -16,7 +16,7 @@ import {
   PopoverTitle,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { Spinner } from "@/components/ui/spinner";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
   TooltipContent,
@@ -196,6 +196,58 @@ function WindowRow({ shown, stale }: { shown: Shown; stale: boolean }) {
   );
 }
 
+/** A bar with nothing on it yet: the track alone, no fill and no pace mark. */
+function EmptyBar() {
+  return (
+    <div className="py-1.5">
+      <div role="img" className="h-1 rounded-[2px] bg-edge-strong" />
+    </div>
+  );
+}
+
+/**
+ * The first reading on its way: the 5-hour and Weekly rows already in place,
+ * their figures a skeleton and their bars empty, so the meter keeps its
+ * height when the reading lands; folded, the two empty bars. Assistive
+ * technology hears only that usage is being read.
+ */
+function Pending({ compact }: { compact: boolean }) {
+  return (
+    <>
+      <p role="status" className="sr-only">
+        Reading usage
+      </p>
+      {compact ? (
+        <div aria-hidden className="flex w-10 flex-col gap-2">
+          <EmptyBar />
+          <EmptyBar />
+        </div>
+      ) : (
+        <>
+          <div aria-hidden className="grid gap-1.5">
+            {["5-hour", "Weekly"].map((name) => (
+              <div key={name}>
+                <dl className="flex items-baseline justify-between gap-2 text-12">
+                  <dt className="flex min-w-0 items-center gap-2 font-medium text-body">
+                    <span className="truncate">{name}</span>
+                  </dt>
+                  <dd className="shrink-0">
+                    <Skeleton className="inline-block h-2.5 w-30 align-middle" />
+                  </dd>
+                </dl>
+                <EmptyBar />
+              </div>
+            ))}
+          </div>
+          {/* As tall as the row a reading adds under its bars for the other
+              windows or the stale mark. */}
+          <div aria-hidden className="-mb-1 h-7" />
+        </>
+      )}
+    </>
+  );
+}
+
 function staleSentence(reading: UsageReading, failure: UsageFailure): string {
   const time = new Date(reading.takenAt).toLocaleTimeString([], {
     hour: "numeric",
@@ -345,14 +397,7 @@ function MeterState({
 }) {
   switch (usage.type) {
     case "AwaitingReading":
-      return compact ? (
-        <Spinner aria-label="Reading usage" />
-      ) : (
-        <p role="status" className="flex items-center gap-2">
-          <Spinner aria-hidden role="presentation" />
-          Reading usage
-        </p>
-      );
+      return <Pending compact={compact} />;
     case "Connected":
       return <Windows reading={usage.reading} compact={compact} />;
     case "FirstReadFailed": {
@@ -383,14 +428,17 @@ function MeterState({
 
 /**
  * The usage meter at the foot of the rail, read with the plan login. Without
- * one it shows nothing; signed in, it says it is reading until the first
- * reading arrives, then shows the 5-hour and weekly windows as bars, the
- * others in a popover. Folded below 1024 px, it shows the bars only, their
- * figures on hover and focus.
+ * one it shows nothing; signed in, it holds the 5-hour and weekly rows empty
+ * until the first reading arrives, even before the core has answered, then
+ * shows the windows as bars, the others in a popover. Folded below 1024 px,
+ * it shows the bars only, their figures on hover and focus.
  */
 export function UsageMeter({ folded }: { folded: boolean }) {
   const { send } = useAtlasStore();
   const usage = useAtlas(selectUsage);
+  const signedIn = useAtlas(
+    (state) => state.session.session?.type === "SignedIn",
+  );
   const narrow = useNarrow();
   const compact = folded && narrow;
 
@@ -398,7 +446,9 @@ export function UsageMeter({ folded }: { folded: boolean }) {
     send({ type: "GetUsage" }).catch(failureInStore);
   }, [send]);
 
-  if (usage === null || usage.type === "NoPlanLogin") return null;
+  const shown: UsageState | null =
+    usage ?? (signedIn ? { type: "AwaitingReading" } : null);
+  if (shown === null || shown.type === "NoPlanLogin") return null;
   return (
     <TooltipProvider>
       <section
@@ -409,7 +459,7 @@ export function UsageMeter({ folded }: { folded: boolean }) {
         )}
       >
         <MeterState
-          usage={usage}
+          usage={shown}
           compact={compact}
           // A failed first reading is read again on the next ask.
           onRetry={() => send({ type: "GetUsage" }).catch(failureInStore)}

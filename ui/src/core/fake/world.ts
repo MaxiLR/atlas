@@ -113,6 +113,8 @@ export interface FakeWorld {
   usageShares: [number, number, number];
   /** Why every usage reading fails, when it does. */
   usageFailure: UsageFailure | null;
+  /** The first usage reading never lands: the meter stays awaiting it. */
+  firstReadingHeld: boolean;
   /** Anything needing a request says the app is offline. */
   offline: boolean;
   /** The account's policy refuses web search. */
@@ -144,6 +146,7 @@ export function createWorld(clock: FakeClock): FakeWorld {
     usage: { type: "NoPlanLogin" },
     usageShares: [0.38, 0.61, 0.12],
     usageFailure: null,
+    firstReadingHeld: false,
     offline: false,
     searchRefused: false,
     fault: null,

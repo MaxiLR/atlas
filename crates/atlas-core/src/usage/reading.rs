@@ -8,6 +8,7 @@ use super::json::{after, moment, number, plan_words, text};
 use super::{Usage, UsageReader, Window, object_of, send, under};
 use crate::auth::AccessToken;
 use crate::protocol::{UsageFailure, UsageLevel};
+use crate::provider::chatgpt::request_headers;
 
 const USAGE: &[&str] = &["backend-api", "wham", "usage"];
 
@@ -28,12 +29,13 @@ struct Name {
 }
 
 impl UsageReader {
-    /// Reads the account's usage windows with `token`. A 401 is `Auth`.
+    /// Reads the account's usage windows with `token` and the headers of
+    /// every call of the plan route. A 401 is `Auth`.
     pub async fn read(&self, token: &AccessToken) -> Result<Usage, UsageFailure> {
         let response = send(
             self.http
                 .get(under(&self.endpoints.chatgpt, USAGE))
-                .bearer_auth(token.secret()),
+                .headers(request_headers(token)),
         )
         .await?;
         if response.status().as_u16() == 401 {

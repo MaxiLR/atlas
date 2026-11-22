@@ -10,7 +10,7 @@ export const initialUsage: UsageSlice = { state: null };
 /**
  * The meter after the core reported `next`. A failed reading that arrives
  * without windows keeps the last reading's windows and time, stale with the
- * reason; a login that ends drops them.
+ * reason; `NoPlanLogin`, once the plan login ends, drops them.
  */
 export function usageChanged(slice: UsageSlice, next: UsageState): UsageSlice {
   const last = slice.state?.type === "Connected" ? slice.state.reading : null;

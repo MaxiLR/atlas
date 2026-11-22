@@ -1,5 +1,5 @@
 import type { Scenario } from "../scenario";
-import { addSampleLibrary, connectUsage, signIn } from "../world";
+import { addSampleLibrary, readUsage, signIn } from "../world";
 
 export default {
   description:
@@ -7,7 +7,7 @@ export default {
   setup(world) {
     signIn(world);
     addSampleLibrary(world);
-    connectUsage(world);
+    readUsage(world);
     world.usageFailure = "Network";
     if (world.usage.type === "Connected") {
       world.usage.reading.stale = "Network";

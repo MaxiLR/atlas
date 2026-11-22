@@ -64,6 +64,12 @@ impl Feature {
         })
     }
 
+    /// The plan login as a token source, for the usage meter, which reads
+    /// with it.
+    pub(crate) fn tokens(&self) -> Arc<dyn TokenSource> {
+        self.login.clone()
+    }
+
     /// Refuses a request that spends plan usage unless plan usage is on.
     pub(crate) async fn require_plan(&self, _cx: &Features) -> Result<(), CoreError> {
         if !self.plan_route {

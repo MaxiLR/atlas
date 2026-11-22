@@ -320,16 +320,23 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
     return finish({ type: "Completed" });
   }
 
-  /** A usage reading, as after a completed generation or every five minutes. */
+  /** A usage reading with the plan login, when there is one. */
   function takeReading(): void {
-    if (world.usage.type !== "Connected") return;
-    world.usage = {
-      type: "Connected",
-      reading:
+    if (world.session.type !== "SignedIn") return;
+    if (world.usage.type === "Connected") {
+      world.usage = {
+        type: "Connected",
+        reading:
+          world.usageFailure === null
+            ? reading(world)
+            : { ...world.usage.reading, stale: world.usageFailure },
+      };
+    } else {
+      world.usage =
         world.usageFailure === null
-          ? reading(world)
-          : { ...world.usage.reading, stale: world.usageFailure },
-    };
+          ? { type: "Connected", reading: reading(world) }
+          : { type: "FirstReadFailed", reason: world.usageFailure };
+    }
     emit({ type: "UsageChanged", usage: world.usage });
   }
 
@@ -495,6 +502,14 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
             planUsage: world.grantedPlanUsage,
           };
           emit({ type: "SessionChanged", session: world.session });
+          // The meter waits for its first reading, taken with the new login.
+          if (world.usage.type !== "NoPlanLogin") return;
+          const first = ++usageAttempt;
+          world.usage = { type: "AwaitingReading" };
+          emit({ type: "UsageChanged", usage: world.usage });
+          void pace().then(() => {
+            if (first === usageAttempt) takeReading();
+          });
         });
         return { type: "Session", session: world.session };
       }
@@ -523,7 +538,7 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
         signInAttempt += 1;
         usageAttempt += 1;
         world.session = { type: "SignedOut", reason: { type: "SignedOut" } };
-        world.usage = { type: "NotConnected" };
+        world.usage = { type: "NoPlanLogin" };
         emit({ type: "SessionChanged", session: world.session });
         emit({ type: "UsageChanged", usage: world.usage });
         return { type: "Session", session: world.session };
@@ -986,39 +1001,18 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
         return { type: "Done" };
       }
 
+      case "DeleteGlossaryEntry":
+        return fail({ type: "Unavailable", feature: "define" });
+
+      case "DeleteSideChat":
+        return fail({ type: "Unavailable", feature: "side_chats" });
+
       case "GetUsage":
-        return { type: "Usage", usage: world.usage };
-
-      case "ConnectUsage": {
-        if (world.usage.type === "Connected") {
-          return { type: "Usage", usage: world.usage };
-        }
-        requireOnline();
-        const attempt = ++usageAttempt;
-        world.usage = {
-          type: "Connecting",
-          userCode: "QWRT-7KPD",
-          verificationUrl: "https://auth.openai.com/codex/device",
-          expiresAt: iso(world, 15 * MINUTE),
-        };
-        opened.push(world.usage.verificationUrl);
-        emit({ type: "UsageChanged", usage: world.usage });
-        void pace().then(() => {
-          if (attempt !== usageAttempt) return;
-          world.usage =
-            world.usageFailure === null
-              ? { type: "Connected", reading: reading(world) }
-              : { type: "FirstReadFailed", reason: world.usageFailure };
-          emit({ type: "UsageChanged", usage: world.usage });
-        });
-        return { type: "Usage", usage: world.usage };
-      }
-
-      case "CancelConnectUsage":
-        if (world.usage.type === "Connecting") {
+        // Signed in without a reading yet, the first ask takes one, in place
+        // of any first reading still on its way.
+        if (world.usage.type !== "Connected") {
           usageAttempt += 1;
-          world.usage = { type: "NotConnected" };
-          emit({ type: "UsageChanged", usage: world.usage });
+          takeReading();
         }
         return { type: "Usage", usage: world.usage };
 

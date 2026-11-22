@@ -76,7 +76,8 @@ never changes a section and never enters the context of section generation.
 OpenAI's Codex OAuth client, which pays for model calls with their ChatGPT plan.
 
 **Usage meter** — The display of the plan's limit windows: the 5-hour and weekly
-windows, the share used, the time to each reset and a pace mark.
+windows, the share used, the time to each reset and a pace mark. It is read
+with the plan login; there is no separate connection to make.
 
 **Window** — One usage limit of the plan over a stretch of time, as the provider
 reports it: its length, the share used and when it resets.

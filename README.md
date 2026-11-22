@@ -141,7 +141,7 @@ Beneath a task, its course memory:
   once or after its repair.
 
 Then the models the plan lists, in the order it reports them, and the usage
-meter: one reading when a usage login exists, otherwise `no usage login`.
+meter, read with the plan login: its windows, or why the reading failed.
 
 What to confirm with a real login (ADR-0002, ADR-0013):
 

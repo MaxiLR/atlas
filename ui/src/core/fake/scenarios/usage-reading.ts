@@ -1,12 +1,12 @@
 import type { Scenario } from "../scenario";
-import { addSampleLibrary, connectUsage, signIn } from "../world";
+import { addSampleLibrary, readUsage, signIn } from "../world";
 
 export default {
   description:
-    "Usage connected: the 5-hour and weekly windows, and a monthly one in the popover.",
+    "Usage read: the 5-hour and weekly windows, and a monthly one in the popover.",
   setup(world) {
     signIn(world);
     addSampleLibrary(world);
-    connectUsage(world);
+    readUsage(world);
   },
 } satisfies Scenario;

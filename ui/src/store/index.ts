@@ -359,9 +359,9 @@ export function applyRequest(
     case "StartSideChat":
     case "OpenSideChat":
     case "StopSideChatReply":
+    case "DeleteGlossaryEntry":
+    case "DeleteSideChat":
     case "GetUsage":
-    case "ConnectUsage":
-    case "CancelConnectUsage":
     case "SetWindowFocused":
     case "GetExportDocument":
     case "ExportPdf":
@@ -595,9 +595,9 @@ export function applyFailure(
     case "StartSideChat":
     case "OpenSideChat":
     case "StopSideChatReply":
+    case "DeleteGlossaryEntry":
+    case "DeleteSideChat":
     case "GetUsage":
-    case "ConnectUsage":
-    case "CancelConnectUsage":
     case "SetWindowFocused":
     case "GetExportDocument":
     case "ExportPdf":

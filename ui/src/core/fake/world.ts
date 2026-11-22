@@ -139,7 +139,7 @@ export function createWorld(clock: FakeClock): FakeWorld {
       current: "gpt-5.5",
     },
     courses: [],
-    usage: { type: "NotConnected" },
+    usage: { type: "NoPlanLogin" },
     usageShares: [0.38, 0.61, 0.12],
     usageFailure: null,
     offline: false,
@@ -598,7 +598,7 @@ export function reading(world: FakeWorld): UsageReading {
   };
 }
 
-/** The usage meter connected, with a reading taken now. */
-export function connectUsage(world: FakeWorld): void {
+/** The usage meter with a reading taken now, as after signing in. */
+export function readUsage(world: FakeWorld): void {
   world.usage = { type: "Connected", reading: reading(world) };
 }

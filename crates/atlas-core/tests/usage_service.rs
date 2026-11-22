@@ -1049,6 +1049,8 @@ async fn after_a_failed_reading_none_before_five_minutes_even_while_active() {
         .await;
 
     harness.advance(4 * MINUTE - SECOND);
+    // With this minute, 4 min 59 s after the failure.
+    harness.advance(MINUTE);
     harness.settle().await;
     assert_eq!(
         harness.reads(),

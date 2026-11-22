@@ -1064,6 +1064,55 @@ async fn deleting_a_chat_while_its_reply_streams_stops_it_and_stores_nothing_aft
 }
 
 #[tokio::test]
+async fn deleting_a_chat_while_its_reply_streams_has_stopped_and_settled_it_when_done_answers() {
+    let harness = Harness::new();
+    let chat = harness.start(None).await;
+    harness.provider.reply(Script::Held(
+        "Convection carries heat upward. It also".to_owned(),
+        format!(" drags the plates along. {SENTINEL}\n"),
+    ));
+    harness.events.take();
+    let send_settled = std::cell::Cell::new(false);
+
+    let (sent, (deleted, settled_at_done, events_at_done)) = tokio::join!(
+        async {
+            let sent = harness.send(chat.id, "What does convection do?").await;
+            send_settled.set(true);
+            sent
+        },
+        async {
+            harness.provider.held.notified().await;
+            // The held stream is never released before Done: only a stop
+            // can end the reply.
+            let deleted = harness.delete(chat.id).await;
+            let settled = send_settled.get();
+            let events = harness.events.take();
+            // Lets a reply that was not stopped run to its end, so that a
+            // failing run ends rather than hangs.
+            harness.provider.release.notify_one();
+            (deleted, settled, events)
+        }
+    );
+
+    assert_eq!(deleted, Ok(CoreResponse::Done));
+    assert!(
+        settled_at_done,
+        "the pending send had settled when Done answered"
+    );
+    let generation = reply_events(&events_at_done, chat.id);
+    let ended = outcome(&generation);
+    assert!(
+        ended.is_some() && ended != Some(GenerationOutcome::Completed),
+        "the reply was stopped before Done answered: {generation:?}"
+    );
+    assert!(
+        !streamed(&generation).contains(SENTINEL),
+        "nothing after the hold was streamed: {generation:?}"
+    );
+    assert!(sent.is_err(), "a reply for a deleted chat is not kept");
+}
+
+#[tokio::test]
 async fn deleting_an_unknown_or_already_deleted_chat_is_not_found() {
     let harness = Harness::new();
     let chat = harness.start(None).await;

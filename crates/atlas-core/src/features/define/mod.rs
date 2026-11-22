@@ -98,15 +98,15 @@ impl Feature {
         Ok(self.store.glossary(course_id)?)
     }
 
-    /// Removes a glossary entry; not built yet.
+    /// Deletes an entry for good: tombstoned with its content erased, so
+    /// defining the same passage again asks anew. No event: the interface
+    /// drops the entry when Done answers.
     pub(crate) async fn delete_entry(
         &self,
         _cx: &Features,
-        _entry_id: Uuid,
+        entry_id: Uuid,
     ) -> Result<(), CoreError> {
-        Err(CoreError::Unavailable {
-            feature: "define".to_owned(),
-        })
+        Ok(self.store.delete_glossary_entry(entry_id)?)
     }
 
     /// The course the anchored block belongs to.

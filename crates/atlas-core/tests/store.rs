@@ -1464,6 +1464,7 @@ fn glossary_and_chat_rows(connection: &Connection) -> Rows {
         let mut statement = connection
             .prepare(&format!("SELECT * FROM {table}"))
             .unwrap();
+        #[allow(clippy::useless_conversion)]
         let columns: Vec<String> = statement
             .column_names()
             .into_iter()
@@ -1566,6 +1567,7 @@ fn deleting_an_entry_or_a_chat_tombstones_and_erases_it_and_leaves_every_other_r
         "no row is removed or added"
     );
     let doomed = |table: &str, id: Uuid| (table.to_owned(), id.to_string());
+    #[allow(clippy::type_complexity)]
     let erased: [(&str, Uuid, &[(&str, Value)]); 4] = [
         (
             "glossary_entries",

@@ -560,6 +560,9 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
         return { type: "Session", session: world.session };
 
       case "OpenManageUsage":
+        if (world.browserFailure !== null) {
+          fail({ type: "Provider", message: world.browserFailure });
+        }
         opened.push(MANAGE_USAGE);
         return { type: "Done" };
 
@@ -572,6 +575,9 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
             type: "InvalidRequest",
             message: `only web links open in the browser, not ${request.url}`,
           });
+        }
+        if (world.browserFailure !== null) {
+          fail({ type: "Provider", message: world.browserFailure });
         }
         opened.push(request.url);
         return { type: "Done" };
@@ -1028,6 +1034,9 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
           world.courses.find(({ glossary }) =>
             glossary.some(({ id }) => id === entryId),
           ) ?? fail({ type: "NotFound", what: `glossary entry ${entryId}` });
+        if (world.deleteFailure !== null) {
+          fail({ type: "Store", message: world.deleteFailure });
+        }
         course.glossary.splice(
           course.glossary.findIndex(({ id }) => id === entryId),
           1,
@@ -1037,6 +1046,9 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
 
       case "DeleteSideChat": {
         const chat = chatOf(request.chatId);
+        if (world.deleteFailure !== null) {
+          fail({ type: "Store", message: world.deleteFailure });
+        }
         // Removed before its reply is stopped, so the reply finds no chat to
         // store into; the answer waits until that reply has settled.
         const { chats } = courseOf(chat.courseId);

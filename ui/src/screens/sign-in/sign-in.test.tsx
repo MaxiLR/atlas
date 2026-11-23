@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
@@ -7,7 +7,7 @@ import type { CoreClient } from "@/core/client";
 import { CoreProvider } from "@/core/context";
 import { createFakeCore, createManualClock, type FakeWorld } from "@/core/fake";
 import type { CoreRequest } from "@/core/generated/CoreRequest";
-import { createValve, startedAt } from "@/test/fake-core";
+import { createValve, drained, startedAt } from "@/test/fake-core";
 
 const SIGN_IN_PAGE = "https://auth.openai.com/oauth/authorize";
 const MANAGE_USAGE = "https://chatgpt.com/settings/usage";
@@ -235,6 +235,23 @@ describe("the sign-in screen", () => {
 
       expect(sent()).toEqual(["SignIn", "OpenManageUsage"]);
       expect(core.opened).toEqual([SIGN_IN_PAGE, MANAGE_USAGE]);
+    });
+
+    it("says in its own line when the usage settings could not be opened, with no notice", async () => {
+      const reason = "No application is set to open web links.";
+      const { core, user } = await signInWith("NotAllowed");
+      const manage = await screen.findByRole("button", {
+        name: "Manage usage",
+      });
+      core.world.browserFailure = reason;
+
+      await user.click(manage);
+
+      await waitFor(() => expect(screen.getAllByText(reason)[0]).toBeVisible());
+      await act(drained);
+      expect(screen.getAllByText(reason)).toHaveLength(1);
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(screen.queryByText("Link could not be opened")).toBeNull();
     });
 
     it("continues to the library and does not come back to sign-in", async () => {

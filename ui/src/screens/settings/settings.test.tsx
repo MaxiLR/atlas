@@ -8,7 +8,7 @@ import { CoreProvider } from "@/core/context";
 import { createFakeCore, createManualClock } from "@/core/fake";
 import type { CoreError } from "@/core/generated/CoreError";
 import type { CoreRequest } from "@/core/generated/CoreRequest";
-import { startedAt } from "@/test/fake-core";
+import { drained, startedAt } from "@/test/fake-core";
 import { endAnimation } from "@/test/styles";
 
 beforeAll(() => {
@@ -194,6 +194,27 @@ describe("Settings", () => {
       await waitFor(() =>
         expect(core.opened).toEqual(["https://chatgpt.com/settings/usage"]),
       );
+    });
+
+    it("says in its own sentence when Manage usage could not be opened, with no notice", async () => {
+      const { user } = await openSettings("default", {
+        OpenManageUsage: {
+          type: "Provider",
+          message: "No application is set to open web links.",
+        },
+      });
+
+      await user.click(
+        within(account()).getByRole("button", { name: "Manage usage" }),
+      );
+
+      const line = await screen.findByRole("alert");
+      expect(line).toHaveTextContent(
+        "ChatGPT's usage settings could not be opened. No application is set to open web links.",
+      );
+      await act(drained);
+      expect(screen.getAllByRole("alert")).toEqual([line]);
+      expect(screen.queryByText("Link could not be opened")).toBeNull();
     });
 
     it("signs out to the sign-in screen and keeps the courses", async () => {

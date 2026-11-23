@@ -130,6 +130,10 @@ export interface FakeWorld {
     | { type: "Refused"; error: CoreError }
     | { type: "Failed"; reason: string }
     | null;
+  /** Why the browser cannot open a link, when it cannot. */
+  browserFailure: string | null;
+  /** Why deleting a glossary entry or a side chat fails, when it does. */
+  deleteFailure: string | null;
 }
 
 export const account = { email: "candidate@example.com" };
@@ -159,6 +163,8 @@ export function createWorld(clock: FakeClock): FakeWorld {
     placementFailure: null,
     sessionUnreadable: null,
     exportFailure: null,
+    browserFailure: null,
+    deleteFailure: null,
   };
 }
 

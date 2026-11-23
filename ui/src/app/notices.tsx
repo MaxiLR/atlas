@@ -85,7 +85,9 @@ export function Notices() {
         toast.dismiss(id);
       }
     }
-    for (const notice of notices) {
+    // Sonner puts each new toast first, so notices that arrive together are
+    // handed over newest first and read oldest first, as the store has them.
+    for (const notice of notices.toReversed()) {
       if (showing.get(notice.id) === notice) continue;
       showing.set(notice.id, notice);
       present(notice, false);

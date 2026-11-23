@@ -781,6 +781,7 @@ async fn a_window_with_an_unreadable_or_missing_header_is_left_out() {
         primary: Some(five_hour()),
         secondary: None,
     };
+    #[allow(clippy::type_complexity)]
     let cases: Vec<(&str, Vec<(&str, &str)>, Option<UsageSnapshot>)> = vec![
         (
             "an unreadable share",

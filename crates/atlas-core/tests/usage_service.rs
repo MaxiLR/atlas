@@ -21,7 +21,10 @@ use atlas_core::protocol::{
     Account, CoreError, CoreEvent, CoreRequest, CoreResponse, GenerationEvent, Model, PlanUsage,
     Session, UsageFailure, UsageLevel, UsageReading, UsageState, UsageWindow,
 };
-use atlas_core::provider::{ModelProvider, ProviderError, ProviderRequest, ProviderStream, Task};
+use atlas_core::provider::{
+    ModelProvider, ProviderError, ProviderEvent, ProviderRequest, ProviderStream, Task,
+    UsageSnapshot, WindowUsage,
+};
 use atlas_core::store::Store;
 use atlas_core::testing::{
     FakeClock, FakePorts, FakeProvider, FakeScript, MemorySecretStore, RecordingEvents,
@@ -29,6 +32,7 @@ use atlas_core::testing::{
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, TimeDelta, Utc};
+use futures::StreamExt;
 use serde_json::{Value, json};
 use support::sample_course::{LAYERS, sample_course};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -378,6 +382,50 @@ impl ModelProvider for Holding {
                 .forget();
         }
         self.inner.stream(request).await
+    }
+
+    async fn list_models(&self) -> Result<Vec<Model>, ProviderError> {
+        self.inner.list_models().await
+    }
+}
+
+/// The fake provider, reporting `snapshot` at the start of each section it
+/// writes: the report once the test releases it, the section once the test
+/// releases it again.
+struct Reporting {
+    inner: FakeProvider,
+    snapshot: UsageSnapshot,
+    release: Arc<Semaphore>,
+}
+
+async fn take(release: &Semaphore) {
+    release
+        .acquire()
+        .await
+        .expect("the gate stays open")
+        .forget();
+}
+
+#[async_trait]
+impl ModelProvider for Reporting {
+    async fn stream(&self, request: ProviderRequest) -> Result<ProviderStream, ProviderError> {
+        let task = request.task;
+        let inner = self.inner.stream(request).await?;
+        if task != Task::WriteSection {
+            return Ok(inner);
+        }
+        let (first, then) = (self.release.clone(), self.release.clone());
+        let snapshot = self.snapshot.clone();
+        let report = futures::stream::once(async move {
+            take(&first).await;
+            Ok(ProviderEvent::Usage(snapshot))
+        });
+        let section = futures::stream::once(async move {
+            take(&then).await;
+            inner
+        })
+        .flatten();
+        Ok(Box::pin(report.chain(section)))
     }
 
     async fn list_models(&self) -> Result<Vec<Model>, ProviderError> {
@@ -1141,4 +1189,98 @@ async fn a_fixed_clock_with_focus_takes_no_extra_readings() {
     harness.settle().await;
 
     assert_eq!(harness.reads(), 1);
+}
+
+// -- usage reported with a response ----------------------------------------------
+
+/// When the reported 5-hour window resets: 2026-11-12 12:00 UTC.
+const REPORTED_RESET_MS: i64 = 1_794_484_800_000;
+
+/// The usage a response reports: the 5-hour window 91 % used, and a 1-day
+/// window the reading does not have.
+fn snapshot() -> UsageSnapshot {
+    UsageSnapshot {
+        primary: Some(WindowUsage {
+            used: 0.91,
+            window_minutes: 300,
+            resets_at: at_ms(REPORTED_RESET_MS),
+        }),
+        secondary: Some(WindowUsage {
+            used: 0.5,
+            window_minutes: 1_440,
+            resets_at: at_ms(1_794_556_800_000),
+        }),
+    }
+}
+
+/// The first reading with the reported 5-hour window: the weekly window, of
+/// another length than any reported, as read.
+fn reported() -> UsageState {
+    let mut windows = windows();
+    windows[1] = UsageWindow {
+        used: 0.91,
+        resets_at: Some(at_ms(REPORTED_RESET_MS)),
+        level: UsageLevel::Critical,
+        ..windows[1].clone()
+    };
+    UsageState::Connected {
+        reading: UsageReading {
+            windows,
+            taken_at: now(),
+            stale: None,
+        },
+    }
+}
+
+#[tokio::test]
+async fn usage_reported_by_a_generation_updates_its_windows_at_once_without_a_reading() {
+    let release = Arc::new(Semaphore::new(0));
+    let provider = Reporting {
+        inner: FakeProvider::new(FakeScript::sample()),
+        snapshot: snapshot(),
+        release: release.clone(),
+    };
+    let harness = Harness::with(true, vec![usage_ok()], provider).await;
+    let course = harness.lay_down_course();
+    harness.first_reading().await;
+    harness.focus(true).await;
+
+    let opening = harness.open_section(course);
+    let watching = async {
+        harness
+            .until("the generation starts", Harness::generation_started)
+            .await;
+        harness.advance(30 * SECOND);
+        release.add_permits(1);
+        harness
+            .until("the reported usage is shown", |harness| {
+                harness.last_state() == Some(reported())
+            })
+            .await;
+        assert_eq!(harness.reads(), 1, "the report is not a reading");
+
+        // The report moved nothing on the schedule: while the generation
+        // runs, the reading a minute after the last one is still due.
+        harness.advance(30 * SECOND);
+        harness
+            .until("a reading a minute after the last", |harness| {
+                harness.reads() == 2
+            })
+            .await;
+        release.add_permits(1);
+    };
+    let (opened, ()) = tokio::join!(opening, watching);
+
+    assert!(
+        matches!(opened, Ok(CoreResponse::Section { .. })),
+        "{opened:?}"
+    );
+    harness
+        .until("a reading after the generation", |harness| {
+            harness.reads() == 3
+        })
+        .await;
+    harness.settle().await;
+    assert_eq!(harness.reads(), 3);
+    harness.assert_no_token();
 }

@@ -238,6 +238,8 @@ impl Feature {
                 ProviderEvent::Incomplete { reason } => return Ok(Written::Incomplete(reason)),
                 // No search is asked for, so none is reported.
                 ProviderEvent::Searching | ProviderEvent::Citation(_) => {}
+                // Only the usage meter reads the plan's usage.
+                ProviderEvent::Usage(_) => {}
             }
         }
         Err(ProviderError::Incomplete { request_id: None })

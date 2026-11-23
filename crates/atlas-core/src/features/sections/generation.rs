@@ -469,6 +469,8 @@ impl Feature {
                 ProviderEvent::Citation(citation) => emit.citations(grounding.cite(citation)),
                 ProviderEvent::Completed => break,
                 ProviderEvent::Incomplete { reason } => return Err(Ended::Incomplete(reason)),
+                // Only the usage meter reads the plan's usage.
+                ProviderEvent::Usage(_) => {}
             }
         }
         drop(stream);

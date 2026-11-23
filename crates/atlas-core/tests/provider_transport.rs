@@ -11,8 +11,8 @@ use std::time::Duration;
 use atlas_core::ports::Endpoints;
 use atlas_core::protocol::{CoreError, Model};
 use atlas_core::provider::{
-    ModelProvider, ProviderChoice, ProviderError, ProviderEvent, ProviderRequest, Task, build,
-    complete_text,
+    ModelProvider, ProviderChoice, ProviderError, ProviderEvent, ProviderRequest, Task,
+    UsageSnapshot, WindowUsage, build, complete_text,
 };
 use atlas_core::testing::{FakeClock, FakeTokenSource};
 use futures::StreamExt;
@@ -690,6 +690,163 @@ async fn the_fake_choice_answers_without_the_network() {
     .await;
     assert!(text.is_ok(), "{text:?}");
     assert_eq!(server.requests(), []);
+}
+
+// The plan's usage in the response headers.
+
+/// The headers of the 5-hour window: 45.5 % used, resetting at
+/// 2026-11-12 10:48 UTC.
+const PRIMARY: [(&str, &str); 3] = [
+    ("x-codex-primary-used-percent", "45.5"),
+    ("x-codex-primary-window-minutes", "300"),
+    ("x-codex-primary-reset-at", "1794480480"),
+];
+
+/// The headers of the weekly window: 12 % used, resetting at
+/// 2026-11-16 15:00 UTC.
+const SECONDARY: [(&str, &str); 3] = [
+    ("x-codex-secondary-used-percent", "12"),
+    ("x-codex-secondary-window-minutes", "10080"),
+    ("x-codex-secondary-reset-at", "1794841200"),
+];
+
+fn five_hour() -> WindowUsage {
+    WindowUsage {
+        used: 0.455,
+        window_minutes: 300,
+        resets_at: chrono::DateTime::from_timestamp(1_794_480_480, 0).expect("a moment"),
+    }
+}
+
+fn weekly() -> WindowUsage {
+    WindowUsage {
+        used: 0.12,
+        window_minutes: 10_080,
+        resets_at: chrono::DateTime::from_timestamp(1_794_841_200, 0).expect("a moment"),
+    }
+}
+
+/// `completed()` with these headers too.
+fn completed_with(headers: &[(&str, &str)]) -> Reply {
+    headers.iter().fold(completed(), |reply, (name, value)| {
+        reply.header(name, value)
+    })
+}
+
+/// `hello_world()` after the usage `snapshot`.
+fn reported_then_hello_world(snapshot: UsageSnapshot) -> Vec<ProviderEvent> {
+    let mut events = vec![ProviderEvent::Usage(snapshot)];
+    events.extend(hello_world());
+    events
+}
+
+#[tokio::test]
+async fn a_response_with_usage_headers_reports_both_windows_before_its_stream() {
+    let rig = Rig::responses([completed_with(&[PRIMARY, SECONDARY].concat())]).await;
+    let run = rig.run(request()).await;
+    assert_eq!(run.error, None, "{run:?}");
+    assert_eq!(
+        run.events,
+        reported_then_hello_world(UsageSnapshot {
+            primary: Some(five_hour()),
+            secondary: Some(weekly()),
+        })
+    );
+}
+
+#[tokio::test]
+async fn a_response_without_usage_headers_reports_no_usage() {
+    let rig = Rig::responses([completed()]).await;
+    let run = rig.run(request()).await;
+    assert_eq!(run.error, None, "{run:?}");
+    assert_eq!(run.events, hello_world());
+}
+
+#[tokio::test]
+async fn a_window_with_an_unreadable_or_missing_header_is_left_out() {
+    let replace = |headers: [(&'static str, &'static str); 3], name: &str, value| {
+        headers.map(|(header, old)| (header, if header == name { value } else { old }))
+    };
+    let without = |headers: [(&'static str, &'static str); 3], name: &str| {
+        headers
+            .into_iter()
+            .filter(|(header, _)| *header != name)
+            .collect::<Vec<_>>()
+    };
+    let weekly_only = UsageSnapshot {
+        primary: None,
+        secondary: Some(weekly()),
+    };
+    let five_hour_only = UsageSnapshot {
+        primary: Some(five_hour()),
+        secondary: None,
+    };
+    let cases: Vec<(&str, Vec<(&str, &str)>, Option<UsageSnapshot>)> = vec![
+        (
+            "an unreadable share",
+            [
+                replace(PRIMARY, "x-codex-primary-used-percent", "lots").to_vec(),
+                SECONDARY.to_vec(),
+            ]
+            .concat(),
+            Some(weekly_only.clone()),
+        ),
+        (
+            "an unreadable length",
+            [
+                replace(PRIMARY, "x-codex-primary-window-minutes", "five hours").to_vec(),
+                SECONDARY.to_vec(),
+            ]
+            .concat(),
+            Some(weekly_only.clone()),
+        ),
+        (
+            "an unreadable reset time",
+            [
+                replace(PRIMARY, "x-codex-primary-reset-at", "soon").to_vec(),
+                SECONDARY.to_vec(),
+            ]
+            .concat(),
+            Some(weekly_only.clone()),
+        ),
+        (
+            "a missing reset time",
+            [
+                without(PRIMARY, "x-codex-primary-reset-at"),
+                SECONDARY.to_vec(),
+            ]
+            .concat(),
+            Some(weekly_only),
+        ),
+        (
+            "an unreadable weekly share",
+            [
+                PRIMARY.to_vec(),
+                replace(SECONDARY, "x-codex-secondary-used-percent", "").to_vec(),
+            ]
+            .concat(),
+            Some(five_hour_only),
+        ),
+        (
+            "no readable window",
+            [
+                replace(PRIMARY, "x-codex-primary-used-percent", "NaN").to_vec(),
+                without(SECONDARY, "x-codex-secondary-window-minutes"),
+            ]
+            .concat(),
+            None,
+        ),
+    ];
+    for (case, headers, snapshot) in cases {
+        let rig = Rig::responses([completed_with(&headers)]).await;
+        let run = rig.run(request()).await;
+        assert_eq!(run.error, None, "{case}: {run:?}");
+        let expected = match snapshot {
+            Some(snapshot) => reported_then_hello_world(snapshot),
+            None => hello_world(),
+        };
+        assert_eq!(run.events, expected, "{case}");
+    }
 }
 
 // Diagnostics.

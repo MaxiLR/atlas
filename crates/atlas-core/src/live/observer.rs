@@ -176,7 +176,9 @@ fn follow(state: &Mutex<State>, index: usize, event: &Result<ProviderEvent, Prov
             call.text.clear();
             return;
         }
-        Ok(ProviderEvent::Searching | ProviderEvent::Citation(_)) => return,
+        Ok(ProviderEvent::Searching | ProviderEvent::Citation(_) | ProviderEvent::Usage(_)) => {
+            return;
+        }
         Ok(ProviderEvent::Completed) => Outcome::Completed,
         Ok(ProviderEvent::Incomplete { .. }) => Outcome::Incomplete,
         Err(error) => Outcome::Failed(error.clone()),

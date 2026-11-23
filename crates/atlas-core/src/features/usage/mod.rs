@@ -14,6 +14,11 @@
 //!
 //! A refused reading is read once more with a refreshed token; refused again,
 //! it is a failed reading.
+//!
+//! A response that reports the plan's usage in its headers updates the
+//! windows of the reading shown that have its windows' lengths, at once;
+//! the additional limits' windows come only from readings. A report is not a
+//! reading: it neither replaces one nor moves the schedule.
 
 mod tap;
 
@@ -31,7 +36,7 @@ use crate::ports::{Clock, EventSink};
 use crate::protocol::{
     CoreError, CoreEvent, UsageFailure, UsageLevel, UsageReading, UsageState, UsageWindow,
 };
-use crate::provider::{ProviderError, TokenSource};
+use crate::provider::{ProviderError, TokenSource, UsageSnapshot};
 use crate::store::Store;
 use crate::usage::{Usage, UsageReader, UsageReaderDeps, Window, level_of};
 
@@ -71,11 +76,16 @@ impl Feature {
 
     /// `deps` for the other features: their events go through a sink that
     /// forwards each one unchanged, then tells the meter when the session
-    /// signed in or out, or a generation started or finished.
+    /// signed in or out, or a generation started or finished; their streams
+    /// go through a provider that forwards each one unchanged, then hands the
+    /// meter the usage each response reports.
     pub(crate) fn tap(&self, deps: &CoreDeps) -> CoreDeps {
         CoreDeps {
             database_path: deps.database_path.clone(),
-            provider: deps.provider.clone(),
+            provider: Arc::new(tap::ProviderTap {
+                provider: deps.provider.clone(),
+                meter: Arc::downgrade(&self.meter),
+            }),
             events: Arc::new(tap::Tap {
                 events: deps.events.clone(),
                 meter: Arc::downgrade(&self.meter),
@@ -317,6 +327,21 @@ impl Meter {
         }
     }
 
+    /// A response reported the plan's usage: the windows of the reading
+    /// shown that it reports change at once, the time of the reading and its
+    /// staleness kept. With no reading shown there is nothing to change.
+    fn reported(&self, snapshot: &UsageSnapshot) {
+        let mut state = self.state();
+        let Shown::Read(reading) = &mut state.shown else {
+            return;
+        };
+        if report(&mut reading.windows, snapshot) {
+            self.events.emit(CoreEvent::UsageChanged {
+                usage: state.shown.view(),
+            });
+        }
+    }
+
     /// Takes a reading off the emitting path.
     fn read_now(self: Arc<Self>) {
         if let Ok(runtime) = tokio::runtime::Handle::try_current() {
@@ -421,6 +446,46 @@ fn without_token(error: ProviderError) -> Outcome {
     }
 }
 
+/// How the id of an additional limit's window starts (see [`Window::id`]).
+const ADDITIONAL: &str = "extra:";
+
+/// Sets each window of `windows` with the length of a window `snapshot`
+/// reports to what it reports, an additional limit's window aside; answers
+/// whether any changed.
+fn report(windows: &mut [UsageWindow], snapshot: &UsageSnapshot) -> bool {
+    let mut changed = false;
+    for reported in [&snapshot.primary, &snapshot.secondary]
+        .into_iter()
+        .flatten()
+    {
+        let length_seconds = reported.window_minutes.saturating_mul(60);
+        let resets_at = Some(reported.resets_at);
+        let level = level_of(&Window {
+            id: String::new(),
+            label: String::new(),
+            length_seconds,
+            used: reported.used,
+            resets_at,
+            at_limit: false,
+        });
+        for window in windows.iter_mut().filter(|window| {
+            u64::from(window.length_seconds) == length_seconds
+                && !window.name.starts_with(ADDITIONAL)
+        }) {
+            if window.used != reported.used
+                || window.resets_at != resets_at
+                || window.level != level
+            {
+                window.used = reported.used;
+                window.resets_at = resets_at;
+                window.level = level;
+                changed = true;
+            }
+        }
+    }
+    changed
+}
+
 /// Whether `new` names other windows than `old`, or any window used another
 /// share.
 fn numbers_changed(old: &[UsageWindow], new: &[UsageWindow]) -> bool {
@@ -487,5 +552,45 @@ mod tests {
             &old,
             &[window("5h", 0.62), window("1d", 0.41)]
         ));
+    }
+
+    fn five_hours(used: f64) -> UsageSnapshot {
+        UsageSnapshot {
+            primary: Some(crate::provider::WindowUsage {
+                used,
+                window_minutes: 300,
+                resets_at: DateTime::from_timestamp(1_794_480_480, 0).expect("a moment"),
+            }),
+            secondary: None,
+        }
+    }
+
+    #[test]
+    fn a_report_sets_the_windows_of_its_length_but_not_an_additional_limits() {
+        let mut windows = [
+            window("5h", 0.62),
+            window("extra:gpt-5-3-codex-spark:5h", 0.1),
+        ];
+        assert!(report(&mut windows, &five_hours(0.8)));
+        assert_eq!(windows[0].used, 0.8);
+        assert_eq!(
+            windows[0].resets_at,
+            DateTime::from_timestamp(1_794_480_480, 0)
+        );
+        assert_eq!(windows[0].level, UsageLevel::High);
+        assert_eq!(windows[1], window("extra:gpt-5-3-codex-spark:5h", 0.1));
+    }
+
+    #[test]
+    fn a_report_of_what_is_shown_changes_nothing() {
+        let mut windows = [window("5h", 0.62)];
+        assert!(report(&mut windows, &five_hours(0.62)));
+        assert!(!report(&mut windows, &five_hours(0.62)));
+        let mut weekly = [UsageWindow {
+            length_seconds: 604_800,
+            ..window("7d", 0.41)
+        }];
+        assert!(!report(&mut weekly, &five_hours(1.0)));
+        assert_eq!(weekly[0].used, 0.41);
     }
 }

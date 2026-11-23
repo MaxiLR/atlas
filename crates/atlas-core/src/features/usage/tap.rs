@@ -1,17 +1,27 @@
-//! The event sink the other features emit through: every event goes on
-//! unchanged, then the meter hears what concerns it. A session that signed
-//! in has the meter await its first reading; one that signed out empties
-//! it; a generation that started or finished tells whether one is running,
-//! and one that finished completed asks for a reading. Readings are taken
-//! off the emitting path.
+//! The event sink the other features emit through, and the model provider
+//! they stream through.
+//!
+//! Every event goes on unchanged, then the meter hears what concerns it. A
+//! session that signed in has the meter await its first reading; one that
+//! signed out empties it; a generation that started or finished tells
+//! whether one is running, and one that finished completed asks for a
+//! reading. Readings are taken off the emitting path.
+//!
+//! Every stream goes on unchanged too, and the meter hears the usage each
+//! response reports, which is not a reading.
 
 use std::sync::{Arc, Weak};
 
+use async_trait::async_trait;
+use futures::StreamExt;
 use uuid::Uuid;
 
 use super::Meter;
 use crate::ports::EventSink;
-use crate::protocol::{CoreEvent, GenerationEvent, GenerationOutcome, Session};
+use crate::protocol::{CoreEvent, GenerationEvent, GenerationOutcome, Model, Session};
+use crate::provider::{
+    ModelProvider, ProviderError, ProviderEvent, ProviderRequest, ProviderStream, TokenSource,
+};
 
 pub(super) struct Tap {
     pub(super) events: Arc<dyn EventSink>,
@@ -38,6 +48,34 @@ impl EventSink for Tap {
             Some(Heard::Completed) => meter.read_now(),
             None => {}
         }
+    }
+}
+
+pub(super) struct ProviderTap {
+    pub(super) provider: Arc<dyn ModelProvider>,
+    pub(super) meter: Weak<Meter>,
+}
+
+#[async_trait]
+impl ModelProvider for ProviderTap {
+    async fn stream(&self, request: ProviderRequest) -> Result<ProviderStream, ProviderError> {
+        let stream = self.provider.stream(request).await?;
+        let meter = self.meter.clone();
+        Ok(Box::pin(stream.inspect(move |event| {
+            if let Ok(ProviderEvent::Usage(snapshot)) = event
+                && let Some(meter) = meter.upgrade()
+            {
+                meter.reported(snapshot);
+            }
+        })))
+    }
+
+    async fn list_models(&self) -> Result<Vec<Model>, ProviderError> {
+        self.provider.list_models().await
+    }
+
+    fn use_plan_login(&self, tokens: Arc<dyn TokenSource>) -> bool {
+        self.provider.use_plan_login(tokens)
     }
 }
 

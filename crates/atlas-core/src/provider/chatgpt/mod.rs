@@ -7,6 +7,7 @@ mod errors;
 mod models;
 mod request;
 mod stream;
+mod usage;
 
 pub use models::parse_models;
 pub use request::{
@@ -33,6 +34,7 @@ use crate::provider::{
 };
 use attempts::{Attempts, request_id};
 use errors::Failure;
+use usage::usage_snapshot;
 
 /// How long a connection may take to be established.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
@@ -278,6 +280,9 @@ impl Exchange {
                 }
                 Step::Open => match self.attempts.send(&self.request).await {
                     Ok(response) => {
+                        if let Some(snapshot) = usage_snapshot(response.headers()) {
+                            self.deliver(ProviderEvent::Usage(snapshot));
+                        }
                         let request_id = request_id(response.headers());
                         let captured = self.capture.as_ref().map(|(capture, _)| {
                             capture.responses.fetch_add(1, Ordering::Relaxed) + 1

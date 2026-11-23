@@ -10,8 +10,9 @@ use reqwest::{Client, Request, Response};
 
 use super::errors::{self, Failure};
 use super::request_headers;
+use super::usage::usage_snapshot;
 use crate::auth::AccessToken;
-use crate::provider::{ProviderError, TokenSource};
+use crate::provider::{ProviderError, TokenSource, UsageSnapshot};
 
 /// Retries after the first attempt.
 const MAX_RETRIES: u32 = 3;
@@ -41,6 +42,8 @@ pub(super) struct Attempts {
     refreshed: bool,
     /// The token a refresh gave, for the next attempt.
     fresh: Option<AccessToken>,
+    /// The usage the last attempt's answer reported, refused or not.
+    usage: Option<UsageSnapshot>,
 }
 
 impl Attempts {
@@ -52,12 +55,18 @@ impl Attempts {
             retries: 0,
             refreshed: false,
             fresh: None,
+            usage: None,
         }
     }
 
     /// Attempts sent so far.
     pub(super) fn made(&self) -> u32 {
         self.made
+    }
+
+    /// The usage the last attempt's answer reported in its headers, once.
+    pub(super) fn reported_usage(&mut self) -> Option<UsageSnapshot> {
+        self.usage.take()
     }
 
     /// Sends `request` once with the bearer token: the answer when it
@@ -72,6 +81,7 @@ impl Attempts {
             .expect("the request body is held in memory");
         request.headers_mut().extend(request_headers(&token));
         self.made += 1;
+        self.usage = None;
         let response = self
             .client
             .execute(request)
@@ -80,6 +90,8 @@ impl Attempts {
                 unreachable: error.is_connect(),
                 request_id: None,
             })?;
+        // A refusal reports usage too, a usage limit above all.
+        self.usage = usage_snapshot(response.headers());
         if response.status().is_success() {
             return Ok(response);
         }

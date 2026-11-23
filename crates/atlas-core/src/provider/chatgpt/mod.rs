@@ -34,7 +34,6 @@ use crate::provider::{
 };
 use attempts::{Attempts, request_id};
 use errors::Failure;
-use usage::usage_snapshot;
 
 /// How long a connection may take to be established.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
@@ -278,24 +277,28 @@ impl Exchange {
                     self.clock.sleep(pause).await;
                     self.step = Step::Open;
                 }
-                Step::Open => match self.attempts.send(&self.request).await {
-                    Ok(response) => {
-                        if let Some(snapshot) = usage_snapshot(response.headers()) {
-                            self.deliver(ProviderEvent::Usage(snapshot));
-                        }
-                        let request_id = request_id(response.headers());
-                        let captured = self.capture.as_ref().map(|(capture, _)| {
-                            capture.responses.fetch_add(1, Ordering::Relaxed) + 1
-                        });
-                        self.step = Step::Read(Box::new(Reading {
-                            response,
-                            parser: ResponsesStreamParser::new(request_id.clone()),
-                            request_id,
-                            captured,
-                        }));
+                Step::Open => {
+                    let sent = self.attempts.send(&self.request).await;
+                    // Before the stream or the refusal: the meter hears it either way.
+                    if let Some(snapshot) = self.attempts.reported_usage() {
+                        self.deliver(ProviderEvent::Usage(snapshot));
                     }
-                    Err(failure) => self.recover(failure).await,
-                },
+                    match sent {
+                        Ok(response) => {
+                            let request_id = request_id(response.headers());
+                            let captured = self.capture.as_ref().map(|(capture, _)| {
+                                capture.responses.fetch_add(1, Ordering::Relaxed) + 1
+                            });
+                            self.step = Step::Read(Box::new(Reading {
+                                response,
+                                parser: ResponsesStreamParser::new(request_id.clone()),
+                                request_id,
+                                captured,
+                            }));
+                        }
+                        Err(failure) => self.recover(failure).await,
+                    }
+                }
                 Step::Read(mut reading) => {
                     let (events, open) = match reading.response.chunk().await {
                         Ok(Some(chunk)) => {

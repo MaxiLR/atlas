@@ -1,3 +1,5 @@
+import { describeError } from "@/core/client";
+import type { CoreError } from "@/core/generated/CoreError";
 import type { CoreRequest } from "@/core/generated/CoreRequest";
 
 /** Whether a notice reports a failure or a success. */
@@ -41,4 +43,19 @@ export function noticeClosed(notices: NoticesSlice, id: string): NoticesSlice {
   return notices.some((notice) => notice.id === id)
     ? notices.filter((notice) => notice.id !== id)
     : notices;
+}
+
+/** A failure of cause `id` that has no place on screen, with its reason. */
+export function failureNotice(
+  id: string,
+  title: string,
+  error: CoreError,
+): Notice {
+  return {
+    id,
+    kind: "error",
+    title,
+    description: describeError(error),
+    action: null,
+  };
 }

@@ -45,6 +45,7 @@ import {
   type NavigationSlice,
 } from "./navigation";
 import {
+  failureNotice,
   initialNotices,
   noticeClosed,
   noticeShown,
@@ -241,6 +242,42 @@ function exportEnded(state: AtlasState, notice: Notice | null): AtlasState {
     return state;
   }
   return { ...state, notices: noticeShown(state.notices, notice) };
+}
+
+/** The causes of the notices for a failure that has no place on screen. */
+const LINK_NOTICE = "link";
+const DEFINITION_DELETE_NOTICE = "definition-delete";
+const SIDE_CHAT_DELETE_NOTICE = "side-chat-delete";
+
+function failureShown(
+  state: AtlasState,
+  id: string,
+  title: string,
+  error: CoreError,
+): AtlasState {
+  return {
+    ...state,
+    notices: noticeShown(state.notices, failureNotice(id, title, error)),
+  };
+}
+
+/**
+ * A link the browser could not open. Settings and the sign-in screen say
+ * Manage usage failed in their own sentence, so it shows no notice there.
+ */
+function linkFailed(
+  state: AtlasState,
+  request: CoreRequest,
+  error: CoreError,
+): AtlasState {
+  const { screen } = state.navigation;
+  if (
+    request.type === "OpenManageUsage" &&
+    (screen === "settings" || screen === "signIn")
+  ) {
+    return state;
+  }
+  return failureShown(state, LINK_NOTICE, "Link could not be opened", error);
 }
 
 /** The state once the core has done `request`. */
@@ -679,12 +716,28 @@ export function applyFailure(
         ...state,
         sideChats: sendFailed(state.sideChats, request.chatId, error),
       };
+    case "OpenManageUsage":
+    case "OpenExternal":
+      return linkFailed(state, request, error);
+    // The entry or the chat stays where it was; the notice says why.
+    case "DeleteGlossaryEntry":
+      return failureShown(
+        state,
+        DEFINITION_DELETE_NOTICE,
+        "Definition could not be deleted",
+        error,
+      );
+    case "DeleteSideChat":
+      return failureShown(
+        state,
+        SIDE_CHAT_DELETE_NOTICE,
+        "Side chat could not be deleted",
+        error,
+      );
     case "SignIn":
     case "CancelSignIn":
     case "EnablePlanUsage":
     case "SignOut":
-    case "OpenManageUsage":
-    case "OpenExternal":
     case "ListModels":
     case "SelectModel":
     case "SubmitSelfRating":
@@ -700,8 +753,6 @@ export function applyFailure(
     case "StartSideChat":
     case "OpenSideChat":
     case "StopSideChatReply":
-    case "DeleteGlossaryEntry":
-    case "DeleteSideChat":
     case "GetUsage":
     case "SetWindowFocused":
     case "GetExportDocument":

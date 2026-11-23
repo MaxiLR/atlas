@@ -989,22 +989,43 @@ describe("ListGlossary", () => {
 });
 
 describe("DeleteGlossaryEntry", () => {
-  it("is not built yet: it fails as unavailable, naming define, and the entry stays", async () => {
+  it("removes the entry for good: the glossary, its count and a Wikipedia lookup no longer find it", async () => {
     const { store, state } = startFake();
     const course = await openCourse(store, "Plate tectonics");
     const { entries } = await store.send({
       type: "ListGlossary",
       courseId: course.id,
     });
+    const entryId = entries[0]!.id;
 
     await expect(
-      store.send({ type: "DeleteGlossaryEntry", entryId: entries[0]!.id }),
-    ).rejects.toEqual({ type: "Unavailable", feature: "define" });
+      store.send({ type: "DeleteGlossaryEntry", entryId }),
+    ).resolves.toEqual({ type: "Done" });
 
-    await store.send({ type: "ListGlossary", courseId: course.id });
-    expect(
-      state().glossary.byCourse[course.id]?.map((entry) => entry.term),
-    ).toEqual(["asthenosphere"]);
+    expect(state().glossary.byCourse[course.id]).toEqual([]);
+    expect(state().course.byId[course.id]?.glossaryCount).toBe(0);
+    await expect(
+      store.send({ type: "LookupWikipedia", entryId }),
+    ).rejects.toMatchObject({ type: "NotFound" });
+    const listed = await store.send({
+      type: "ListGlossary",
+      courseId: course.id,
+    });
+    expect(listed.entries).toEqual([]);
+    const reopened = await store.send({
+      type: "OpenCourse",
+      courseId: course.id,
+    });
+    expect(reopened.course.glossaryCount).toBe(0);
+  });
+
+  it("does not find an entry it does not hold", async () => {
+    const { store } = startFake();
+    await openCourse(store, "Plate tectonics");
+
+    await expect(
+      store.send({ type: "DeleteGlossaryEntry", entryId: "no-such-entry" }),
+    ).rejects.toMatchObject({ type: "NotFound" });
   });
 });
 
@@ -1141,18 +1162,88 @@ describe("StopSideChatReply", () => {
 });
 
 describe("DeleteSideChat", () => {
-  it("is not built yet: it fails as unavailable, naming side_chats", async () => {
-    const { store } = startFake();
+  it("stops the reply streaming in it before it answers, then removes it for good: it lists, opens and counts no more", async () => {
+    const valve = createValve();
+    const { store, state, events } = startFake("default", {
+      pace: valve.pace,
+    });
     const course = await openCourse(store, "Plate tectonics");
+    const listed = await store.send({
+      type: "ListSideChats",
+      courseId: course.id,
+    });
+    const sample = listed.chats[0]!.id;
     const { chat } = await store.send({
       type: "StartSideChat",
       courseId: course.id,
       anchor: null,
     });
+    const replying = store.send({
+      type: "SendSideChatMessage",
+      chatId: chat.id,
+      text: "Why do plates move at all?",
+    });
+    replying.catch(() => {});
+    valve.step();
+    valve.step();
+    await vi.waitFor(() =>
+      expect(state().sideChats.chats[chat.id]?.reply).not.toBeNull(),
+    );
+    const from = events.length;
+
+    const deleting = store.send({ type: "DeleteSideChat", chatId: chat.id });
+    valve.open();
+    await expect(deleting).resolves.toEqual({ type: "Done" });
+
+    const after = events.slice(from);
+    expect(
+      after.flatMap((event) =>
+        event.type === "Generation" &&
+        event.target.type === "SideChat" &&
+        event.target.chatId === chat.id &&
+        event.event.type === "Finished"
+          ? [event.event.outcome.type]
+          : [],
+      ),
+    ).toEqual(["Stopped"]);
+    expect(
+      after.filter(
+        (event) =>
+          (event.type === "SideChatsChanged" && event.chat.id === chat.id) ||
+          (event.type === "FollowUpPrompts" && event.chatId === chat.id),
+      ),
+    ).toEqual([]);
+    await expect(replying).rejects.toMatchObject({ type: "NotFound" });
+    expect(selectSideChats(state(), course.id)?.map(({ id }) => id)).toEqual([
+      sample,
+    ]);
+    expect(state().sideChats.chats[chat.id]).toBeUndefined();
+    expect(state().navigation.panel.chatId).toBeNull();
+    expect(state().course.byId[course.id]?.sideChatCount).toBe(1);
 
     await expect(
-      store.send({ type: "DeleteSideChat", chatId: chat.id }),
-    ).rejects.toEqual({ type: "Unavailable", feature: "side_chats" });
+      store.send({ type: "OpenSideChat", chatId: chat.id }),
+    ).rejects.toMatchObject({ type: "NotFound" });
+    const { chats } = await store.send({
+      type: "ListSideChats",
+      courseId: course.id,
+    });
+    expect(chats.map(({ id }) => id)).not.toContain(chat.id);
+    expect(chats).toHaveLength(1);
+    const reopened = await store.send({
+      type: "OpenCourse",
+      courseId: course.id,
+    });
+    expect(reopened.course.sideChatCount).toBe(1);
+  });
+
+  it("does not find a chat it does not hold", async () => {
+    const { store } = startFake();
+    await openCourse(store, "Plate tectonics");
+
+    await expect(
+      store.send({ type: "DeleteSideChat", chatId: "no-such-chat" }),
+    ).rejects.toMatchObject({ type: "NotFound" });
   });
 });
 

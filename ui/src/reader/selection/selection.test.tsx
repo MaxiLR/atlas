@@ -551,3 +551,135 @@ describe("marks in the text", () => {
     expect(mark).toHaveAttribute("aria-expanded", "true");
   });
 });
+
+describe("deleting from the text", () => {
+  it("offers Delete definition in the popover only once the definition is written, named and shown as a tooltip on hover and on focus", async () => {
+    const { article, user, valve } = await renderSection();
+
+    valve.close();
+    await select(article, "subduction");
+    await user.keyboard("d");
+    const popover = await screen.findByRole("dialog", {
+      name: "Definition of subduction",
+    });
+    expect(
+      within(popover).queryByRole("button", { name: "Delete definition" }),
+    ).toBeNull();
+
+    await act(async () => {
+      valve.open();
+      await drained();
+    });
+    await waitFor(() => expect(popover).toHaveTextContent(SUBDUCTION_ARTICLE));
+    const button = within(popover).getByRole("button", {
+      name: "Delete definition",
+    });
+
+    await user.hover(button);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "Delete definition",
+    );
+    await user.unhover(button);
+    await waitFor(() => expect(screen.queryByRole("tooltip")).toBeNull());
+
+    act(() =>
+      within(popover)
+        .getByRole("link", { name: "Wikipedia article on subduction" })
+        .focus(),
+    );
+    await user.tab();
+    expect(button).toHaveFocus();
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "Delete definition",
+    );
+  });
+
+  it("deletes the definition from its popover at once: no dialog, the popover closes, the term loses its underline and focus is in the passage", async () => {
+    const { article, user, requests } = await renderSection();
+    const term = await within(article).findByRole("button", {
+      name: "asthenosphere",
+    });
+    await user.click(term);
+    const popover = await screen.findByRole("dialog", {
+      name: "Definition of asthenosphere",
+    });
+
+    await user.click(
+      within(popover).getByRole("button", { name: "Delete definition" }),
+    );
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    await waitFor(() =>
+      expect(
+        within(article).queryByRole("button", { name: "asthenosphere" }),
+      ).toBeNull(),
+    );
+    expect(requests).toContainEqual(
+      expect.objectContaining({ type: "DeleteGlossaryEntry" }),
+    );
+    expect(article).toHaveTextContent("asthenosphere");
+    const focused = document.activeElement;
+    expect(focused).not.toBe(document.body);
+    expect(article.contains(focused)).toBe(true);
+    expect(focused).toHaveTextContent("asthenosphere");
+  });
+
+  it("a deleted side chat's passage loses its margin mark", async () => {
+    const { article, store, ids } = await renderSection();
+    await within(article).findByRole("button", {
+      name: /side chat on “Its weight drags/i,
+    });
+    const chat = store.state
+      .getState()
+      .sideChats.byCourse[ids.courseId]!.find(
+        (each) => each.anchor?.quote === SLAB_PULL,
+      )!;
+
+    await act(async () => {
+      await store.send({ type: "DeleteSideChat", chatId: chat.id });
+    });
+
+    expect(
+      within(article).queryByRole("button", { name: /side chat on/i }),
+    ).toBeNull();
+    expect(article).toHaveTextContent(SLAB_PULL);
+  });
+
+  it("keeps the underline and the margin mark when the core refuses the delete", async () => {
+    const { article, user, core, store, ids } = await renderSection();
+    const term = await within(article).findByRole("button", {
+      name: "asthenosphere",
+    });
+    await within(article).findByRole("button", {
+      name: /side chat on “Its weight drags/i,
+    });
+    // The core no longer holds either, so it refuses to delete them.
+    const course = core.world.courses.find(({ id }) => id === ids.courseId)!;
+    course.glossary.length = 0;
+    const chat = course.chats.splice(0, 1)[0]!;
+
+    await user.click(term);
+    const popover = await screen.findByRole("dialog", {
+      name: "Definition of asthenosphere",
+    });
+    await user.click(
+      within(popover).getByRole("button", { name: "Delete definition" }),
+    );
+    await act(async () => {
+      await store
+        .send({ type: "DeleteSideChat", chatId: chat.id })
+        .catch(() => {});
+      await drained();
+    });
+
+    expect(
+      within(article).getByRole("button", { name: "asthenosphere" }),
+    ).toBeVisible();
+    expect(
+      within(article).getByRole("button", {
+        name: /side chat on “Its weight drags/i,
+      }),
+    ).toBeVisible();
+  });
+});

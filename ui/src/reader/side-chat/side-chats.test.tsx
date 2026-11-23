@@ -3,6 +3,7 @@ import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { useEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { App } from "@/App";
 import {
   AtlasStoreProvider,
   useAtlas,
@@ -12,11 +13,12 @@ import {
 import type { CoreClient } from "@/core/client";
 import { CoreProvider } from "@/core/context";
 import { createFakeCore, createManualClock, type FakeWorld } from "@/core/fake";
+import type { CoreError } from "@/core/generated/CoreError";
 import type { CoreRequest } from "@/core/generated/CoreRequest";
 import type { SideChat } from "@/core/generated/SideChat";
 import { SidePanel } from "@/reader/side-panel/side-panel";
 import { selectOpenCourse } from "@/store";
-import { createValve, startedAt } from "@/test/fake-core";
+import { createValve, drained, startedAt } from "@/test/fake-core";
 
 import { SideChats } from "./side-chats";
 
@@ -40,6 +42,10 @@ const FIRST_CHUNK =
   "For plates with a subducting edge, slab pull is the larger force.";
 const LAST_CHUNK =
   "the sinking slab is the cold, downward limb of the mantle's circulation.";
+const REFUSED: CoreError = {
+  type: "Store",
+  message: "The database is locked by another process.",
+};
 
 function Store({ onStore }: { onStore: (store: AtlasStore) => void }) {
   const store = useAtlasStore();
@@ -78,16 +84,19 @@ function sampleChat(world: FakeWorld): SideChat {
 /**
  * The side panel over the fake core in `scenario`, with Plate tectonics
  * open. `setup` changes the world before anything is asked; `pace` holds
- * the core's steps. `requests` records what the panel asked of the core.
+ * the core's steps; the core refuses every request of type `refuse`.
+ * `requests` records what the panel asked of the core.
  */
 async function renderPanel({
   scenario = "default",
   pace = () => Promise.resolve(),
   setup,
+  refuse,
 }: {
   scenario?: string;
   pace?: () => Promise<void>;
   setup?: (world: FakeWorld) => void;
+  refuse?: CoreRequest["type"];
 } = {}) {
   const core = createFakeCore({
     scenario,
@@ -99,7 +108,9 @@ async function renderPanel({
   const client: CoreClient = {
     call(request) {
       requests.push(request);
-      return core.call(request);
+      return request.type === refuse
+        ? Promise.reject(REFUSED)
+        : core.call(request);
     },
     subscribe: (listener) => core.subscribe(listener),
   };
@@ -517,7 +528,9 @@ describe("a reply as it is written", () => {
     );
     const list = await within(panel).findByRole("list", { name: "Side chats" });
     await user.click(
-      within(within(list).getAllByRole("listitem")[0]!).getByRole("button"),
+      within(within(list).getAllByRole("listitem")[0]!).getByRole("button", {
+        name: /Why do plates move/,
+      }),
     );
     const back = await within(panel).findByRole("region", {
       name: "Side chat",
@@ -656,5 +669,236 @@ describe("a reply as it is written", () => {
     before.setStart(paragraph, 0);
     before.setEndBefore(chip);
     expect(before.toString()).toBe("🌋 Slab pull is the larger force,");
+  });
+});
+
+const CONTINENTS = "Why do continents not sink?";
+const HIMALAYA = "Is the Himalaya still getting taller?";
+
+/**
+ * Adds two chats without a passage before the sample's, each opened by
+ * `question`; the list then reads continents, Himalaya, slab pull.
+ */
+function threeChats(world: FakeWorld) {
+  const course = plateTectonics(world);
+  for (const [id, question] of [
+    ["chat-himalaya", HIMALAYA],
+    ["chat-continents", CONTINENTS],
+  ] as const) {
+    course.chats.unshift({
+      id,
+      courseId: course.id,
+      anchor: null,
+      sectionTitle: null,
+      messages: [
+        {
+          id: `${id}-message`,
+          role: "Candidate",
+          text: question,
+          state: "Complete",
+          citations: [],
+          sources: [],
+          createdAt: startedAt,
+        },
+      ],
+      followUps: [],
+      createdAt: startedAt,
+      updatedAt: startedAt,
+    });
+  }
+}
+
+/** The rows of the side-chat list, top to bottom. */
+function rows(panel: HTMLElement) {
+  const list = within(panel).queryByRole("list", { name: "Side chats" });
+  return list === null ? [] : within(list).getAllByRole("listitem");
+}
+
+/** The row's own button, which opens its chat. */
+function rowButton(panel: HTMLElement, text: RegExp) {
+  const row = rows(panel).find((each) => text.test(each.textContent ?? ""))!;
+  return within(row).getAllByRole("button")[0]!;
+}
+
+/** Chooses Delete side chat in the menu of the row matching `text`. */
+async function deleteFromMenu(
+  user: UserEvent,
+  panel: HTMLElement,
+  text: RegExp,
+) {
+  const row = rows(panel).find((each) => text.test(each.textContent ?? ""))!;
+  const trigger = within(row).getByRole("button", { name: "Side chat menu" });
+  expect(trigger).toHaveAccessibleDescription(text);
+  await user.click(trigger);
+  const menu = await screen.findByRole("menu");
+  const items = within(menu).getAllByRole("menuitem");
+  expect(items.map((item) => item.textContent)).toEqual(["Delete side chat"]);
+  await user.click(items[0]!);
+}
+
+function expectNoDialog() {
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+}
+
+const EMPTY =
+  "No side chats yet: ask about a selected passage, or start one with New side chat.";
+
+describe("deleting a side chat", () => {
+  it("happens at once from its row menu, with no dialog: the row leaves, the counts in the header and the tab drop and the next row takes focus", async () => {
+    const core = createFakeCore({
+      scenario: "default",
+      clock: createManualClock(startedAt),
+      pace: () => Promise.resolve(),
+    });
+    threeChats(core.world);
+    render(
+      <CoreProvider client={core}>
+        <App />
+      </CoreProvider>,
+    );
+    const user = userEvent.setup();
+    await user.click(
+      await screen.findByRole("button", { name: "Plate tectonics" }),
+    );
+    const index = await screen.findByRole("navigation", { name: "Index" });
+    await user.click(
+      within(index).getByRole("button", { name: "Divergent boundaries" }),
+    );
+    await screen.findByRole("article", { name: "Divergent boundaries" });
+    await user.click(screen.getByRole("button", { name: "Side chats 3" }));
+    const panel = screen.getByRole("complementary", { name: "Side panel" });
+    await within(panel).findByRole("list", { name: "Side chats" });
+
+    await deleteFromMenu(user, panel, /Himalaya/);
+    expectNoDialog();
+
+    await waitFor(() => expect(rows(panel)).toHaveLength(2));
+    expect(rows(panel)[0]).toHaveTextContent(CONTINENTS);
+    expect(rows(panel)[1]).toHaveTextContent(PASSAGE);
+    expect(rowButton(panel, /slab pull/)).toHaveFocus();
+    expect(
+      within(panel).getByRole("tab", { name: "Side chats 2" }),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "Side chats 2" })).toBeVisible();
+    expectNoDialog();
+  });
+
+  it("from a row menu moves focus to the previous row from the last one, and to the empty message once none are left", async () => {
+    const { panel, user, requests } = await renderPanel({
+      setup: threeChats,
+    });
+    await within(panel).findByRole("list", { name: "Side chats" });
+
+    await deleteFromMenu(user, panel, /slab pull/);
+    await waitFor(() => expect(rows(panel)).toHaveLength(2));
+    expect(rowButton(panel, /Himalaya/)).toHaveFocus();
+    expect(within(panel).getByRole("tab", { name: "Side chats 2" })).toBe(
+      within(panel).getByRole("tab", { selected: true }),
+    );
+
+    await deleteFromMenu(user, panel, /Himalaya/);
+    await waitFor(() => expect(rows(panel)).toHaveLength(1));
+    expect(rowButton(panel, /continents/)).toHaveFocus();
+
+    await deleteFromMenu(user, panel, /continents/);
+    expect(await within(panel).findByText(EMPTY)).toHaveFocus();
+    expect(within(panel).getByRole("tab", { name: "Side chats 0" })).toBe(
+      within(panel).getByRole("tab", { selected: true }),
+    );
+    expect(
+      requests.filter(({ type }) => type === "DeleteSideChat"),
+    ).toHaveLength(3);
+    expectNoDialog();
+  });
+
+  it("from an open chat is a trash button opposite All side chats, named and tooltipped Delete side chat on hover and on focus", async () => {
+    const { panel, user } = await renderPanel({ setup: threeChats });
+    const thread = await openChat(user, panel, /Himalaya/);
+    const button = within(thread).getByRole("button", {
+      name: "Delete side chat",
+    });
+
+    await user.hover(button);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "Delete side chat",
+    );
+    await user.unhover(button);
+    await waitFor(() => expect(screen.queryByRole("tooltip")).toBeNull());
+
+    act(() =>
+      within(thread).getByRole("button", { name: "All side chats" }).focus(),
+    );
+    await user.tab();
+    expect(button).toHaveFocus();
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "Delete side chat",
+    );
+  });
+
+  it("from an open chat returns to the list with focus where the chat was: the row now in its place, else the previous one, else the empty message", async () => {
+    const { panel, user } = await renderPanel({ setup: threeChats });
+
+    let thread = await openChat(user, panel, /Himalaya/);
+    await user.click(
+      within(thread).getByRole("button", { name: "Delete side chat" }),
+    );
+    expectNoDialog();
+    await waitFor(() =>
+      expect(
+        within(panel).queryByRole("region", { name: "Side chat" }),
+      ).toBeNull(),
+    );
+    await waitFor(() => expect(rows(panel)).toHaveLength(2));
+    await waitFor(() => expect(rowButton(panel, /slab pull/)).toHaveFocus());
+    expect(
+      within(panel).getByRole("tab", { name: "Side chats 2" }),
+    ).toBeVisible();
+
+    thread = await openChat(user, panel, /slab pull/);
+    await user.click(
+      within(thread).getByRole("button", { name: "Delete side chat" }),
+    );
+    await waitFor(() => expect(rows(panel)).toHaveLength(1));
+    await waitFor(() => expect(rowButton(panel, /continents/)).toHaveFocus());
+
+    thread = await openChat(user, panel, /continents/);
+    await user.click(
+      within(thread).getByRole("button", { name: "Delete side chat" }),
+    );
+    await waitFor(async () =>
+      expect(await within(panel).findByText(EMPTY)).toHaveFocus(),
+    );
+    expect(
+      within(panel).getByRole("tab", { name: "Side chats 0" }),
+    ).toBeVisible();
+    expectNoDialog();
+  });
+
+  it("keeps the row, the open chat and the count when the core refuses", async () => {
+    const { panel, user } = await renderPanel({
+      setup: threeChats,
+      refuse: "DeleteSideChat",
+    });
+    await within(panel).findByRole("list", { name: "Side chats" });
+
+    await deleteFromMenu(user, panel, /Himalaya/);
+    await act(drained);
+    expect(rows(panel)).toHaveLength(3);
+    expect(
+      within(panel).getByRole("tab", { name: "Side chats 3" }),
+    ).toBeVisible();
+
+    const thread = await openChat(user, panel, /Himalaya/);
+    await user.click(
+      within(thread).getByRole("button", { name: "Delete side chat" }),
+    );
+    await act(drained);
+    expect(
+      within(panel).getByRole("region", { name: "Side chat" }),
+    ).toHaveTextContent(HIMALAYA);
+    expect(
+      within(panel).getByRole("tab", { name: "Side chats 3" }),
+    ).toBeVisible();
   });
 });

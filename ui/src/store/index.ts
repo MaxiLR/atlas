@@ -291,7 +291,12 @@ function done(state: AtlasState, request: CoreRequest): AtlasState {
   if (request.type === "DeleteGlossaryEntry") {
     const courseId = entryCourse(state.glossary, request.entryId);
     return uncounted(
-      { ...state, glossary: entryDeleted(state.glossary, request.entryId) },
+      {
+        ...state,
+        glossary: entryDeleted(state.glossary, request.entryId),
+        // The delete succeeded: the notice saying it could not goes.
+        notices: noticeClosed(state.notices, DEFINITION_DELETE_NOTICE),
+      },
       courseId,
       "glossaryCount",
     );
@@ -304,6 +309,7 @@ function done(state: AtlasState, request: CoreRequest): AtlasState {
       {
         ...state,
         sideChats: chatDeleted(state.sideChats, chatId),
+        notices: noticeClosed(state.notices, SIDE_CHAT_DELETE_NOTICE),
         // An open chat deleted leaves the panel on the list.
         navigation:
           nav.panel.chatId === chatId

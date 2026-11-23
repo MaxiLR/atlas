@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import type { CoreRequest } from "@/core/generated/CoreRequest";
+import type { ExportResult } from "@/core/generated/ExportResult";
 import type { Session } from "@/core/generated/Session";
 
 import {
@@ -8,7 +10,9 @@ import {
   applyResponse,
   initialState,
   type AtlasState,
+  type Screen,
 } from "./index";
+import { initialNavigation } from "./navigation";
 
 const signedIn: Session = {
   type: "SignedIn",
@@ -92,5 +96,128 @@ describe("the session notice", () => {
       id: "session",
       description: "session is not available yet.",
     });
+  });
+});
+
+/** The state while the window shows `screen`. */
+function on(screen: Screen): AtlasState {
+  return { ...initialState, navigation: { ...initialNavigation, screen } };
+}
+
+const exportPdf: CoreRequest = { type: "ExportPdf", courseId: "course-1" };
+
+/** The core answered the export with `result`. */
+function exported(state: AtlasState, result: ExportResult): AtlasState {
+  return applyResponse(state, exportPdf, { type: "Exported", result });
+}
+
+describe("the PDF export notices", () => {
+  it("a saved PDF shows a success notice naming the file", () => {
+    const after = exported(on("reader"), {
+      type: "Saved",
+      path: "/Users/candidate/Desktop/Plates, revised.pdf",
+    });
+
+    expect(after.notices).toEqual([
+      {
+        id: expect.any(String),
+        kind: "success",
+        title: "PDF saved",
+        description: "Plates, revised.pdf",
+        action: null,
+      },
+    ]);
+  });
+
+  it("a failed export shows an error notice with the core's reason", () => {
+    const after = exported(on("reader"), {
+      type: "Failed",
+      reason: "Not enough free space to write Plate tectonics.pdf.",
+    });
+
+    expect(after.notices).toEqual([
+      {
+        id: expect.any(String),
+        kind: "error",
+        title: "PDF export failed",
+        description: "Not enough free space to write Plate tectonics.pdf.",
+        action: null,
+      },
+    ]);
+  });
+
+  it("an export the core refused shows an error notice with the refusal", () => {
+    const after = applyFailure(on("reader"), exportPdf, { type: "Offline" });
+
+    expect(after.notices).toEqual([
+      {
+        id: expect.any(String),
+        kind: "error",
+        title: "PDF export failed",
+        description: "The app is offline.",
+        action: null,
+      },
+    ]);
+  });
+
+  it("a cancelled export shows nothing", () => {
+    expect(exported(on("reader"), { type: "Cancelled" }).notices).toEqual([]);
+  });
+
+  it("a saved PDF after a failed export replaces the failure", () => {
+    const failed = exported(on("reader"), {
+      type: "Failed",
+      reason: "The disk is full.",
+    });
+    const saved = exported(failed, {
+      type: "Saved",
+      path: "/tmp/Plate tectonics.pdf",
+    });
+
+    expect(saved.notices).toHaveLength(1);
+    expect(saved.notices[0]).toMatchObject({
+      kind: "success",
+      title: "PDF saved",
+      description: "Plate tectonics.pdf",
+    });
+  });
+
+  it("a failure after a refusal replaces it instead of stacking", () => {
+    const refused = applyFailure(on("reader"), exportPdf, { type: "Offline" });
+    const failed = exported(refused, {
+      type: "Failed",
+      reason: "The disk is full.",
+    });
+
+    expect(failed.notices).toHaveLength(1);
+    expect(failed.notices[0]).toMatchObject({
+      description: "The disk is full.",
+    });
+  });
+
+  it("a failure on the library, which says it in its own line, shows no notice", () => {
+    const refused = applyFailure(on("library"), exportPdf, { type: "Offline" });
+    const failed = exported(on("library"), {
+      type: "Failed",
+      reason: "The disk is full.",
+    });
+
+    expect(refused.notices).toEqual([]);
+    expect(failed.notices).toEqual([]);
+  });
+
+  it("a PDF saved from the library still shows its notice", () => {
+    const after = exported(on("library"), {
+      type: "Saved",
+      path: "/Users/candidate/Documents/Plate tectonics.pdf",
+    });
+
+    expect(after.notices).toMatchObject([
+      {
+        kind: "success",
+        title: "PDF saved",
+        description: "Plate tectonics.pdf",
+      },
+    ]);
   });
 });

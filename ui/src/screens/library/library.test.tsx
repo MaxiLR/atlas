@@ -412,6 +412,43 @@ describe("the library", () => {
       });
     });
 
+    it("says a PDF saved from the row menu in a notice naming the file", async () => {
+      const fake = renderLibrary("default");
+
+      const menu = await openMenu(fake.user, "Plate tectonics");
+      await fake.user.click(
+        within(menu).getByRole("menuitem", { name: "Export PDF" }),
+      );
+
+      const notice = await within(
+        screen.getByRole("region", { name: /^Notifications/ }),
+      ).findByRole("status");
+      expect(notice).toHaveTextContent("PDF saved");
+      expect(notice).toHaveTextContent("Plate tectonics.pdf");
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+
+    it("says a refused export from the row menu in its own line, with no notice", async () => {
+      const fake = renderLibrary("default");
+      fake.core.world.exportFailure = {
+        type: "Refused",
+        error: { type: "Offline" },
+      };
+
+      const menu = await openMenu(fake.user, "Plate tectonics");
+      await fake.user.click(
+        within(menu).getByRole("menuitem", { name: "Export PDF" }),
+      );
+
+      const line = await screen.findByRole("alert");
+      expect(line).toHaveTextContent(
+        "Plate tectonics could not be exported. The app is offline.",
+      );
+      await act(drained);
+      expect(screen.getAllByRole("alert")).toEqual([line]);
+      expect(screen.queryByText("PDF export failed")).toBeNull();
+    });
+
     it("asks to confirm a deletion, naming the course and saying it is permanent, with Cancel focused", async () => {
       const fake = renderLibrary("default");
 

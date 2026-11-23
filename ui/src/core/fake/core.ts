@@ -1121,12 +1121,17 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
 
       case "ExportPdf": {
         const course = courseOf(request.courseId);
+        const failure = world.exportFailure;
+        if (failure?.type === "Refused") fail(failure.error);
         return {
           type: "Exported",
-          result: {
-            type: "Saved",
-            path: `/Users/candidate/Documents/${course.topic}.pdf`,
-          },
+          result:
+            failure?.type === "Failed"
+              ? { type: "Failed", reason: failure.reason }
+              : {
+                  type: "Saved",
+                  path: `/Users/candidate/Documents/${course.topic}.pdf`,
+                },
         };
       }
     }

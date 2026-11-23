@@ -125,6 +125,11 @@ export interface FakeWorld {
   placementFailure: PlacementFailure | null;
   /** Why the session cannot be read, until it is asked again. */
   sessionUnreadable: CoreError | null;
+  /** How every PDF export ends instead of being saved: refused, or failed. */
+  exportFailure:
+    | { type: "Refused"; error: CoreError }
+    | { type: "Failed"; reason: string }
+    | null;
 }
 
 export const account = { email: "candidate@example.com" };
@@ -153,6 +158,7 @@ export function createWorld(clock: FakeClock): FakeWorld {
     placementQuestions: 4,
     placementFailure: null,
     sessionUnreadable: null,
+    exportFailure: null,
   };
 }
 

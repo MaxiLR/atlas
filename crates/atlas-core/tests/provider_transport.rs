@@ -763,6 +763,37 @@ async fn a_response_without_usage_headers_reports_no_usage() {
 }
 
 #[tokio::test]
+async fn a_usage_limit_refusal_with_usage_headers_reports_them_before_its_error() {
+    let full = UsageSnapshot {
+        primary: Some(WindowUsage {
+            used: 1.0,
+            ..five_hour()
+        }),
+        secondary: Some(weekly()),
+    };
+    let headers = [
+        ("x-codex-primary-used-percent", "100"),
+        PRIMARY[1],
+        PRIMARY[2],
+    ];
+    let reply = [headers, SECONDARY].concat().into_iter().fold(
+        refusal(429, "usage-limit-exceeded.json"),
+        |reply, (name, value)| reply.header(name, value),
+    );
+    let rig = Rig::responses([reply]).await;
+    let run = rig.run(request()).await;
+    assert_eq!(
+        run.error,
+        Some(ProviderError::PlanLimit {
+            resets_at: limit_resets_at(),
+            request_id: rid(),
+        })
+    );
+    assert_eq!(run.events, [ProviderEvent::Usage(full)]);
+    assert_eq!(rig.posts(), 1, "{run:?}");
+}
+
+#[tokio::test]
 async fn a_window_with_an_unreadable_or_missing_header_is_left_out() {
     let replace = |headers: [(&'static str, &'static str); 3], name: &str, value| {
         headers.map(|(header, old)| (header, if header == name { value } else { old }))

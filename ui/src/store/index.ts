@@ -16,6 +16,7 @@ import {
   withDeepDives,
   type CourseSlice,
 } from "./course";
+import { exportedNotice, exportRefusedNotice } from "./export";
 import {
   definitionGenerated,
   entryChanged,
@@ -228,6 +229,18 @@ function uncounted(
       [count]: Math.max(0, course[count] - 1),
     })),
   };
+}
+
+/**
+ * How a PDF export ended, as a notice. The library says a failed export in
+ * its own line, so a failure arriving there shows none.
+ */
+function exportEnded(state: AtlasState, notice: Notice | null): AtlasState {
+  if (notice === null) return state;
+  if (notice.kind === "error" && state.navigation.screen === "library") {
+    return state;
+  }
+  return { ...state, notices: noticeShown(state.notices, notice) };
 }
 
 /** The state once the core has done `request`. */
@@ -609,8 +622,9 @@ export function applyResponse(
     case "Done":
       return done(state, request);
     case "ExportDocument":
-    case "Exported":
       return state;
+    case "Exported":
+      return exportEnded(state, exportedNotice(response.result));
     default:
       return unknownTag(response);
   }
@@ -658,6 +672,8 @@ export function applyFailure(
         session: { ...state.session, error },
         notices: noticeShown(state.notices, sessionNotice(error)),
       };
+    case "ExportPdf":
+      return exportEnded(state, exportRefusedNotice(error));
     case "SendSideChatMessage":
       return {
         ...state,
@@ -689,7 +705,6 @@ export function applyFailure(
     case "GetUsage":
     case "SetWindowFocused":
     case "GetExportDocument":
-    case "ExportPdf":
       return state;
     default:
       return unknownTag(request);

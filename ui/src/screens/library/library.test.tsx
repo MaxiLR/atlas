@@ -449,6 +449,27 @@ describe("the library", () => {
       expect(screen.queryByText("PDF export failed")).toBeNull();
     });
 
+    it("says an export that failed from the row menu in its own line, with no notice", async () => {
+      const fake = renderLibrary("default");
+      fake.core.world.exportFailure = {
+        type: "Failed",
+        reason: "Not enough free space to write Plate tectonics.pdf.",
+      };
+
+      const menu = await openMenu(fake.user, "Plate tectonics");
+      await fake.user.click(
+        within(menu).getByRole("menuitem", { name: "Export PDF" }),
+      );
+
+      const line = await screen.findByRole("alert");
+      expect(line).toHaveTextContent(
+        "Plate tectonics could not be exported. Not enough free space to write Plate tectonics.pdf.",
+      );
+      await act(drained);
+      expect(screen.getAllByRole("alert")).toEqual([line]);
+      expect(screen.queryByText("PDF export failed")).toBeNull();
+    });
+
     it("asks to confirm a deletion, naming the course and saying it is permanent, with Cancel focused", async () => {
       const fake = renderLibrary("default");
 

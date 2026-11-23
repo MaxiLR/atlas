@@ -19,6 +19,8 @@ import {
 import {
   definitionGenerated,
   entryChanged,
+  entryCourse,
+  entryDeleted,
   glossaryListed,
   initialGlossary,
   wikipediaLookedUp,
@@ -71,6 +73,8 @@ import {
 } from "./session";
 import {
   chatChanged,
+  chatCourse,
+  chatDeleted,
   chatOpened,
   chatsListed,
   followUpsOffered,
@@ -161,6 +165,7 @@ function glossaryEntryArrived(
   state: AtlasState,
   entry: GlossaryEntry,
 ): AtlasState {
+  if (state.glossary.deleted[entry.id] === true) return state;
   const known = (state.glossary.byCourse[entry.courseId] ?? []).some(
     (existing) => existing.id === entry.id,
   );
@@ -196,6 +201,7 @@ function sideChatArrived(
   summary: SideChatSummary,
 ): AtlasState {
   const { courseId } = summary;
+  if (state.sideChats.deleted[summary.id] === true) return state;
   const isNew =
     state.sideChats.listed[courseId] === true &&
     !(state.sideChats.byCourse[courseId] ?? []).some(
@@ -206,6 +212,59 @@ function sideChatArrived(
     sideChats: chatChanged(state.sideChats, summary),
   };
   return isNew ? sideChatCounted(changed, courseId) : changed;
+}
+
+/** A glossary entry or a side chat was deleted: it leaves its course's count. */
+function uncounted(
+  state: AtlasState,
+  courseId: string | undefined,
+  count: "glossaryCount" | "sideChatCount",
+): AtlasState {
+  if (courseId === undefined) return state;
+  return {
+    ...state,
+    course: courseChanged(state.course, courseId, (course) => ({
+      ...course,
+      [count]: Math.max(0, course[count] - 1),
+    })),
+  };
+}
+
+/** The state once the core has done `request`. */
+function done(state: AtlasState, request: CoreRequest): AtlasState {
+  if (request.type === "DeleteCourse") {
+    return {
+      ...state,
+      library: courseDeleted(state.library, request.courseId),
+    };
+  }
+  if (request.type === "DeleteGlossaryEntry") {
+    const courseId = entryCourse(state.glossary, request.entryId);
+    return uncounted(
+      { ...state, glossary: entryDeleted(state.glossary, request.entryId) },
+      courseId,
+      "glossaryCount",
+    );
+  }
+  if (request.type === "DeleteSideChat") {
+    const { chatId } = request;
+    const courseId = chatCourse(state.sideChats, chatId);
+    const nav = state.navigation;
+    return uncounted(
+      {
+        ...state,
+        sideChats: chatDeleted(state.sideChats, chatId),
+        // An open chat deleted leaves the panel on the list.
+        navigation:
+          nav.panel.chatId === chatId
+            ? navigate(nav, { type: "ShowSideChatList" })
+            : nav,
+      },
+      courseId,
+      "sideChatCount",
+    );
+  }
+  return state;
 }
 
 function generated(
@@ -490,33 +549,38 @@ export function applyResponse(
           response.result,
         ),
       };
-    case "Glossary":
+    case "Glossary": {
+      const glossary = glossaryListed(
+        state.glossary,
+        response.courseId,
+        response.entries,
+      );
       return {
         ...state,
-        glossary: glossaryListed(
-          state.glossary,
-          response.courseId,
-          response.entries,
-        ),
+        glossary,
         course: courseChanged(state.course, response.courseId, (course) => ({
           ...course,
-          glossaryCount: response.entries.length,
+          glossaryCount: glossary.byCourse[response.courseId]!.length,
         })),
       };
-    case "SideChats":
+    }
+    case "SideChats": {
+      const sideChats = chatsListed(
+        state.sideChats,
+        response.courseId,
+        response.chats,
+      );
       return {
         ...state,
-        sideChats: chatsListed(
-          state.sideChats,
-          response.courseId,
-          response.chats,
-        ),
+        sideChats,
         course: courseChanged(state.course, response.courseId, (course) => ({
           ...course,
-          sideChatCount: response.chats.length,
+          sideChatCount: sideChats.byCourse[response.courseId]!.length,
         })),
       };
+    }
     case "SideChat": {
+      if (state.sideChats.deleted[response.chat.id] === true) return state;
       const opened = {
         ...state,
         sideChats: chatOpened(state.sideChats, response.chat),
@@ -543,9 +607,7 @@ export function applyResponse(
     case "Usage":
       return { ...state, usage: usageChanged(state.usage, response.usage) };
     case "Done":
-      return request.type === "DeleteCourse"
-        ? { ...state, library: courseDeleted(state.library, request.courseId) }
-        : state;
+      return done(state, request);
     case "ExportDocument":
     case "Exported":
       return state;

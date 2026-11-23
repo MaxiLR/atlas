@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { describeError } from "@/core/client";
 import type { Anchor } from "@/core/generated/Anchor";
 import type { GlossaryEntry } from "@/core/generated/GlossaryEntry";
+import { DeleteButton } from "@/reader/delete-controls";
 import type { ShownBlock } from "@/store";
 import { anchorKey } from "@/store/glossary";
 
@@ -109,7 +110,7 @@ function WikipediaRow({
 /**
  * What the definition popover shows: the term, then the definition as it
  * streams in, or why it could not be written; once written, the Wikipedia
- * row and a way to ask about it.
+ * row, a way to delete it and a way to ask about it.
  */
 export function DefinitionBody({
   courseId,
@@ -119,6 +120,7 @@ export function DefinitionBody({
   onRetry,
   onLookUp,
   onAsk,
+  onDelete,
 }: {
   courseId: string;
   anchor: Anchor;
@@ -129,6 +131,7 @@ export function DefinitionBody({
   onRetry: () => void;
   onLookUp: (entryId: string) => void;
   onAsk: (entry: GlossaryEntry) => void;
+  onDelete: (entry: GlossaryEntry) => void;
 }) {
   const entry = useDefinition(courseId, anchor);
   const draft = useAtlas((state) => state.glossary.drafts[anchorKey(anchor)]);
@@ -173,8 +176,12 @@ export function DefinitionBody({
             unreached={unreached.has(entry.id)}
             onLookUp={onLookUp}
           />
-          <div className="flex items-center justify-between gap-3 border-t border-edge bg-wash py-2 pr-2 pl-4 text-13 text-muted-foreground">
-            In the glossary
+          <div className="flex items-center gap-1 border-t border-edge bg-wash py-2 pr-2 pl-4 text-13 text-muted-foreground">
+            <span className="flex-1">In the glossary</span>
+            <DeleteButton
+              label="Delete definition"
+              onDelete={() => onDelete(entry)}
+            />
             <Button onClick={() => onAsk(entry)}>Ask about this</Button>
           </div>
         </>

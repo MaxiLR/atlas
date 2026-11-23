@@ -9,6 +9,7 @@ import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { Button } from "@/components/ui/button";
 import { Trace, TraceIcon, TraceLine, TraceTitle } from "@/components/ui/trace";
 import { ModelPicker } from "@/model-picker/model-picker";
+import { DeleteButton } from "@/reader/delete-controls";
 import { replyAwaited } from "@/store/side-chats";
 import { outcomeError } from "@/store/stream";
 
@@ -18,14 +19,17 @@ import { ReplyFailure, StoredReply, StreamingReply } from "./reply";
  * One side chat: its passage quoted with its section, the thread, the reply
  * being written with Stop, what went wrong with a way on, up to three
  * follow-up prompts, and the prompt field with the model picker in its row.
- * The field takes focus when the chat opens.
+ * The field takes focus when the chat opens. All side chats goes back to
+ * the list; the trash button opposite deletes the chat.
  */
 export function SideChatThread({
   chatId,
   onBack,
+  onDelete,
 }: {
   chatId: string;
   onBack: () => void;
+  onDelete: () => void;
 }) {
   const { send } = useAtlasStore();
   const open = useAtlas((state) => state.sideChats.chats[chatId]);
@@ -132,11 +136,12 @@ export function SideChatThread({
   const label = thread.length === 0 ? "Ask a question" : "Ask a follow-up";
   return (
     <section aria-label="Side chat" className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-center px-2 pt-2">
+      <div className="flex shrink-0 items-center justify-between px-2 pt-2">
         <Button variant="ghost" onClick={onBack}>
           <ChevronLeftIcon aria-hidden />
           All side chats
         </Button>
+        <DeleteButton label="Delete side chat" onDelete={onDelete} />
       </div>
       <div className="min-h-0 flex-1">
         <Chat turns={turns} className="gap-4 px-4 pt-3 pb-5" />

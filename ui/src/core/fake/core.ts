@@ -172,8 +172,11 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
   >();
   /** The style each section was last generated in. */
   const lastStyle = new Map<string, VersionStyle>();
-  /** Side-chat replies running, by chat id. */
-  const replies = new Map<string, Control>();
+  /** Side-chat replies running, by chat id, and when each has settled. */
+  const replies = new Map<
+    string,
+    { control: Control; settled: Promise<unknown> }
+  >();
   // A newer attempt makes an older one's late return a no-op.
   let signInAttempt = 0;
   let usageAttempt = 0;
@@ -965,15 +968,20 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
         });
         chat.followUps = [];
         const control: Control = { stopped: false };
-        replies.set(chat.id, control);
-        const { outcome, arrived } = await stream(
+        const streaming = stream(
           { type: "SideChat", courseId: chat.courseId, chatId: chat.id },
           sideChatReply,
           control,
-        ).finally(() => replies.delete(chat.id));
+        );
+        replies.set(chat.id, { control, settled: streaming.catch(() => {}) });
+        const { outcome, arrived } = await streaming.finally(() =>
+          replies.delete(chat.id),
+        );
         if (outcome.type !== "Completed" && outcome.type !== "Stopped") {
           throw outcomeError(outcome);
         }
+        // Deleted meanwhile, the chat stores and announces nothing more.
+        chatOf(chat.id);
         const complete = outcome.type === "Completed";
         const block = sideChatReply.blocks[0]!;
         const cited = complete && !world.searchRefused;
@@ -1009,16 +1017,37 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
       }
 
       case "StopSideChatReply": {
-        const control = replies.get(request.chatId);
-        if (control !== undefined) control.stopped = true;
+        const running = replies.get(request.chatId);
+        if (running !== undefined) running.control.stopped = true;
         return { type: "Done" };
       }
 
-      case "DeleteGlossaryEntry":
-        return fail({ type: "Unavailable", feature: "define" });
+      case "DeleteGlossaryEntry": {
+        const { entryId } = request;
+        const course =
+          world.courses.find(({ glossary }) =>
+            glossary.some(({ id }) => id === entryId),
+          ) ?? fail({ type: "NotFound", what: `glossary entry ${entryId}` });
+        course.glossary.splice(
+          course.glossary.findIndex(({ id }) => id === entryId),
+          1,
+        );
+        return { type: "Done" };
+      }
 
-      case "DeleteSideChat":
-        return fail({ type: "Unavailable", feature: "side_chats" });
+      case "DeleteSideChat": {
+        const chat = chatOf(request.chatId);
+        // Removed before its reply is stopped, so the reply finds no chat to
+        // store into; the answer waits until that reply has settled.
+        const { chats } = courseOf(chat.courseId);
+        chats.splice(chats.indexOf(chat), 1);
+        const running = replies.get(chat.id);
+        if (running !== undefined) {
+          running.control.stopped = true;
+          await running.settled;
+        }
+        return { type: "Done" };
+      }
 
       case "GetUsage":
         // Signed in without a reading yet, the first ask takes one, in place

@@ -430,6 +430,23 @@ The signature the world lends, used in lessons and in the index alike.
 - **Motion:** a 100 ms fade with a 0.98 zoom from the trigger's side; none
   under reduced motion.
 
+### Deleting
+
+**The Confirm Rule.** A confirm dialog guards only a higher-risk delete, such
+as a course. A glossary entry or a side chat can be recreated, so it is deleted
+at once and for good: no dialog, no Undo, no notice. The outcome shows in
+place: the row leaves its list, the dotted underline or the margin mark leaves
+the text, and the counts drop.
+
+- **Rows:** each glossary entry and side-chat row keeps a ⋯ ghost icon button
+  at its top right, opening the course row's menu with one item, the trash
+  icon in Red. The menu's second click is the only guard.
+- **Open item:** the definition popover's foot and an open side chat's header
+  carry a 28 px ghost icon button with the trash icon in Support Grey, its name
+  as a tooltip on hover and focus.
+- **Focus afterwards:** in a list, the next row, else the previous one, else
+  the empty message; from the popover, the passage the term was in.
+
 ### Notices
 
 Shadcn's Sonner, mounted once for the whole window.

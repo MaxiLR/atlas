@@ -17,9 +17,15 @@ export interface GlossarySlice {
   byCourse: Record<string, GlossaryEntry[]>;
   /** By anchor key (`anchorKey`). */
   drafts: Record<string, DefinitionDraft>;
+  /** The entries deleted: whatever arrives later for one is ignored. */
+  deleted: Record<string, true>;
 }
 
-export const initialGlossary: GlossarySlice = { byCourse: {}, drafts: {} };
+export const initialGlossary: GlossarySlice = {
+  byCourse: {},
+  drafts: {},
+  deleted: {},
+};
 
 /** One key per anchored passage. */
 export function anchorKey(anchor: Anchor): string {
@@ -31,7 +37,13 @@ export function glossaryListed(
   courseId: string,
   entries: GlossaryEntry[],
 ): GlossarySlice {
-  return { ...slice, byCourse: { ...slice.byCourse, [courseId]: entries } };
+  return {
+    ...slice,
+    byCourse: {
+      ...slice.byCourse,
+      [courseId]: entries.filter((entry) => slice.deleted[entry.id] !== true),
+    },
+  };
 }
 
 /** A definition joined the glossary (or changed): its draft is done. */
@@ -39,17 +51,47 @@ export function entryChanged(
   slice: GlossarySlice,
   entry: GlossaryEntry,
 ): GlossarySlice {
+  if (slice.deleted[entry.id] === true) return slice;
   const entries = slice.byCourse[entry.courseId] ?? [];
   const at = entries.findIndex((known) => known.id === entry.id);
   const drafts = { ...slice.drafts };
   delete drafts[anchorKey(entry.anchor)];
   return {
+    ...slice,
     byCourse: {
       ...slice.byCourse,
       [entry.courseId]:
         at === -1 ? [...entries, entry] : entries.with(at, entry),
     },
     drafts,
+  };
+}
+
+/** The course holding the entry, among those listed or defined here. */
+export function entryCourse(
+  slice: GlossarySlice,
+  entryId: string,
+): string | undefined {
+  return Object.values(slice.byCourse)
+    .flat()
+    .find((entry) => entry.id === entryId)?.courseId;
+}
+
+/** The entry was deleted, for good. */
+export function entryDeleted(
+  slice: GlossarySlice,
+  entryId: string,
+): GlossarySlice {
+  const courseId = entryCourse(slice, entryId);
+  const deleted = { ...slice.deleted, [entryId]: true as const };
+  if (courseId === undefined) return { ...slice, deleted };
+  return {
+    ...slice,
+    byCourse: {
+      ...slice.byCourse,
+      [courseId]: slice.byCourse[courseId]!.filter(({ id }) => id !== entryId),
+    },
+    deleted,
   };
 }
 

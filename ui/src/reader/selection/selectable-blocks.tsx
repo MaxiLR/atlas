@@ -96,11 +96,11 @@ function useVirtualAnchor(
  * Hands focus to the prose element `range` lay in, or else to block `block`
  * of `frame`: a stop outside the tab order, until focus leaves it.
  */
-function focusPassage(frame: HTMLElement, range: Range, block: number) {
-  const start = range.startContainer;
-  const element = start instanceof Element ? start : start.parentElement;
+function focusPassage(frame: HTMLElement, range: Range | null, block: number) {
+  const start = range?.startContainer;
+  const element = start instanceof Element ? start : start?.parentElement;
   const passage =
-    (start.isConnected
+    (start?.isConnected
       ? element?.closest<HTMLElement>("[data-prose-block]")
       : null) ??
     frame.querySelector<HTMLElement>(`[data-prose-block="${block}"]`);
@@ -605,6 +605,17 @@ export function SelectableBlocks({
               onAsk={(entry) => {
                 setDoubt(null);
                 ask(entry.anchor);
+              }}
+              // Deleted at once: the popover closes and, as Escape does once
+              // the term is gone, focus goes to the passage.
+              onDelete={(entry) => {
+                if (frame.current !== null) {
+                  focusPassage(frame.current, doubt.range, entry.anchor.block);
+                }
+                setDoubt(null);
+                send({ type: "DeleteGlossaryEntry", entryId: entry.id }).catch(
+                  failureInStore,
+                );
               }}
             />
           </PopoverContent>

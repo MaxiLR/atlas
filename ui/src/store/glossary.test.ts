@@ -105,7 +105,7 @@ describe("a glossary entry deleted", () => {
     expect(selectOpenCourse(state)?.glossaryCount).toBe(1);
   });
 
-  it("changes nothing when the core refuses it", () => {
+  it("changes nothing but the notices when the core refuses it", () => {
     const before = listed();
 
     const state = applyFailure(before, remove, {
@@ -113,6 +113,9 @@ describe("a glossary entry deleted", () => {
       message: "The database is locked by another process.",
     });
 
-    expect(state).toEqual(before);
+    expect({ ...state, notices: before.notices }).toEqual(before);
+    expect(state.notices.map(({ title }) => title)).toEqual([
+      "Definition could not be deleted",
+    ]);
   });
 });

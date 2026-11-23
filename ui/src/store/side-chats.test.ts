@@ -318,7 +318,7 @@ describe("a side chat deleted", () => {
     expect(state.navigation.panel.chatId).toBeNull();
   });
 
-  it("changes nothing when the core refuses it", () => {
+  it("changes nothing but the notices when the core refuses it", () => {
     const before = streaming();
 
     const state = applyFailure(before, remove, {
@@ -326,6 +326,9 @@ describe("a side chat deleted", () => {
       message: "The database is locked by another process.",
     });
 
-    expect(state).toEqual(before);
+    expect({ ...state, notices: before.notices }).toEqual(before);
+    expect(state.notices.map(({ title }) => title)).toEqual([
+      "Side chat could not be deleted",
+    ]);
   });
 });

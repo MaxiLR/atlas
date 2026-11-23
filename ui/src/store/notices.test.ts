@@ -412,6 +412,22 @@ describe("the delete notices", () => {
       ["Side chat could not be deleted", "The app is offline."],
     ]);
   });
+
+  it("a delete that succeeds on retry closes its own failure notice", () => {
+    const failed = applyFailure(
+      applyFailure(listed(), deleteEntry, { type: "Offline" }),
+      deleteChat,
+      { type: "Store", message: LOCKED },
+    );
+
+    const entryGone = applyResponse(failed, deleteEntry, { type: "Done" });
+    expect(entryGone.notices.map(({ title }) => title)).toEqual([
+      "Side chat could not be deleted",
+    ]);
+
+    const bothGone = applyResponse(entryGone, deleteChat, { type: "Done" });
+    expect(bothGone.notices).toEqual([]);
+  });
 });
 
 describe("outcomes the screen already shows", () => {

@@ -71,13 +71,21 @@ export function Library() {
     }
   }
 
-  function exportPdf(course: CourseSummary) {
+  async function exportPdf(course: CourseSummary) {
     setRowError(null);
-    send({ type: "ExportPdf", courseId: course.id }).catch((error: unknown) =>
-      setRowError(
-        `${course.topic} could not be exported. ${describeError(error)}`,
-      ),
-    );
+    // A refused export and one that failed both say so in the row line.
+    let reason: string;
+    try {
+      const { result } = await send({
+        type: "ExportPdf",
+        courseId: course.id,
+      });
+      if (result.type !== "Failed") return;
+      reason = result.reason;
+    } catch (error) {
+      reason = describeError(error);
+    }
+    setRowError(`${course.topic} could not be exported. ${reason}`);
   }
 
   async function remove(course: CourseSummary) {

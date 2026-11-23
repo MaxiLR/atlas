@@ -557,14 +557,23 @@ describe("the failure notices", () => {
 
     elapse(SONNER_DEFAULT_DURATION * 3);
 
+    // Sonner puts the newest toast first in the DOM, so a notice is found by
+    // its title, never by its place.
     const notices = screen.getAllByRole("alert");
-    expect(notices.map((notice) => notice.textContent)).toEqual([
-      expect.stringContaining("Link could not be opened"),
-      expect.stringContaining("Definition could not be deleted"),
-    ]);
-    act(() =>
-      within(notices[0]!).getByRole("button", { name: "Dismiss" }).click(),
-    );
+    expect(notices).toHaveLength(2);
+    const titled = (title: string) => {
+      const found = notices.filter((notice) =>
+        within(notice).queryByText(title),
+      );
+      expect(found).toHaveLength(1);
+      return found[0]!;
+    };
+    const link = titled("Link could not be opened");
+    const definition = titled("Definition could not be deleted");
+    expect(
+      within(definition).getByRole("button", { name: "Dismiss" }),
+    ).toBeInTheDocument();
+    act(() => within(link).getByRole("button", { name: "Dismiss" }).click());
     expect(
       store!.state.getState().notices.map((notice) => notice.title),
     ).toEqual(["Definition could not be deleted"]);

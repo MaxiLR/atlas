@@ -250,6 +250,8 @@
   html {
     -webkit-font-smoothing: antialiased;
     scrollbar-color: var(--atlas-edge-strong) transparent;
+    /* The window is not a page: a swipe past its edge moves nothing. */
+    overscroll-behavior: none;
   }
   ::selection {
     background-color: var(--atlas-accent-wash);

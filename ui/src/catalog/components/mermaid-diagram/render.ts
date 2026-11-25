@@ -232,7 +232,16 @@ export function renderDiagram(
       return null;
     }
     count += 1;
-    const { svg } = await api.render(`atlas-mermaid-${count}`, source);
+    // Mermaid draws in the page to measure the diagram; left to itself it
+    // draws at the foot of the body, which lets the window scroll while it
+    // does. A fixed, empty, clipped box keeps that draft out of the layout.
+    const draft = document.createElement("div");
+    draft.style.cssText =
+      "position:fixed;top:0;left:0;width:100%;height:0;overflow:hidden;visibility:hidden;pointer-events:none";
+    document.body.append(draft);
+    const { svg } = await api
+      .render(`atlas-mermaid-${count}`, source, draft)
+      .finally(() => draft.remove());
     const parsed = new DOMParser().parseFromString(svg, "text/html");
     const root = parsed.body.firstElementChild;
     if (

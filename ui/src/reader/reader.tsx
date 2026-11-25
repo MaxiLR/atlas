@@ -290,7 +290,7 @@ export function Reader({ course }: { course: CourseView }) {
           ref={column}
           id={columnId}
           tabIndex={-1}
-          className="min-h-0 overflow-y-auto outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus focus-visible:outline-solid"
+          className="relative min-h-0 overflow-y-auto outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus focus-visible:outline-solid"
         >
           {sectionId === null ? (
             <p className="mx-auto max-w-180 px-5 pt-14 text-16 text-muted-foreground max-lg:px-7 max-lg:pt-10">

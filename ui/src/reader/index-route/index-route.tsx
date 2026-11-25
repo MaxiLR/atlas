@@ -433,7 +433,7 @@ export function IndexRoute({
       ref={nav}
       aria-label="Index"
       className={cn(
-        "min-h-0 flex-1 overflow-x-hidden overflow-y-auto py-3.5 pr-3",
+        "relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto py-3.5 pr-3",
         folded && "max-lg:pr-0",
       )}
     >

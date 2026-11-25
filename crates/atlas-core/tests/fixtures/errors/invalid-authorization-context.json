@@ -1,8 +1,0 @@
-{
-  "error": {
-    "message": "The signed authorization context is invalid for this operation.",
-    "type": "permission_error",
-    "param": null,
-    "code": "chatpass_v2_invalid_authorization_context"
-  }
-}

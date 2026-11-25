@@ -38,23 +38,20 @@ impl Clock for SystemClock {
     }
 }
 
-/// The records the secret store holds, one item each.
+/// The records the secret store holds, one entry each.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SecretRecord {
-    /// The plan login's tokens.
+    /// The Codex login's tokens.
     PlanLogin,
-    /// The client id issued at the first sign-in, kept across sign-outs.
-    IssuedClientId,
-    /// The usage meter's own login.
-    UsageLogin,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("the secret store failed: {0}")]
 pub struct SecretError(pub String);
 
-/// Where tokens live: the macOS Keychain in the app. Values are opaque
-/// strings encoded by their owner and never logged.
+/// Where tokens live: in the app, the owner-only `secrets.json` in the app's
+/// data folder. Values are opaque strings encoded by their owner and never
+/// logged.
 pub trait SecretStore: Send + Sync {
     fn read(&self, record: SecretRecord) -> Result<Option<String>, SecretError>;
     fn write(&self, record: SecretRecord, value: &str) -> Result<(), SecretError>;
@@ -89,9 +86,9 @@ pub trait PdfExporter: Send + Sync {
 /// The base URLs of every service the core calls.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Endpoints {
-    /// The Responses API: `{api}/responses`, `{api}/models`.
+    /// The Codex backend's Responses API: `{api}/responses`, `{api}/models`.
     pub api: Url,
-    /// The authorisation server of Sign in with ChatGPT.
+    /// The authorisation server of Sign in with ChatGPT (Codex OAuth).
     pub auth: Url,
     /// ChatGPT, for the usage reading.
     pub chatgpt: Url,
@@ -103,7 +100,7 @@ impl Endpoints {
     pub fn production() -> Self {
         let parse = |url: &str| Url::parse(url).expect("a valid production URL");
         Self {
-            api: parse("https://api.openai.com/v1"),
+            api: parse("https://chatgpt.com/backend-api/codex"),
             auth: parse("https://auth.openai.com"),
             chatgpt: parse("https://chatgpt.com"),
             wikipedia: parse("https://en.wikipedia.org/api/rest_v1"),

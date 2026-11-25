@@ -65,6 +65,35 @@ describe("the typed core client", () => {
     ).rejects.toThrow("OpenCourse was answered with Done");
   });
 
+  it("answers deleting a glossary entry or a side chat with Done", async () => {
+    const { transport, sent } = answering({ type: "Done" });
+    const client = createCoreClient(transport);
+
+    await expect(
+      client.call({ type: "DeleteGlossaryEntry", entryId: "e" }),
+    ).resolves.toEqual({ type: "Done" });
+    await expect(
+      client.call({ type: "DeleteSideChat", chatId: "s" }),
+    ).resolves.toEqual({ type: "Done" });
+
+    expect(sent).toEqual([
+      { type: "DeleteGlossaryEntry", entryId: "e" },
+      { type: "DeleteSideChat", chatId: "s" },
+    ]);
+  });
+
+  it("rejects any other answer to a delete request", async () => {
+    const { transport } = answering({
+      type: "Usage",
+      usage: { type: "NoPlanLogin" },
+    });
+    const client = createCoreClient(transport);
+
+    await expect(
+      client.call({ type: "DeleteSideChat", chatId: "s" }),
+    ).rejects.toThrow("DeleteSideChat was answered with Usage");
+  });
+
   it("passes the core's error through", async () => {
     const client = createCoreClient({
       request: () => Promise.reject({ type: "Offline" }),
@@ -82,12 +111,12 @@ describe("the typed core client", () => {
     const seen: CoreEvent[] = [];
 
     const stop = client.subscribe((event) => seen.push(event));
-    emit({ type: "UsageChanged", usage: { type: "NotConnected" } });
+    emit({ type: "UsageChanged", usage: { type: "NoPlanLogin" } });
     stop();
-    emit({ type: "UsageChanged", usage: { type: "SignedOut" } });
+    emit({ type: "UsageChanged", usage: { type: "AwaitingReading" } });
 
     expect(seen).toEqual([
-      { type: "UsageChanged", usage: { type: "NotConnected" } },
+      { type: "UsageChanged", usage: { type: "NoPlanLogin" } },
     ]);
   });
 });

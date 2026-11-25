@@ -37,10 +37,17 @@ target folder):
 npm --prefix ui run tauri build
 ```
 
-The app signs in with ChatGPT and keeps its tokens in the macOS Keychain,
-under the service `com.maxilr.atlas`. Courses are stored in SQLite in the
-app's data folder. To run it without a login, against a scripted fake
-provider, set `ATLAS_FAKE_PROVIDER=1`:
+The app signs in with ChatGPT through OpenAI's Codex OAuth client and calls
+models on the Codex backend (ADR-0014). The browser returns to
+`http://localhost:1455/auth/callback`, so port 1455 must be free while signing
+in; another program's Codex sign-in blocks it until that ends. The tokens stay
+in `secrets.json` in the app's data folder
+(`~/Library/Application Support/com.maxilr.atlas/`), readable by your user
+only (ADR-0015). A login an earlier version kept in the macOS Keychain is left
+there and not read, so macOS never asks for Keychain access: sign in again,
+and the courses stay. Courses are stored in SQLite in the same folder. To run
+it without a login, against a scripted fake provider, set
+`ATLAS_FAKE_PROVIDER=1`:
 
 ```sh
 ATLAS_FAKE_PROVIDER=1 npm --prefix ui run tauri dev
@@ -61,13 +68,6 @@ npm --prefix ui run test
 npm --prefix ui run test:e2e
 ```
 
-One test round-trips a throwaway item through the real Keychain and is left
-out of the suite; run it by hand (macOS may ask for Keychain access):
-
-```sh
-cargo test -p atlas-app -- --ignored
-```
-
 `AGENTS.md` lists every check and the rules the suite holds to.
 
 ## The live command
@@ -78,10 +78,10 @@ for the engineer. It runs each harness task once against the real plan, on a
 throwaway course in a temporary store that is removed afterwards, through the
 same code paths as the app, and prints a report.
 
-It uses the plan login the app saved in the Keychain and never signs in
-itself, so sign in with ChatGPT in the app first (and turn plan usage on).
-Without a login it says so and stops before any request. macOS may ask for
-Keychain access the first time.
+It uses the plan login the app saved in its secrets file,
+`~/Library/Application Support/com.maxilr.atlas/secrets.json`, and never signs
+in itself, so sign in with ChatGPT in the app first. Without a login it says
+so and stops before any request.
 
 ```sh
 cargo run -p atlas-app --bin atlas-live -- --all
@@ -136,7 +136,7 @@ Beneath a task, its course memory:
   once or after its repair.
 
 Then the models the plan lists, in the order it reports them, and the usage
-meter: one reading when a usage login exists, otherwise `no usage login`.
+meter, read with the plan login: its windows, or why the reading failed.
 
 What to confirm with a real login (ADR-0002, ADR-0013):
 

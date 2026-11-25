@@ -12,7 +12,7 @@ requests with, for the sample course's section "What drives the plates".
 | `invalid-visual.md`    | Prose, a callout missing its body, and a valid record.                                                                       |
 | `repaired-record.json` | A valid record, the answer to a record repair.                                                                               |
 | `repaired-visual.json` | A valid callout, the answer to a block repair.                                                                               |
-| `plan-limit.sse`       | A recorded Responses stream: text, then `response.failed` with `subscription_sharing_usage_limit_exceeded`.                  |
+| `plan-limit.sse`       | A recorded Responses stream: text, then `response.failed` with `usage_limit_reached`.                                        |
 | `incomplete.sse`       | A recorded Responses stream: text, then `response.incomplete` with the reason `max_output_tokens`.                           |
 | `broken.sse`           | A recorded Responses stream: text, then the connection drops in the middle of an event.                                      |
 

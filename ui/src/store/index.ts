@@ -16,9 +16,12 @@ import {
   withDeepDives,
   type CourseSlice,
 } from "./course";
+import { exportedNotice, exportRefusedNotice } from "./export";
 import {
   definitionGenerated,
   entryChanged,
+  entryCourse,
+  entryDeleted,
   glossaryListed,
   initialGlossary,
   wikipediaLookedUp,
@@ -42,6 +45,14 @@ import {
   type NavigationSlice,
 } from "./navigation";
 import {
+  failureNotice,
+  initialNotices,
+  noticeClosed,
+  noticeShown,
+  type Notice,
+  type NoticesSlice,
+} from "./notices";
+import {
   initialPlacement,
   placementChanged,
   type PlacementSlice,
@@ -56,9 +67,16 @@ import {
   type SectionDisplay,
   type SectionsSlice,
 } from "./sections";
-import { initialSession, type SessionSlice } from "./session";
+import {
+  initialSession,
+  SESSION_NOTICE,
+  sessionNotice,
+  type SessionSlice,
+} from "./session";
 import {
   chatChanged,
+  chatCourse,
+  chatDeleted,
   chatOpened,
   chatsListed,
   followUpsOffered,
@@ -75,6 +93,7 @@ import { initialUsage, usageChanged, type UsageSlice } from "./usage";
 export type { SectionDisplay } from "./sections";
 export type { ShownBlock, Stream } from "./stream";
 export type { NavigationAction, PanelTab, Screen } from "./navigation";
+export type { Notice, NoticeAction, NoticeKind } from "./notices";
 
 /** Everything the interface shows, fed by the core's events and responses. */
 export interface AtlasState {
@@ -88,6 +107,7 @@ export interface AtlasState {
   sideChats: SideChatsSlice;
   usage: UsageSlice;
   navigation: NavigationSlice;
+  notices: NoticesSlice;
 }
 
 export const initialState: AtlasState = {
@@ -101,6 +121,7 @@ export const initialState: AtlasState = {
   sideChats: initialSideChats,
   usage: initialUsage,
   navigation: initialNavigation,
+  notices: initialNotices,
 };
 
 function sessionChanged(state: AtlasState, session: Session): AtlasState {
@@ -146,6 +167,7 @@ function glossaryEntryArrived(
   state: AtlasState,
   entry: GlossaryEntry,
 ): AtlasState {
+  if (state.glossary.deleted[entry.id] === true) return state;
   const known = (state.glossary.byCourse[entry.courseId] ?? []).some(
     (existing) => existing.id === entry.id,
   );
@@ -181,6 +203,7 @@ function sideChatArrived(
   summary: SideChatSummary,
 ): AtlasState {
   const { courseId } = summary;
+  if (state.sideChats.deleted[summary.id] === true) return state;
   const isNew =
     state.sideChats.listed[courseId] === true &&
     !(state.sideChats.byCourse[courseId] ?? []).some(
@@ -191,6 +214,113 @@ function sideChatArrived(
     sideChats: chatChanged(state.sideChats, summary),
   };
   return isNew ? sideChatCounted(changed, courseId) : changed;
+}
+
+/** A glossary entry or a side chat was deleted: it leaves its course's count. */
+function uncounted(
+  state: AtlasState,
+  courseId: string | undefined,
+  count: "glossaryCount" | "sideChatCount",
+): AtlasState {
+  if (courseId === undefined) return state;
+  return {
+    ...state,
+    course: courseChanged(state.course, courseId, (course) => ({
+      ...course,
+      [count]: Math.max(0, course[count] - 1),
+    })),
+  };
+}
+
+/**
+ * How a PDF export ended, as a notice. The library says a failed export in
+ * its own line, so a failure arriving there shows none.
+ */
+function exportEnded(state: AtlasState, notice: Notice | null): AtlasState {
+  if (notice === null) return state;
+  if (notice.kind === "error" && state.navigation.screen === "library") {
+    return state;
+  }
+  return { ...state, notices: noticeShown(state.notices, notice) };
+}
+
+/** The causes of the notices for a failure that has no place on screen. */
+const LINK_NOTICE = "link";
+const DEFINITION_DELETE_NOTICE = "definition-delete";
+const SIDE_CHAT_DELETE_NOTICE = "side-chat-delete";
+
+function failureShown(
+  state: AtlasState,
+  id: string,
+  title: string,
+  error: CoreError,
+): AtlasState {
+  return {
+    ...state,
+    notices: noticeShown(state.notices, failureNotice(id, title, error)),
+  };
+}
+
+/**
+ * A link the browser could not open. Settings and the sign-in screen say
+ * Manage usage failed in their own sentence, so it shows no notice there.
+ */
+function linkFailed(
+  state: AtlasState,
+  request: CoreRequest,
+  error: CoreError,
+): AtlasState {
+  const { screen } = state.navigation;
+  if (
+    request.type === "OpenManageUsage" &&
+    (screen === "settings" || screen === "signIn")
+  ) {
+    return state;
+  }
+  return failureShown(state, LINK_NOTICE, "Link could not be opened", error);
+}
+
+/** The state once the core has done `request`. */
+function done(state: AtlasState, request: CoreRequest): AtlasState {
+  if (request.type === "DeleteCourse") {
+    return {
+      ...state,
+      library: courseDeleted(state.library, request.courseId),
+    };
+  }
+  if (request.type === "DeleteGlossaryEntry") {
+    const courseId = entryCourse(state.glossary, request.entryId);
+    return uncounted(
+      {
+        ...state,
+        glossary: entryDeleted(state.glossary, request.entryId),
+        // The delete succeeded: the notice saying it could not goes.
+        notices: noticeClosed(state.notices, DEFINITION_DELETE_NOTICE),
+      },
+      courseId,
+      "glossaryCount",
+    );
+  }
+  if (request.type === "DeleteSideChat") {
+    const { chatId } = request;
+    const courseId = chatCourse(state.sideChats, chatId);
+    const nav = state.navigation;
+    return uncounted(
+      {
+        ...state,
+        sideChats: chatDeleted(state.sideChats, chatId),
+        notices: noticeClosed(state.notices, SIDE_CHAT_DELETE_NOTICE),
+        // An open chat deleted leaves the panel on the list.
+        navigation:
+          nav.panel.chatId === chatId
+            ? navigate(nav, { type: "ShowSideChatList" })
+            : nav,
+      },
+      courseId,
+      "sideChatCount",
+    );
+  }
+  return state;
 }
 
 function generated(
@@ -359,9 +489,9 @@ export function applyRequest(
     case "StartSideChat":
     case "OpenSideChat":
     case "StopSideChatReply":
+    case "DeleteGlossaryEntry":
+    case "DeleteSideChat":
     case "GetUsage":
-    case "ConnectUsage":
-    case "CancelConnectUsage":
     case "SetWindowFocused":
     case "GetExportDocument":
     case "ExportPdf":
@@ -391,14 +521,22 @@ export function applyResponse(
   response: CoreResponse,
 ): AtlasState {
   switch (response.type) {
-    case "Session":
+    case "Session": {
       // SignIn answers SigningIn; when the browser came back first, the
       // session it reported is newer than that answer.
-      return request.type === "SignIn" &&
+      if (
+        request.type === "SignIn" &&
         response.session.type === "SigningIn" &&
         state.session.session?.type === "SignedIn"
-        ? state
-        : sessionChanged(state, response.session);
+      ) {
+        return state;
+      }
+      const changed = sessionChanged(state, response.session);
+      // The session was read: the notice saying it could not be goes.
+      return request.type === "GetSession"
+        ? { ...changed, notices: noticeClosed(changed.notices, SESSION_NOTICE) }
+        : changed;
+    }
     case "Models":
       return { ...state, models: { list: response.list } };
     case "Courses":
@@ -467,33 +605,38 @@ export function applyResponse(
           response.result,
         ),
       };
-    case "Glossary":
+    case "Glossary": {
+      const glossary = glossaryListed(
+        state.glossary,
+        response.courseId,
+        response.entries,
+      );
       return {
         ...state,
-        glossary: glossaryListed(
-          state.glossary,
-          response.courseId,
-          response.entries,
-        ),
+        glossary,
         course: courseChanged(state.course, response.courseId, (course) => ({
           ...course,
-          glossaryCount: response.entries.length,
+          glossaryCount: glossary.byCourse[response.courseId]!.length,
         })),
       };
-    case "SideChats":
+    }
+    case "SideChats": {
+      const sideChats = chatsListed(
+        state.sideChats,
+        response.courseId,
+        response.chats,
+      );
       return {
         ...state,
-        sideChats: chatsListed(
-          state.sideChats,
-          response.courseId,
-          response.chats,
-        ),
+        sideChats,
         course: courseChanged(state.course, response.courseId, (course) => ({
           ...course,
-          sideChatCount: response.chats.length,
+          sideChatCount: sideChats.byCourse[response.courseId]!.length,
         })),
       };
+    }
     case "SideChat": {
+      if (state.sideChats.deleted[response.chat.id] === true) return state;
       const opened = {
         ...state,
         sideChats: chatOpened(state.sideChats, response.chat),
@@ -520,12 +663,11 @@ export function applyResponse(
     case "Usage":
       return { ...state, usage: usageChanged(state.usage, response.usage) };
     case "Done":
-      return request.type === "DeleteCourse"
-        ? { ...state, library: courseDeleted(state.library, request.courseId) }
-        : state;
+      return done(state, request);
     case "ExportDocument":
-    case "Exported":
       return state;
+    case "Exported":
+      return exportEnded(state, exportedNotice(response.result));
     default:
       return unknownTag(response);
   }
@@ -568,18 +710,40 @@ export function applyFailure(
         navigation: { ...state.navigation, nextFrom: null },
       };
     case "GetSession":
-      return { ...state, session: { ...state.session, error } };
+      return {
+        ...state,
+        session: { ...state.session, error },
+        notices: noticeShown(state.notices, sessionNotice(error)),
+      };
+    case "ExportPdf":
+      return exportEnded(state, exportRefusedNotice(error));
     case "SendSideChatMessage":
       return {
         ...state,
         sideChats: sendFailed(state.sideChats, request.chatId, error),
       };
+    case "OpenManageUsage":
+    case "OpenExternal":
+      return linkFailed(state, request, error);
+    // The entry or the chat stays where it was; the notice says why.
+    case "DeleteGlossaryEntry":
+      return failureShown(
+        state,
+        DEFINITION_DELETE_NOTICE,
+        "Definition could not be deleted",
+        error,
+      );
+    case "DeleteSideChat":
+      return failureShown(
+        state,
+        SIDE_CHAT_DELETE_NOTICE,
+        "Side chat could not be deleted",
+        error,
+      );
     case "SignIn":
     case "CancelSignIn":
     case "EnablePlanUsage":
     case "SignOut":
-    case "OpenManageUsage":
-    case "OpenExternal":
     case "ListModels":
     case "SelectModel":
     case "SubmitSelfRating":
@@ -596,11 +760,8 @@ export function applyFailure(
     case "OpenSideChat":
     case "StopSideChatReply":
     case "GetUsage":
-    case "ConnectUsage":
-    case "CancelConnectUsage":
     case "SetWindowFocused":
     case "GetExportDocument":
-    case "ExportPdf":
       return state;
     default:
       return unknownTag(request);
@@ -612,7 +773,9 @@ export function applyNavigation(
   state: AtlasState,
   action: NavigationAction,
 ): AtlasState {
-  return { ...state, navigation: navigate(state.navigation, action) };
+  return action.type === "DismissNotice"
+    ? { ...state, notices: noticeClosed(state.notices, action.id) }
+    : { ...state, navigation: navigate(state.navigation, action) };
 }
 
 /** A section as the reading column shows it; null before it was opened. */
@@ -662,4 +825,9 @@ export function selectSideChats(
 /** The usage meter: the last reading stays, stale, when a later one fails. */
 export function selectUsage(state: AtlasState): UsageState | null {
   return state.usage.state;
+}
+
+/** The notices showing, oldest first. */
+export function selectNotices(state: AtlasState): Notice[] {
+  return state.notices;
 }

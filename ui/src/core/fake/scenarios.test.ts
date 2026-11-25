@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { selectSection, selectUsage } from "@/store";
-import { findSection, openCourse, startFake } from "@/test/fake-core";
+import { drained, findSection, openCourse, startFake } from "@/test/fake-core";
 
 import type { CoreEvent } from "../generated/CoreEvent";
 import { createFakeCore, scenarioNames } from "./index";
@@ -18,11 +18,12 @@ const named = [
   "failed-after-retries",
   "stopped-generation",
   "search-refused",
-  "usage-not-connected",
-  "usage-device-code",
   "usage-reading",
   "usage-stale",
   "usage-at-limit",
+  "usage-awaiting",
+  "usage-first-read-failed",
+  "session-unreadable",
 ];
 
 /** Opens Plate tectonics and asks for its first section never read. */
@@ -61,6 +62,18 @@ function activities(events: CoreEvent[]) {
 describe("the fake core's scenarios", () => {
   it("are discovered from their files, each named scenario among them", () => {
     expect(scenarioNames).toEqual(expect.arrayContaining(named));
+  });
+
+  it("has five usage scenarios, none of them a connection step", () => {
+    expect(
+      scenarioNames.filter((name) => name.startsWith("usage-")).sort(),
+    ).toEqual([
+      "usage-at-limit",
+      "usage-awaiting",
+      "usage-first-read-failed",
+      "usage-reading",
+      "usage-stale",
+    ]);
   });
 
   it("refuses a scenario it does not know", () => {
@@ -216,19 +229,21 @@ describe("the fake core's scenarios", () => {
     expect(activities(events)).toContainEqual({ type: "Searching" });
   });
 
-  it("usage-not-connected: the meter is empty", async () => {
-    expect(await usageIn("usage-not-connected")).toEqual({
-      type: "NotConnected",
-    });
+  it("first-launch: no plan login, so the meter has nothing to show", async () => {
+    expect(await usageIn("first-launch")).toEqual({ type: "NoPlanLogin" });
   });
 
-  it("usage-device-code: the meter shows the device code to enter", async () => {
-    expect(await usageIn("usage-device-code")).toMatchObject({
-      type: "Connecting",
-      userCode: expect.stringMatching(/\S/),
-      verificationUrl: expect.stringMatching(/^https:\/\//),
-      expiresAt: expect.any(String),
-    });
+  it("default: signed in, the meter reads usage with no connection step", async () => {
+    const { store, state } = startFake("default");
+
+    await store.send({ type: "GetUsage" });
+
+    await vi.waitFor(() =>
+      expect(selectUsage(state())).toMatchObject({
+        type: "Connected",
+        reading: { stale: null },
+      }),
+    );
   });
 
   it("usage-reading: the 5-hour and weekly windows, then the others, fresh", async () => {
@@ -267,5 +282,56 @@ describe("the fake core's scenarios", () => {
       usage?.type === "Connected" &&
         usage.reading.windows.find((window) => window.level === "Limit"),
     ).toMatchObject({ used: 1 });
+  });
+
+  it("usage-awaiting: signed in, the first reading never lands", async () => {
+    const { store, state } = startFake("usage-awaiting");
+
+    await store.send({ type: "GetUsage" });
+    await drained();
+    await store.send({ type: "GetUsage" });
+
+    expect(selectUsage(state())).toEqual({ type: "AwaitingReading" });
+    await store.send({ type: "GetSession" });
+    expect(state().session.session).toMatchObject({ type: "SignedIn" });
+  });
+
+  it("usage-first-read-failed: the first reading fails, and so does Try again", async () => {
+    const { store, state } = startFake("usage-first-read-failed");
+
+    await store.send({ type: "GetUsage" });
+    expect(selectUsage(state())).toEqual({
+      type: "FirstReadFailed",
+      reason: "Network",
+    });
+
+    await store.send({ type: "GetUsage" });
+    expect(selectUsage(state())).toEqual({
+      type: "FirstReadFailed",
+      reason: "Network",
+    });
+  });
+
+  it("session-unreadable: the session cannot be read until it is asked again", async () => {
+    const { store, state } = startFake("session-unreadable");
+    // Asked twice at once, as React's development mode does on mount.
+    const together = [
+      store.send({ type: "GetSession" }),
+      store.send({ type: "GetSession" }),
+    ];
+    await Promise.all(
+      together.map((asked) =>
+        expect(asked).rejects.toMatchObject({ type: "Store" }),
+      ),
+    );
+    expect(state().notices.map((notice) => notice.id)).toEqual(["session"]);
+    await drained();
+
+    await store.send({ type: "GetSession" });
+
+    expect(state().session.session).toMatchObject({ type: "SignedIn" });
+    expect(state().notices).toEqual([]);
+    await store.send({ type: "ListCourses" });
+    expect(state().library.courses?.length).toBeGreaterThanOrEqual(2);
   });
 });

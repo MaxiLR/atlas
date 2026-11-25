@@ -126,7 +126,7 @@ function AnswerableCheck({
       key={locked ? "locked" : "open"}
       onSubmit={check}
       aria-busy={checking}
-      className={cn("gap-0", place.question === 0 ? "mt-5" : "mt-10")}
+      className="gap-0"
     >
       <QuestionnaireItem name={name}>
         <QuestionnaireTitle className="text-16 text-heading">

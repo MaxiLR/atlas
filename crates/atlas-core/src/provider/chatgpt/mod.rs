@@ -1,14 +1,19 @@
-//! The ChatGPT plan provider: `POST {api}/responses` with `store: false` and
-//! `stream: true`, `GET {api}/models`, with the plan login's bearer token.
+//! The ChatGPT plan provider on the Codex backend: `POST {api}/responses`
+//! with `store: false` and `stream: true`, `GET {api}/models`, with the Codex
+//! login's bearer token and the Codex client headers.
 
 mod attempts;
 mod errors;
 mod models;
 mod request;
 mod stream;
+mod usage;
 
 pub use models::parse_models;
-pub use request::{build_responses_body, models_url, request_headers, responses_url};
+pub use request::{
+    CODEX_CLIENT_VERSION, ORIGINATOR, ROUTING_HINT, USER_AGENT_VALUE, build_responses_body,
+    models_url, request_headers, responses_url, routing_hint,
+};
 pub use stream::{ResponseFailure, ResponsesEvent, ResponsesStreamParser};
 
 use std::collections::VecDeque;
@@ -173,13 +178,15 @@ fn unbuildable(_: reqwest::Error) -> ProviderError {
 impl ModelProvider for ChatGptProvider {
     async fn stream(&self, request: ProviderRequest) -> Result<ProviderStream, ProviderError> {
         let task = request.task;
-        let body = match request.model {
-            Some(_) => build_responses_body(&request, ""),
-            None => build_responses_body(&request, &self.default_model().await?),
+        let model = match &request.model {
+            Some(model) => model.clone(),
+            None => self.default_model().await?,
         };
+        let body = build_responses_body(&request, &model);
         let request = self
             .client
             .post(self.responses.clone())
+            .header(ROUTING_HINT, routing_hint(&model))
             .body(body.to_string())
             .build()
             .map_err(unbuildable)?;
@@ -270,21 +277,28 @@ impl Exchange {
                     self.clock.sleep(pause).await;
                     self.step = Step::Open;
                 }
-                Step::Open => match self.attempts.send(&self.request).await {
-                    Ok(response) => {
-                        let request_id = request_id(response.headers());
-                        let captured = self.capture.as_ref().map(|(capture, _)| {
-                            capture.responses.fetch_add(1, Ordering::Relaxed) + 1
-                        });
-                        self.step = Step::Read(Box::new(Reading {
-                            response,
-                            parser: ResponsesStreamParser::new(request_id.clone()),
-                            request_id,
-                            captured,
-                        }));
+                Step::Open => {
+                    let sent = self.attempts.send(&self.request).await;
+                    // Before the stream or the refusal: the meter hears it either way.
+                    if let Some(snapshot) = self.attempts.reported_usage() {
+                        self.deliver(ProviderEvent::Usage(snapshot));
                     }
-                    Err(failure) => self.recover(failure).await,
-                },
+                    match sent {
+                        Ok(response) => {
+                            let request_id = request_id(response.headers());
+                            let captured = self.capture.as_ref().map(|(capture, _)| {
+                                capture.responses.fetch_add(1, Ordering::Relaxed) + 1
+                            });
+                            self.step = Step::Read(Box::new(Reading {
+                                response,
+                                parser: ResponsesStreamParser::new(request_id.clone()),
+                                request_id,
+                                captured,
+                            }));
+                        }
+                        Err(failure) => self.recover(failure).await,
+                    }
+                }
                 Step::Read(mut reading) => {
                     let (events, open) = match reading.response.chunk().await {
                         Ok(Some(chunk)) => {

@@ -88,7 +88,10 @@ export function SidePanel({
         <TabsContent value="sideChats" className="flex min-h-0 flex-col">
           {sideChats}
         </TabsContent>
-        <TabsContent value="glossary" className="min-h-0 overflow-y-auto">
+        <TabsContent
+          value="glossary"
+          className="relative min-h-0 overflow-y-auto"
+        >
           {glossary}
         </TabsContent>
       </Tabs>

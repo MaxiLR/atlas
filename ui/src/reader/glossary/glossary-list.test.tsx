@@ -1,5 +1,5 @@
-import { act, render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
 import { App } from "@/App";
@@ -11,7 +11,7 @@ import type { CoreError } from "@/core/generated/CoreError";
 import type { CoreEvent } from "@/core/generated/CoreEvent";
 import type { CoreRequest } from "@/core/generated/CoreRequest";
 import type { GlossaryEntry } from "@/core/generated/GlossaryEntry";
-import { startedAt } from "@/test/fake-core";
+import { drained, startedAt } from "@/test/fake-core";
 
 import { GlossaryList } from "./glossary-list";
 
@@ -296,5 +296,240 @@ describe("the glossary in the reader", () => {
     expect(
       await screen.findByRole("article", { name: "Convergent boundaries" }),
     ).toBeVisible();
+  });
+});
+
+describe("an entry's Wikipedia article", () => {
+  it("is a link beside the section control that opens the found article through the core", async () => {
+    const { list, requests, user } = renderList();
+
+    await list([
+      {
+        ...entry("asthenosphere", "2026-11-17T10:00:00.000Z"),
+        wikipedia: {
+          type: "Found",
+          title: "Asthenosphere",
+          extract: "The asthenosphere is the weak region of the upper mantle.",
+          url: "https://en.wikipedia.org/wiki/Asthenosphere",
+        },
+      },
+    ]);
+
+    const item = within(
+      screen.getByRole("list", { name: "Glossary" }),
+    ).getByRole("listitem");
+    expect(
+      within(item).getByRole("button", { name: "Convergent boundaries" }),
+    ).toBeVisible();
+    const link = within(item).getByRole("link", {
+      name: "Wikipedia article on asthenosphere",
+    });
+    expect(link).toHaveTextContent("Wikipedia");
+    expect(link).toHaveAttribute(
+      "href",
+      "https://en.wikipedia.org/wiki/Asthenosphere",
+    );
+
+    await user.click(link);
+
+    expect(requests).toContainEqual({
+      type: "OpenExternal",
+      url: "https://en.wikipedia.org/wiki/Asthenosphere",
+    });
+    expect(
+      requests.filter((request) => request.type === "LookupWikipedia"),
+    ).toEqual([]);
+  });
+
+  it("is absent from entries never looked up, with no article or whose lookup failed, and the list looks none up", async () => {
+    const { list, requests } = renderList();
+
+    await list([
+      entry("rift", "2026-11-17T10:00:00.000Z"),
+      {
+        ...entry("fingernails", "2026-11-17T11:00:00.000Z"),
+        wikipedia: { type: "NoArticle" },
+      },
+      {
+        ...entry("trench", "2026-11-17T12:00:00.000Z"),
+        wikipedia: { type: "Failed", error: { type: "Offline" } },
+      },
+    ]);
+
+    const items = within(
+      screen.getByRole("list", { name: "Glossary" }),
+    ).getAllByRole("listitem");
+    expect(items).toHaveLength(3);
+    for (const item of items) {
+      expect(
+        within(item).getByRole("button", { name: "Convergent boundaries" }),
+      ).toBeVisible();
+      expect(within(item).queryByRole("link")).toBeNull();
+      expect(item).not.toHaveTextContent("Wikipedia");
+    }
+    expect(
+      requests.filter((request) => request.type === "LookupWikipedia"),
+    ).toEqual([]);
+  });
+});
+
+const REFUSED: CoreError = {
+  type: "Store",
+  message: "The database is locked by another process.",
+};
+
+/**
+ * The reader on Plate tectonics over the fake core with the Glossary panel
+ * open, the sample's asthenosphere joined by trench and then rift, defined
+ * later. With `refuse` the core refuses every delete.
+ */
+async function renderGlossaryPanel({ refuse = false } = {}) {
+  const core = createFakeCore({
+    scenario: "default",
+    clock: createManualClock(startedAt),
+    pace: () => Promise.resolve(),
+  });
+  const course = core.world.courses.find(
+    ({ topic }) => topic === "Plate tectonics",
+  )!;
+  const sample = course.glossary[0]!;
+  const later = (hours: number) =>
+    new Date(Date.parse(sample.createdAt) + hours * 3_600_000).toISOString();
+  for (const [at, term] of ["trench", "rift"].entries()) {
+    course.glossary.push({
+      ...sample,
+      id: `entry-${term}`,
+      term,
+      definition: `What ${term} means.`,
+      anchor: { ...sample.anchor, quote: term },
+      createdAt: later(at + 1),
+    });
+  }
+  const requests: CoreRequest[] = [];
+  const client: CoreClient = {
+    call: ((request: CoreRequest) => {
+      requests.push(request);
+      return refuse && request.type === "DeleteGlossaryEntry"
+        ? Promise.reject(REFUSED)
+        : core.call(request);
+    }) as CoreClient["call"],
+    subscribe: (listener) => core.subscribe(listener),
+  };
+  render(
+    <CoreProvider client={client}>
+      <App />
+    </CoreProvider>,
+  );
+  const user = userEvent.setup();
+  await user.click(
+    await screen.findByRole("button", { name: "Plate tectonics" }),
+  );
+  const index = await screen.findByRole("navigation", { name: "Index" });
+  await user.click(
+    within(index).getByRole("button", { name: "Divergent boundaries" }),
+  );
+  await screen.findByRole("article", { name: "Divergent boundaries" });
+  await user.click(screen.getByRole("button", { name: "Glossary 3" }));
+  const panel = screen.getByRole("complementary", { name: "Side panel" });
+  const list = await within(panel).findByRole("list", { name: "Glossary" });
+  return { user, panel, list, requests };
+}
+
+/** The terms of `list`, top to bottom. */
+function termsIn(list: HTMLElement) {
+  return within(list)
+    .queryAllByRole("listitem")
+    .map((item) => within(item).getByRole("term").textContent);
+}
+
+/** The menu button of the entry for `term`. */
+function entryMenu(list: HTMLElement, term: string) {
+  const item = within(list)
+    .getAllByRole("listitem")
+    .find((each) => within(each).getByRole("term").textContent === term)!;
+  return within(item).getByRole("button", { name: "Glossary entry menu" });
+}
+
+/** Chooses Delete definition in the menu of the entry for `term`. */
+async function deleteFromMenu(
+  user: UserEvent,
+  list: HTMLElement,
+  term: string,
+) {
+  const trigger = entryMenu(list, term);
+  expect(trigger).toHaveAccessibleDescription(term);
+  await user.click(trigger);
+  const menu = await screen.findByRole("menu");
+  const items = within(menu).getAllByRole("menuitem");
+  expect(items.map((item) => item.textContent)).toEqual(["Delete definition"]);
+  await user.click(items[0]!);
+}
+
+/** No dialog of any kind is open. */
+function expectNoDialog() {
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+}
+
+describe("deleting a glossary entry", () => {
+  it("happens at once from the entry's menu, with no dialog: the row leaves, both counts drop and the next entry's menu takes focus", async () => {
+    const { user, panel, list, requests } = await renderGlossaryPanel();
+    expect(termsIn(list)).toEqual(["rift", "trench", "asthenosphere"]);
+
+    await deleteFromMenu(user, list, "trench");
+    expectNoDialog();
+
+    await waitFor(() =>
+      expect(termsIn(list)).toEqual(["rift", "asthenosphere"]),
+    );
+    expectNoDialog();
+    expect(requests).toContainEqual({
+      type: "DeleteGlossaryEntry",
+      entryId: "entry-trench",
+    });
+    expect(
+      within(panel).getByRole("tab", { name: "Glossary 2" }),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "Glossary 2" })).toBeVisible();
+    expect(entryMenu(list, "asthenosphere")).toHaveFocus();
+  });
+
+  it("moves focus to the previous entry from the last one, and to the empty message once none are left", async () => {
+    const { user, panel, list } = await renderGlossaryPanel();
+
+    await deleteFromMenu(user, list, "asthenosphere");
+    await waitFor(() => expect(termsIn(list)).toEqual(["rift", "trench"]));
+    expect(entryMenu(list, "trench")).toHaveFocus();
+
+    await deleteFromMenu(user, list, "trench");
+    await waitFor(() => expect(termsIn(list)).toEqual(["rift"]));
+    expect(entryMenu(list, "rift")).toHaveFocus();
+
+    await deleteFromMenu(user, list, "rift");
+    const empty = await within(panel).findByText(
+      "No terms yet: the terms you define while reading appear here.",
+    );
+    expect(empty).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Glossary 0" })).toBeVisible();
+    expectNoDialog();
+  });
+
+  it("keeps the entry and the counts when the core refuses", async () => {
+    const { user, panel, list, requests } = await renderGlossaryPanel({
+      refuse: true,
+    });
+
+    await deleteFromMenu(user, list, "trench");
+    await act(drained);
+
+    expect(requests).toContainEqual({
+      type: "DeleteGlossaryEntry",
+      entryId: "entry-trench",
+    });
+    expect(termsIn(list)).toEqual(["rift", "trench", "asthenosphere"]);
+    expect(
+      within(panel).getByRole("tab", { name: "Glossary 3" }),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "Glossary 3" })).toBeVisible();
   });
 });

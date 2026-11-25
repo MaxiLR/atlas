@@ -301,31 +301,28 @@ describe("focus returns from each overlay", () => {
     ).toBeVisible();
   });
 
-  it("the Connect usage dialog, closed with Escape, returns focus to Connect usage", async () => {
-    const { user, valve } = renderApp("usage-not-connected");
+  it("the other usage windows, closed with Escape, return focus to their button", async () => {
+    const { user } = renderApp();
     await openPlateTectonics(user);
-    const meter = screen.getByRole("region", { name: "Plan usage" });
-    // The usage login waits on the device code until the dialog closes.
-    valve.close();
+    const meter = await screen.findByRole("region", { name: "Plan usage" });
+    // Signed in, the meter reads usage by itself: there is nothing to connect.
+    const more = await within(meter).findByRole("button", {
+      name: "1 more window",
+    });
+    expect(screen.queryByRole("button", { name: "Connect usage" })).toBeNull();
 
-    await user.click(
-      within(meter).getByRole("button", { name: "Connect usage" }),
-    );
+    await user.click(more);
     expect(
-      await screen.findByRole("dialog", { name: "Connect usage" }),
+      await screen.findByRole("dialog", { name: "Other windows" }),
     ).toBeVisible();
     await user.keyboard("{Escape}");
 
     await waitFor(() =>
       expect(
-        screen.queryByRole("dialog", { name: "Connect usage" }),
+        screen.queryByRole("dialog", { name: "Other windows" }),
       ).toBeNull(),
     );
-    await waitFor(() =>
-      expect(
-        within(meter).getByRole("button", { name: "Connect usage" }),
-      ).toHaveFocus(),
-    );
+    await waitFor(() => expect(more).toHaveFocus());
   });
 });
 

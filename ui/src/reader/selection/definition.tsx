@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { describeError } from "@/core/client";
 import type { Anchor } from "@/core/generated/Anchor";
 import type { GlossaryEntry } from "@/core/generated/GlossaryEntry";
+import { DeleteButton } from "@/reader/delete-controls";
 import type { ShownBlock } from "@/store";
 import { anchorKey } from "@/store/glossary";
 
@@ -40,8 +41,8 @@ export function useDefinition(
 }
 
 /**
- * The Wikipedia row under a definition: the article's summary with a link
- * that opens it in the browser, or that no article matches, or that
+ * The Wikipedia row under a definition: the article's summary under a
+ * heading that opens it in the browser, or that no article matches, or that
  * Wikipedia could not be reached. A term never looked up is looked up when
  * it shows; the result is kept.
  */
@@ -66,25 +67,28 @@ function WikipediaRow({
   const failed = unreached || result?.type === "Failed";
   return (
     <div className="flex flex-col gap-1 border-t border-edge px-4 py-3 text-13 text-muted-foreground">
-      <div className="flex items-center justify-between gap-3">
+      {result?.type === "Found" ? (
+        <a
+          href={result.url}
+          aria-label={`Wikipedia article on ${entry.term}`}
+          className="-mt-0.5 mb-0.5 -ml-1.5 inline-flex items-center gap-1 self-start rounded-sm px-1.5 py-0.5 font-medium text-body transition-colors outline-none hover:bg-wash hover:text-heading focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus focus-visible:outline-solid"
+          onClick={(event) => {
+            event.preventDefault();
+            send({ type: "OpenExternal", url: result.url }).catch(
+              failureInStore,
+            );
+          }}
+          onAuxClick={(event) => event.preventDefault()}
+        >
+          Wikipedia
+          <ExternalLinkIcon
+            aria-hidden
+            className="size-3 text-muted-foreground"
+          />
+        </a>
+      ) : (
         <span className="font-medium text-body">Wikipedia</span>
-        {result?.type === "Found" && (
-          <a
-            href={result.url}
-            className="inline-flex items-center gap-1 rounded-xs transition-colors outline-none hover:text-heading focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus focus-visible:outline-solid"
-            onClick={(event) => {
-              event.preventDefault();
-              send({ type: "OpenExternal", url: result.url }).catch(
-                failureInStore,
-              );
-            }}
-            onAuxClick={(event) => event.preventDefault()}
-          >
-            Open article
-            <ExternalLinkIcon aria-hidden className="size-3.5" />
-          </a>
-        )}
-      </div>
+      )}
       {failed ? (
         <div className="flex items-center justify-between gap-3">
           <p>Wikipedia could not be reached.</p>
@@ -106,7 +110,7 @@ function WikipediaRow({
 /**
  * What the definition popover shows: the term, then the definition as it
  * streams in, or why it could not be written; once written, the Wikipedia
- * row and a way to ask about it.
+ * row, a way to delete it and a way to ask about it.
  */
 export function DefinitionBody({
   courseId,
@@ -116,6 +120,7 @@ export function DefinitionBody({
   onRetry,
   onLookUp,
   onAsk,
+  onDelete,
 }: {
   courseId: string;
   anchor: Anchor;
@@ -126,6 +131,7 @@ export function DefinitionBody({
   onRetry: () => void;
   onLookUp: (entryId: string) => void;
   onAsk: (entry: GlossaryEntry) => void;
+  onDelete: (entry: GlossaryEntry) => void;
 }) {
   const entry = useDefinition(courseId, anchor);
   const draft = useAtlas((state) => state.glossary.drafts[anchorKey(anchor)]);
@@ -170,8 +176,12 @@ export function DefinitionBody({
             unreached={unreached.has(entry.id)}
             onLookUp={onLookUp}
           />
-          <div className="flex items-center justify-between gap-3 border-t border-edge bg-wash py-2 pr-2 pl-4 text-13 text-muted-foreground">
-            In the glossary
+          <div className="flex items-center gap-1 border-t border-edge bg-wash py-2 pr-2 pl-4 text-13 text-muted-foreground">
+            <span className="flex-1">In the glossary</span>
+            <DeleteButton
+              label="Delete definition"
+              onDelete={() => onDelete(entry)}
+            />
             <Button onClick={() => onAsk(entry)}>Ask about this</Button>
           </div>
         </>

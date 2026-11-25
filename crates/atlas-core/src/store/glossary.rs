@@ -4,6 +4,7 @@
 use rusqlite::{OptionalExtension, Row, params};
 use uuid::Uuid;
 
+use super::courses::ERASE_GLOSSARY_ENTRY;
 use super::{Id, Store, StoreError, Time, changed_one, id_at, json, optional_json_at, time_at};
 use crate::protocol::{Anchor, GlossaryEntry, WikipediaResult};
 
@@ -134,6 +135,22 @@ impl Store {
             "UPDATE glossary_entries SET wikipedia = ?2, updated_at = ?3
              WHERE id = ?1 AND deleted_at IS NULL",
             params![Id(entry), json(result)?, Time(self.now())],
+        )?;
+        changed_one(changed, || format!("glossary entry {entry}"))
+    }
+
+    /// Deletes a live entry permanently, in one statement: the row stays as
+    /// a tombstone with its term, definition, passage and Wikipedia result
+    /// erased, as a course's deletion leaves it. An absent or already
+    /// deleted entry is not found.
+    pub fn delete_glossary_entry(&self, entry: Uuid) -> Result<(), StoreError> {
+        let changed = self.connection().execute(
+            &format!(
+                "UPDATE glossary_entries SET {ERASE_GLOSSARY_ENTRY}
+                     deleted_at = ?2, updated_at = ?2
+                 WHERE id = ?1 AND deleted_at IS NULL"
+            ),
+            params![Id(entry), Time(self.now())],
         )?;
         changed_one(changed, || format!("glossary entry {entry}"))
     }

@@ -1,13 +1,11 @@
-//! The settings of this installation: the model picked and the host id. They
-//! are not syncable records and never leave the machine.
+//! The settings of this installation: the model picked. They are not
+//! syncable records and never leave the machine.
 
 use rusqlite::{OptionalExtension, params};
-use uuid::Uuid;
 
 use super::{Store, StoreError};
 
 const SELECTED_MODEL: &str = "selected_model";
-const HOST_ID: &str = "host_id";
 
 impl Store {
     /// The model the candidate picked, if any.
@@ -37,21 +35,5 @@ impl Store {
             )?,
         };
         Ok(())
-    }
-
-    /// This installation's host id, generated the first time it is asked for.
-    pub fn host_id(&self) -> Result<Uuid, StoreError> {
-        let connection = self.connection();
-        connection.execute(
-            "INSERT INTO local_settings (key, value) VALUES (?1, ?2)
-             ON CONFLICT (key) DO NOTHING",
-            params![HOST_ID, Uuid::new_v4().to_string()],
-        )?;
-        let id: super::Id = connection.query_row(
-            "SELECT value FROM local_settings WHERE key = ?1",
-            [HOST_ID],
-            |row| row.get(0),
-        )?;
-        Ok(id.0)
     }
 }

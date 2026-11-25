@@ -1,8 +1,0 @@
-{
-  "error": {
-    "message": "This method and endpoint are not supported for ChatGPT plan usage.",
-    "type": "permission_error",
-    "param": null,
-    "code": "subscription_sharing_route_not_supported"
-  }
-}

@@ -7,7 +7,8 @@
 //! search on, streamed as generation events ([`reply`]). A complete reply is
 //! stored with its citations and sources and its follow-up prompts are
 //! offered; a stopped one is stored as far as it arrived, marked stopped; a
-//! failed one stores nothing. One reply streams per chat at a time.
+//! failed one stores nothing. One reply streams per chat at a time. Deleting
+//! a chat stops its reply and erases the chat with its messages for good.
 //!
 //! A side chat reads the course but writes only its own chat and messages:
 //! no section, version, record, convention, map or profile, and nothing in
@@ -18,6 +19,7 @@ mod follow_ups;
 mod reply;
 
 use std::collections::HashMap;
+use std::pin::pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -53,12 +55,15 @@ pub(crate) struct Feature {
     search_refused: AtomicBool,
 }
 
-/// A request to stop a reply. It holds once made, so a stop that comes
-/// before the stream waits for it is not lost.
+/// A request to stop a reply, and the reply's end. The request holds once
+/// made, so a stop that comes before the stream waits for it is not lost.
 #[derive(Default)]
 struct Stop {
     requested: AtomicBool,
     signal: Notify,
+    /// The reply has finished, whatever its outcome.
+    settled: AtomicBool,
+    end: Notify,
 }
 
 impl Stop {
@@ -73,18 +78,35 @@ impl Stop {
             self.signal.notified().await;
         }
     }
+
+    fn settle(&self) {
+        self.settled.store(true, Ordering::Release);
+        self.end.notify_waiters();
+    }
+
+    /// Resolves once the reply has finished.
+    async fn settled(&self) {
+        let mut settling = pin!(self.end.notified());
+        // Registered before the check, so a settling in between is not lost.
+        settling.as_mut().enable();
+        if !self.settled.load(Ordering::Acquire) {
+            settling.await;
+        }
+    }
 }
 
 /// The reply streaming in a chat. Dropped, finished or not, it takes the
-/// reply off the running ones.
+/// reply off the running ones and reports it settled.
 struct Running<'a> {
     running: &'a Mutex<HashMap<Uuid, Arc<Stop>>>,
     chat: Uuid,
+    stop: Arc<Stop>,
 }
 
 impl Drop for Running<'_> {
     fn drop(&mut self) {
         lock(self.running).remove(&self.chat);
+        self.stop.settle();
     }
 }
 
@@ -257,6 +279,23 @@ impl Feature {
         Ok(())
     }
 
+    /// Deletes the chat for good: tombstoned with its passage and messages
+    /// erased. The reply streaming in it, if one is, is stopped, and the
+    /// delete answers only once that reply has settled. The chat is
+    /// tombstoned first, so the reply can store nothing more and announce
+    /// nothing more (both read the chat as live) and any later send finds no
+    /// chat. No event: the interface drops the chat when Done answers.
+    pub(crate) async fn delete(&self, _cx: &Features, chat_id: Uuid) -> Result<(), CoreError> {
+        self.store.delete_side_chat(chat_id)?;
+        let running = lock(&self.running).get(&chat_id).cloned();
+        if let Some(stop) = running {
+            stop.request();
+            stop.settled().await;
+        }
+        lock(&self.follow_ups).remove(&chat_id);
+        Ok(())
+    }
+
     /// Takes the chat's reply slot, unless a reply is streaming in it.
     fn claim(&self, chat: Uuid) -> Result<(Arc<Stop>, Running<'_>), CoreError> {
         let mut running = lock(&self.running);
@@ -268,10 +307,11 @@ impl Feature {
         let stop = Arc::new(Stop::default());
         running.insert(chat, stop.clone());
         Ok((
-            stop,
+            stop.clone(),
             Running {
                 running: &self.running,
                 chat,
+                stop,
             },
         ))
     }

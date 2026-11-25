@@ -2,10 +2,11 @@ import type { Scenario } from "../scenario";
 import { addSampleLibrary, signIn } from "../world";
 
 export default {
-  description: "The usage meter is empty until Connect usage.",
+  description:
+    "Signed in, the first usage reading fails: the meter says why, and Try again reads again.",
   setup(world) {
     signIn(world);
     addSampleLibrary(world);
-    world.usage = { type: "NotConnected" };
+    world.usageFailure = "Network";
   },
 } satisfies Scenario;

@@ -182,7 +182,7 @@ pub struct Report {
     /// The models listed, in the order the plan reports them.
     pub models: Result<ModelList, CoreError>,
     pub tasks: Vec<TaskReport>,
-    /// The usage meter after the run: a reading when a usage login exists.
+    /// The usage meter after the run, read with the plan login.
     pub usage: Result<UsageState, CoreError>,
     /// The streams written, when the run captured them.
     pub captured: Option<Result<Vec<PathBuf>, String>>,
@@ -193,8 +193,6 @@ pub struct Report {
 pub enum LiveError {
     #[error("sign in with ChatGPT in the Atlas app first, then run the live command again")]
     SignInFirst,
-    #[error("plan usage is off for this login: turn it on in the Atlas app first")]
-    PlanUsageOff,
     #[error("plan usage is not allowed for this account")]
     PlanNotAllowed,
     #[error(transparent)]
@@ -248,8 +246,8 @@ impl LiveCore {
         }
     }
 
-    /// Answers once a plan login with plan usage on is saved; reads only the
-    /// secret store.
+    /// Answers once a Codex login is saved and its plan usage is not
+    /// refused; reads only the secret store.
     pub async fn require_login(&self) -> Result<(), LiveError> {
         match self.core.handle(CoreRequest::GetSession).await? {
             CoreResponse::Session {
@@ -259,13 +257,6 @@ impl LiveCore {
                         ..
                     },
             } => Ok(()),
-            CoreResponse::Session {
-                session:
-                    Session::SignedIn {
-                        plan_usage: PlanUsage::Off,
-                        ..
-                    },
-            } => Err(LiveError::PlanUsageOff),
             CoreResponse::Session {
                 session:
                     Session::SignedIn {

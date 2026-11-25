@@ -1,6 +1,7 @@
-//! The ChatGPT plan provider against a scripted server on 127.0.0.1, with a
-//! fake clock and a fake token source: what each documented refusal becomes,
-//! how many requests it takes, and which pauses it asks of the clock.
+//! The ChatGPT plan provider on the Codex backend against a scripted server
+//! on 127.0.0.1, with a fake clock and a fake token source: what each Codex
+//! refusal becomes, how many requests it takes, and which pauses it asks of
+//! the clock.
 
 mod support;
 
@@ -10,8 +11,8 @@ use std::time::Duration;
 use atlas_core::ports::Endpoints;
 use atlas_core::protocol::{CoreError, Model};
 use atlas_core::provider::{
-    ModelProvider, ProviderChoice, ProviderError, ProviderEvent, ProviderRequest, Task, build,
-    complete_text,
+    ModelProvider, ProviderChoice, ProviderError, ProviderEvent, ProviderRequest, Task,
+    UsageSnapshot, WindowUsage, build, complete_text,
 };
 use atlas_core::testing::{FakeClock, FakeTokenSource};
 use futures::StreamExt;
@@ -363,11 +364,16 @@ async fn a_503_that_clears_completes_after_its_pauses() {
     assert_eq!(rig.pauses(), BACKOFF[..2]);
 }
 
-// Structured codes before a stream opens.
+// Codex errors before a stream opens.
+
+/// When `usage-limit-exceeded.json` says the limit resets: 2026-01-01T01:00Z.
+fn limit_resets_at() -> Option<chrono::DateTime<chrono::Utc>> {
+    chrono::DateTime::from_timestamp(1_767_229_200, 0)
+}
 
 #[tokio::test]
-async fn user_not_eligible_is_plan_not_allowed_with_exactly_one_request() {
-    let rig = Rig::responses([refusal(403, "user-not-eligible.json")]).await;
+async fn usage_not_included_is_plan_not_allowed_with_exactly_one_request() {
+    let rig = Rig::responses([refusal(403, "usage-not-included.json")]).await;
     let run = rig.run(request()).await;
     assert_eq!(
         run.error,
@@ -377,13 +383,13 @@ async fn user_not_eligible_is_plan_not_allowed_with_exactly_one_request() {
 }
 
 #[tokio::test]
-async fn usage_limit_exceeded_is_plan_limit_with_exactly_one_request_and_no_reset_time() {
+async fn a_usage_limit_is_plan_limit_with_exactly_one_request_and_its_reset_time() {
     let rig = Rig::responses([refusal(429, "usage-limit-exceeded.json")]).await;
     let run = rig.run(request()).await;
     assert_eq!(
         run.error,
         Some(ProviderError::PlanLimit {
-            resets_at: None,
+            resets_at: limit_resets_at(),
             request_id: rid(),
         })
     );
@@ -391,21 +397,21 @@ async fn usage_limit_exceeded_is_plan_limit_with_exactly_one_request_and_no_rese
 }
 
 #[tokio::test]
-async fn usage_unavailable_is_retried_three_times_then_failed_with_retry() {
-    let rig = Rig::responses([refusal(503, "usage-unavailable.json")]).await;
+async fn an_overloaded_server_is_retried_three_times_then_failed_with_retry() {
+    let rig = Rig::responses([refusal(503, "server-overloaded.json")]).await;
     let run = rig.run(request()).await;
     assert_retried_then_failed(&rig, &run);
 }
 
 #[tokio::test]
-async fn user_unavailable_is_retried_three_times_then_failed_with_retry() {
-    let rig = Rig::responses([refusal(503, "user-unavailable.json")]).await;
+async fn a_rate_limit_is_retried_three_times_then_failed_with_retry() {
+    let rig = Rig::responses([refusal(429, "rate-limit-exceeded.json")]).await;
     let run = rig.run(request()).await;
     assert_retried_then_failed(&rig, &run);
 }
 
 #[tokio::test]
-async fn unsupported_capability_is_unsupported_with_its_param() {
+async fn an_unsupported_parameter_is_unsupported_with_its_param() {
     let rig = Rig::responses([refusal(400, "unsupported-capability.json")]).await;
     let run = rig.run(request()).await;
     assert_eq!(
@@ -419,15 +425,15 @@ async fn unsupported_capability_is_unsupported_with_its_param() {
 }
 
 #[tokio::test]
-async fn invalid_user_refreshes_once_then_requires_sign_in() {
-    let rig = Rig::responses([refusal(401, "invalid-user.json")]).await;
+async fn an_expired_token_refreshes_once_then_requires_sign_in() {
+    let rig = Rig::responses([refusal(401, "token-expired.json")]).await;
     let run = rig.run(request()).await;
     assert_signed_out(&rig, &run);
 }
 
 #[tokio::test]
-async fn invalid_user_followed_by_a_refreshed_token_succeeds() {
-    let rig = Rig::responses([refusal(401, "invalid-user.json"), completed()]).await;
+async fn an_expired_token_followed_by_a_refreshed_token_succeeds() {
+    let rig = Rig::responses([refusal(401, "token-expired.json"), completed()]).await;
     let run = rig.run(request()).await;
     assert_eq!(run.error, None, "{run:?}");
     assert_eq!(rig.posts(), 2);
@@ -435,51 +441,29 @@ async fn invalid_user_followed_by_a_refreshed_token_succeeds() {
     assert!(!rig.tokens.was_rejected());
 }
 
-async fn assert_failed_without_retry(status: u16, name: &str) {
-    let rig = Rig::responses([refusal(status, name)]).await;
+#[tokio::test]
+async fn an_unknown_code_fails_without_retry() {
+    let rig = Rig::responses([refusal(400, "unknown-code.json")]).await;
     let run = rig.run(request()).await;
-    assert!(is_failed(&run.error), "{name}: {run:?}");
+    assert!(is_failed(&run.error), "{run:?}");
     assert_eq!(
         run.error.as_ref().and_then(ProviderError::request_id),
         Some(REQUEST_ID),
-        "{name}: the request id is kept"
+        "the request id is kept"
     );
     assert_answered_once(&rig, &run);
 }
 
-#[tokio::test]
-async fn route_not_supported_fails_without_retry() {
-    assert_failed_without_retry(403, "route-not-supported.json").await;
-}
+// The same errors inside a stream, after text.
 
-#[tokio::test]
-async fn scope_not_authorized_fails_without_retry() {
-    assert_failed_without_retry(403, "scope-not-authorized.json").await;
-}
-
-#[tokio::test]
-async fn invalid_authorization_context_fails_without_retry() {
-    assert_failed_without_retry(403, "invalid-authorization-context.json").await;
-}
-
-#[tokio::test]
-async fn an_unknown_code_fails_without_retry() {
-    assert_failed_without_retry(400, "unknown-code.json").await;
-}
-
-// The same codes inside a stream, after text.
-
-/// Each coded fixture with the status the documentation gives it.
-const CODED: [(u16, &str); 10] = [
-    (403, "user-not-eligible.json"),
+/// Each coded fixture with the status the Codex backend gives it.
+const CODED: [(u16, &str); 7] = [
+    (403, "usage-not-included.json"),
     (429, "usage-limit-exceeded.json"),
-    (503, "usage-unavailable.json"),
+    (503, "server-overloaded.json"),
+    (429, "rate-limit-exceeded.json"),
     (400, "unsupported-capability.json"),
-    (403, "route-not-supported.json"),
-    (401, "invalid-user.json"),
-    (403, "scope-not-authorized.json"),
-    (403, "invalid-authorization-context.json"),
-    (503, "user-unavailable.json"),
+    (401, "token-expired.json"),
     (400, "unknown-code.json"),
 ];
 
@@ -532,7 +516,7 @@ async fn a_failure_inside_a_stream_after_text_maps_to_the_same_state_as_before_i
 
 #[tokio::test]
 async fn a_retry_after_streamed_text_says_so_and_starts_over() {
-    let rig = Rig::responses([failing_stream("usage-unavailable.json"), completed()]).await;
+    let rig = Rig::responses([failing_stream("server-overloaded.json"), completed()]).await;
     let run = rig.run(request()).await;
     assert_eq!(run.error, None, "{run:?}");
     let mut expected = partial_text();
@@ -542,7 +526,7 @@ async fn a_retry_after_streamed_text_says_so_and_starts_over() {
     assert_eq!(rig.posts(), 2);
     assert_eq!(rig.pauses(), BACKOFF[..1]);
 
-    let rig = Rig::responses([failing_stream("usage-unavailable.json"), completed()]).await;
+    let rig = Rig::responses([failing_stream("server-overloaded.json"), completed()]).await;
     let text = complete_text(rig.provider.as_ref(), request(), |_| {}).await;
     assert_eq!(text, Ok("Hello, world!".to_owned()));
 }
@@ -656,7 +640,7 @@ async fn model_listing_recovers_like_a_response() {
     assert_eq!(
         rig.provider.list_models().await,
         Err(ProviderError::PlanLimit {
-            resets_at: None,
+            resets_at: limit_resets_at(),
             request_id: rid(),
         })
     );
@@ -706,6 +690,195 @@ async fn the_fake_choice_answers_without_the_network() {
     .await;
     assert!(text.is_ok(), "{text:?}");
     assert_eq!(server.requests(), []);
+}
+
+// The plan's usage in the response headers.
+
+/// The headers of the 5-hour window: 45.5 % used, resetting at
+/// 2026-11-12 10:48 UTC.
+const PRIMARY: [(&str, &str); 3] = [
+    ("x-codex-primary-used-percent", "45.5"),
+    ("x-codex-primary-window-minutes", "300"),
+    ("x-codex-primary-reset-at", "1794480480"),
+];
+
+/// The headers of the weekly window: 12 % used, resetting at
+/// 2026-11-16 15:00 UTC.
+const SECONDARY: [(&str, &str); 3] = [
+    ("x-codex-secondary-used-percent", "12"),
+    ("x-codex-secondary-window-minutes", "10080"),
+    ("x-codex-secondary-reset-at", "1794841200"),
+];
+
+fn five_hour() -> WindowUsage {
+    WindowUsage {
+        used: 0.455,
+        window_minutes: 300,
+        resets_at: chrono::DateTime::from_timestamp(1_794_480_480, 0).expect("a moment"),
+    }
+}
+
+fn weekly() -> WindowUsage {
+    WindowUsage {
+        used: 0.12,
+        window_minutes: 10_080,
+        resets_at: chrono::DateTime::from_timestamp(1_794_841_200, 0).expect("a moment"),
+    }
+}
+
+/// `completed()` with these headers too.
+fn completed_with(headers: &[(&str, &str)]) -> Reply {
+    headers.iter().fold(completed(), |reply, (name, value)| {
+        reply.header(name, value)
+    })
+}
+
+/// `hello_world()` after the usage `snapshot`.
+fn reported_then_hello_world(snapshot: UsageSnapshot) -> Vec<ProviderEvent> {
+    let mut events = vec![ProviderEvent::Usage(snapshot)];
+    events.extend(hello_world());
+    events
+}
+
+#[tokio::test]
+async fn a_response_with_usage_headers_reports_both_windows_before_its_stream() {
+    let rig = Rig::responses([completed_with(&[PRIMARY, SECONDARY].concat())]).await;
+    let run = rig.run(request()).await;
+    assert_eq!(run.error, None, "{run:?}");
+    assert_eq!(
+        run.events,
+        reported_then_hello_world(UsageSnapshot {
+            primary: Some(five_hour()),
+            secondary: Some(weekly()),
+        })
+    );
+}
+
+#[tokio::test]
+async fn a_response_without_usage_headers_reports_no_usage() {
+    let rig = Rig::responses([completed()]).await;
+    let run = rig.run(request()).await;
+    assert_eq!(run.error, None, "{run:?}");
+    assert_eq!(run.events, hello_world());
+}
+
+#[tokio::test]
+async fn a_usage_limit_refusal_with_usage_headers_reports_them_before_its_error() {
+    let full = UsageSnapshot {
+        primary: Some(WindowUsage {
+            used: 1.0,
+            ..five_hour()
+        }),
+        secondary: Some(weekly()),
+    };
+    let headers = [
+        ("x-codex-primary-used-percent", "100"),
+        PRIMARY[1],
+        PRIMARY[2],
+    ];
+    let reply = [headers, SECONDARY].concat().into_iter().fold(
+        refusal(429, "usage-limit-exceeded.json"),
+        |reply, (name, value)| reply.header(name, value),
+    );
+    let rig = Rig::responses([reply]).await;
+    let run = rig.run(request()).await;
+    assert_eq!(
+        run.error,
+        Some(ProviderError::PlanLimit {
+            resets_at: limit_resets_at(),
+            request_id: rid(),
+        })
+    );
+    assert_eq!(run.events, [ProviderEvent::Usage(full)]);
+    assert_eq!(rig.posts(), 1, "{run:?}");
+}
+
+#[tokio::test]
+async fn a_window_with_an_unreadable_or_missing_header_is_left_out() {
+    let replace = |headers: [(&'static str, &'static str); 3], name: &str, value| {
+        headers.map(|(header, old)| (header, if header == name { value } else { old }))
+    };
+    let without = |headers: [(&'static str, &'static str); 3], name: &str| {
+        headers
+            .into_iter()
+            .filter(|(header, _)| *header != name)
+            .collect::<Vec<_>>()
+    };
+    let weekly_only = UsageSnapshot {
+        primary: None,
+        secondary: Some(weekly()),
+    };
+    let five_hour_only = UsageSnapshot {
+        primary: Some(five_hour()),
+        secondary: None,
+    };
+    #[allow(clippy::type_complexity)]
+    let cases: Vec<(&str, Vec<(&str, &str)>, Option<UsageSnapshot>)> = vec![
+        (
+            "an unreadable share",
+            [
+                replace(PRIMARY, "x-codex-primary-used-percent", "lots").to_vec(),
+                SECONDARY.to_vec(),
+            ]
+            .concat(),
+            Some(weekly_only.clone()),
+        ),
+        (
+            "an unreadable length",
+            [
+                replace(PRIMARY, "x-codex-primary-window-minutes", "five hours").to_vec(),
+                SECONDARY.to_vec(),
+            ]
+            .concat(),
+            Some(weekly_only.clone()),
+        ),
+        (
+            "an unreadable reset time",
+            [
+                replace(PRIMARY, "x-codex-primary-reset-at", "soon").to_vec(),
+                SECONDARY.to_vec(),
+            ]
+            .concat(),
+            Some(weekly_only.clone()),
+        ),
+        (
+            "a missing reset time",
+            [
+                without(PRIMARY, "x-codex-primary-reset-at"),
+                SECONDARY.to_vec(),
+            ]
+            .concat(),
+            Some(weekly_only),
+        ),
+        (
+            "an unreadable weekly share",
+            [
+                PRIMARY.to_vec(),
+                replace(SECONDARY, "x-codex-secondary-used-percent", "").to_vec(),
+            ]
+            .concat(),
+            Some(five_hour_only),
+        ),
+        (
+            "no readable window",
+            [
+                replace(PRIMARY, "x-codex-primary-used-percent", "NaN").to_vec(),
+                without(SECONDARY, "x-codex-secondary-window-minutes"),
+            ]
+            .concat(),
+            None,
+        ),
+    ];
+    for (case, headers, snapshot) in cases {
+        let rig = Rig::responses([completed_with(&headers)]).await;
+        let run = rig.run(request()).await;
+        assert_eq!(run.error, None, "{case}: {run:?}");
+        let expected = match snapshot {
+            Some(snapshot) => reported_then_hello_world(snapshot),
+            None => hello_world(),
+        };
+        assert_eq!(run.events, expected, "{case}");
+    }
 }
 
 // Diagnostics.

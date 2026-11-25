@@ -8,6 +8,7 @@ import type { SideChatSummary } from "@/core/generated/SideChatSummary";
 
 import {
   applyEvent,
+  applyFailure,
   applyRequest,
   applyResponse,
   initialState,
@@ -219,5 +220,115 @@ describe("a reply answered before its last events arrive", () => {
         item.type === "Message" ? item.message.id : item.text,
       ),
     ).toEqual(["Why do continents not sink?", "message-2"]);
+  });
+});
+
+describe("a side chat deleted", () => {
+  const remove: CoreRequest = { type: "DeleteSideChat", chatId: "old-1" };
+  const send: CoreRequest = {
+    type: "SendSideChatMessage",
+    chatId: "old-1",
+    text: "Why do continents not sink?",
+  };
+  const reply = (event: GenerationEvent): CoreEvent => ({
+    type: "Generation",
+    generationId: "reply-1",
+    target: { type: "SideChat", courseId, chatId: "old-1" },
+    event,
+  });
+  const chat = {
+    id: "old-1",
+    courseId,
+    anchor: null,
+    sectionTitle: null,
+    messages: [],
+    followUps: [],
+    createdAt: at,
+    updatedAt: at,
+  };
+
+  /** Chats old-1 and old-2 listed, old-1 open with its reply streaming. */
+  function streaming(): AtlasState {
+    let state = listed(opened(), [summary("old-1"), summary("old-2")]);
+    state = applyResponse(
+      state,
+      { type: "OpenSideChat", chatId: "old-1" },
+      { type: "SideChat", chat },
+    );
+    state = applyRequest(state, send);
+    return [
+      reply({ type: "Started" }),
+      reply({ type: "BlockOpened", block: 0, kind: "Prose" }),
+      reply({ type: "TextDelta", block: 0, text: "They are lighter." }),
+    ].reduce(applyEvent, state);
+  }
+
+  it("leaves the list and the count, and the open panel shows the list", () => {
+    const state = applyResponse(streaming(), remove, { type: "Done" });
+
+    expect(selectSideChats(state, courseId)?.map(({ id }) => id)).toEqual([
+      "old-2",
+    ]);
+    expect(state.sideChats.chats["old-1"]).toBeUndefined();
+    expect(selectOpenCourse(state)?.sideChatCount).toBe(1);
+    expect(state.navigation.panel).toEqual({
+      open: true,
+      tab: "sideChats",
+      chatId: null,
+    });
+  });
+
+  it("does not come back with the stopped reply, a late change, a late answer or a late listing", () => {
+    let state = applyResponse(streaming(), remove, { type: "Done" });
+    state = applyEvent(
+      state,
+      reply({ type: "Finished", outcome: { type: "Stopped" } }),
+    );
+    state = applyEvent(state, changed(summary("old-1", later)));
+    state = applyEvent(state, {
+      type: "FollowUpPrompts",
+      chatId: "old-1",
+      prompts: ["What is ridge push?"],
+    });
+    state = applyResponse(state, send, {
+      type: "SideChatReply",
+      chatId: "old-1",
+      message: {
+        id: "message-2",
+        role: "Agent",
+        text: "They are lighter.",
+        state: "Stopped",
+        citations: [],
+        sources: [],
+        createdAt: later,
+      },
+    });
+    state = applyResponse(
+      state,
+      { type: "OpenSideChat", chatId: "old-1" },
+      { type: "SideChat", chat },
+    );
+    state = listed(state, [summary("old-1"), summary("old-2")]);
+
+    expect(selectSideChats(state, courseId)?.map(({ id }) => id)).toEqual([
+      "old-2",
+    ]);
+    expect(state.sideChats.chats["old-1"]).toBeUndefined();
+    expect(selectOpenCourse(state)?.sideChatCount).toBe(1);
+    expect(state.navigation.panel.chatId).toBeNull();
+  });
+
+  it("changes nothing but the notices when the core refuses it", () => {
+    const before = streaming();
+
+    const state = applyFailure(before, remove, {
+      type: "Store",
+      message: "The database is locked by another process.",
+    });
+
+    expect({ ...state, notices: before.notices }).toEqual(before);
+    expect(state.notices.map(({ title }) => title)).toEqual([
+      "Side chat could not be deleted",
+    ]);
   });
 });

@@ -78,8 +78,10 @@
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
 
-  /* The one soft shadow, under floating surfaces only. */
+  /* The one soft shadow, under floating surfaces only; its softer single
+     layer, Float soft, under notices only. */
   --shadow-float: var(--atlas-float);
+  --shadow-float-soft: var(--atlas-float-soft);
 }
 
 @theme {
@@ -221,17 +223,21 @@
   --color-sidebar-ring: var(--sidebar-ring);
 }
 
-/* The soft shadow in the theme's darkest ink. Declared on the theme scope
-   only, so a raised surface inherits it as its page computed it. */
+/* The soft shadows in the theme's darkest ink. Declared on the theme scope
+   only, so a raised surface inherits them as its page computed them. */
 [data-theme="dark"] {
   --atlas-float:
     0 2px 32px color-mix(in oklab, var(--atlas-canvas) 25%, transparent),
     0 8px 24px color-mix(in oklab, var(--atlas-canvas) 35%, transparent);
+  --atlas-float-soft: 0 4px 16px
+    color-mix(in oklab, var(--atlas-canvas) 40%, transparent);
 }
 [data-theme="light"] {
   --atlas-float:
     0 2px 32px color-mix(in oklab, var(--atlas-heading) 8%, transparent),
     0 8px 24px color-mix(in oklab, var(--atlas-heading) 10%, transparent);
+  --atlas-float-soft: 0 4px 16px
+    color-mix(in oklab, var(--atlas-heading) 8%, transparent);
 }
 
 @layer base {
@@ -244,6 +250,8 @@
   html {
     -webkit-font-smoothing: antialiased;
     scrollbar-color: var(--atlas-edge-strong) transparent;
+    /* The window is not a page: a swipe past its edge moves nothing. */
+    overscroll-behavior: none;
   }
   ::selection {
     background-color: var(--atlas-accent-wash);

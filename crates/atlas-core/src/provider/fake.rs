@@ -3,6 +3,7 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 use futures::stream;
+use serde_json::{Value, json};
 
 use super::chatgpt::ResponsesStreamParser;
 use super::{ModelProvider, ProviderError, ProviderEvent, ProviderRequest, ProviderStream, Task};
@@ -174,11 +175,7 @@ impl ModelProvider for FakeProvider {
             return Ok(Box::pin(stream::iter(events)));
         }
         let deltas = match request.task {
-            Task::BuildIndex => {
-                let json = serde_json::to_string(&self.script.index)
-                    .map_err(|error| ProviderError::failed(error.to_string()))?;
-                chunk(&json, 24)
-            }
+            Task::BuildIndex => chunk(&index_answer(&self.script.index).to_string(), 24),
             Task::DraftLadder => chunk(SAMPLE_LADDER, 24),
             Task::PlacementQuestion => chunk(SAMPLE_QUESTION, 24),
             Task::WriteSection => self.script.section_deltas.clone(),
@@ -206,6 +203,32 @@ const SAMPLE_LADDER: &str = r#"{"concepts": ["The vocabulary", "The basic object
 
 /// Answers every placement-question request.
 const SAMPLE_QUESTION: &str = r#"{"stem": "You have applied the core rule once. What do you do next?", "options": [{"text": "Check the result against the basic objects", "misconception": null}, {"text": "Apply the rule again until it stops changing", "misconception": "The rule converges on its own"}, {"text": "Start over with a different rule", "misconception": "One application proves the rule wrong"}, {"text": "Stop, the result is final", "misconception": "A rule applied once needs no check"}], "key": 0}"#;
+
+/// The build-index answer for `index`, with every field the schema requires:
+/// sections that introduce and rely on nothing, and no concepts or
+/// conventions.
+fn index_answer(index: &IndexDraft) -> Value {
+    let chapters: Vec<Value> = index
+        .chapters
+        .iter()
+        .map(|chapter| {
+            let sections: Vec<Value> = chapter
+                .sections
+                .iter()
+                .map(|section| {
+                    json!({
+                        "title": section.title,
+                        "summary": section.summary,
+                        "introduces": [],
+                        "relies_on": []
+                    })
+                })
+                .collect();
+            json!({ "title": chapter.title, "sections": sections })
+        })
+        .collect();
+    json!({ "chapters": chapters, "concepts": [], "conventions": [] })
+}
 
 fn chunk(text: &str, size: usize) -> Vec<String> {
     text.chars()

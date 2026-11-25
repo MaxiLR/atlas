@@ -222,3 +222,44 @@ fn repair_input(
 fn pretty(schema: &Value) -> String {
     serde_json::to_string_pretty(schema).unwrap_or_else(|_| schema.to_string())
 }
+
+/// What keeps `schema` from the strict structured output the Codex backend
+/// demands, which refuses the whole request with `invalid_json_schema`:
+/// every object closes its properties and requires each one, so a field that
+/// may be absent is a required one that may be null or empty instead.
+#[cfg(test)]
+pub(crate) fn strict_faults(schema: &Value) -> Vec<String> {
+    fn walk(schema: &Value, at: &str, faults: &mut Vec<String>) {
+        match schema {
+            Value::Object(object) => {
+                if let Some(Value::Object(properties)) = object.get("properties") {
+                    if object.get("additionalProperties") != Some(&Value::Bool(false)) {
+                        faults.push(format!("{at} does not set additionalProperties to false"));
+                    }
+                    let required: Vec<&str> = object
+                        .get("required")
+                        .and_then(Value::as_array)
+                        .map(|names| names.iter().filter_map(Value::as_str).collect())
+                        .unwrap_or_default();
+                    for name in properties.keys() {
+                        if !required.contains(&name.as_str()) {
+                            faults.push(format!("{at} does not require {name}"));
+                        }
+                    }
+                }
+                for (key, child) in object {
+                    walk(child, &format!("{at}/{key}"), faults);
+                }
+            }
+            Value::Array(items) => {
+                for (index, child) in items.iter().enumerate() {
+                    walk(child, &format!("{at}/{index}"), faults);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut faults = Vec::new();
+    walk(schema, "#", &mut faults);
+    faults
+}

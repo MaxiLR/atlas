@@ -65,18 +65,21 @@ written for the candidate profile and the surrounding sentence. One request, no
 conversation. It also offers the Wikipedia summary of the term, with a link.
 
 **Glossary** — The definitions a course has collected. A defined term keeps a
-faint dotted underline and reopens without a request.
+faint dotted underline and reopens without a request. An entry can be deleted,
+permanently; defining the passage again asks anew.
 
 **Side chat** — A conversation in the right-hand panel with its own history,
 usually **anchored** to a selected passage, which keeps a faint margin mark that
 reopens it. A course holds many; one can start without a selection. A side chat
-never changes a section and never enters the context of section generation.
+never changes a section and never enters the context of section generation. A
+side chat can be deleted, permanently, stopping a reply still being written.
 
-**Plan login** — The candidate's Sign in with ChatGPT connection, which pays for
-model calls with their ChatGPT plan.
+**Plan login** — The candidate's Sign in with ChatGPT connection, through
+OpenAI's Codex OAuth client, which pays for model calls with their ChatGPT plan.
 
 **Usage meter** — The display of the plan's limit windows: the 5-hour and weekly
-windows, the share used, the time to each reset and a pace mark.
+windows, the share used, the time to each reset and a pace mark. It is read
+with the plan login; there is no separate connection to make.
 
 **Window** — One usage limit of the plan over a stretch of time, as the provider
 reports it: its length, the share used and when it resets.

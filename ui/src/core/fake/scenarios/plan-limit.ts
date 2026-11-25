@@ -1,5 +1,5 @@
 import type { Scenario } from "../scenario";
-import { addSampleLibrary, connectUsage, iso, signIn } from "../world";
+import { addSampleLibrary, iso, readUsage, signIn } from "../world";
 
 export default {
   description:
@@ -9,7 +9,7 @@ export default {
     addSampleLibrary(world);
     const resetsAt = iso(world, (2 * 60 + 14) * 60_000);
     world.usageShares = [1, 0.74, 0.3];
-    connectUsage(world);
+    readUsage(world);
     world.fault = {
       type: "Fail",
       error: { type: "PlanLimit", resetsAt },

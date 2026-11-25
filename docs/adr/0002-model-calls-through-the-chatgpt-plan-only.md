@@ -1,6 +1,6 @@
 # ADR-0002: Model calls through the ChatGPT plan only, for now
 
-- Status: Accepted
+- Status: Accepted; its sign-in and transport are superseded by ADR-0014
 - Date: 2026-11-18
 
 ## Context

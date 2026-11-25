@@ -111,8 +111,11 @@ for (const width of widths) {
           "The sinking of one plate beneath another",
         );
         await expect(
-          popover.getByRole("link", { name: "Open article" }),
+          popover.getByRole("link", {
+            name: "Wikipedia article on subduction",
+          }),
         ).toBeVisible();
+        await expect(popover).not.toContainText("Open article");
         await expect(popover).toContainText(
           "Subduction is a geological process",
         );

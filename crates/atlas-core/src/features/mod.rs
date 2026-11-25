@@ -52,11 +52,15 @@ impl Features {
     pub(crate) fn new(deps: &CoreDeps, store: &Arc<Store>) -> Result<Self, CoreError> {
         let usage = usage::Feature::new(deps, store)?;
         // The other features emit through the usage meter's tap, which reads
-        // usage after every completed generation.
+        // usage when the session signs in and after every completed
+        // generation, and empties the meter when it signs out.
         let deps = &usage.tap(deps);
         let models = Arc::new(models::Feature::new(deps, store)?);
+        let session = session::Feature::new(deps, &models)?;
+        // The meter reads with the plan login.
+        usage.use_plan_login(session.tokens());
         Ok(Self {
-            session: session::Feature::new(deps, store, &models)?,
+            session,
             external: external::Feature::new(deps, store)?,
             models,
             library: library::Feature::new(deps, store)?,

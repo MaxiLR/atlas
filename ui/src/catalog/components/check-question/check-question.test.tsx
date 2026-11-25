@@ -378,7 +378,11 @@ describe("two check questions", () => {
     };
   }
 
-  it("shows each with its own options and Check answer, and answers one at a time", async () => {
+  const next = () => screen.getByRole("button", { name: "Next question" });
+  const previous = () =>
+    screen.getByRole("button", { name: "Previous question" });
+
+  it("shows one at a time, each with its own options and Check answer, and answers one at a time", async () => {
     const { open, user, requests } = await renderCourse(withTwoQuestions);
     const version = await open("Transform boundaries");
 
@@ -386,12 +390,14 @@ describe("two check questions", () => {
       screen.getByRole("heading", { level: 2, name: "Check questions" }),
     ).toBeVisible();
     expect(within(group(FIRST)).getAllByRole("radio")).toHaveLength(4);
-    expect(within(group(SECOND)).getAllByRole("radio")).toHaveLength(4);
-    const buttons = screen.getAllByRole("button", { name: "Check answer" });
-    expect(buttons).toHaveLength(2);
+    expect(screen.queryByRole("group", { name: SECOND })).toBeNull();
+    expect(
+      screen.getAllByRole("button", { name: "Check answer" }),
+    ).toHaveLength(1);
 
+    await user.click(next());
+    expect(within(group(SECOND)).getAllByRole("radio")).toHaveLength(4);
     await user.click(option("In jerks", SECOND));
-    expect(checkedOptions(FIRST)).toEqual([]);
     await user.click(
       within(group(SECOND).closest("form")!).getByRole("button", {
         name: "Check answer",
@@ -402,7 +408,6 @@ describe("two check questions", () => {
       await screen.findByText("Stress builds until the fault slips at once."),
     ).toBeVisible();
     expect(row("In jerks", SECOND)).toHaveTextContent("Your answer, correct");
-    expect(option("At a ridge", FIRST)).toBeEnabled();
     expect(
       screen.queryByText("Plates slide past each other there."),
     ).toBeNull();
@@ -417,6 +422,46 @@ describe("two check questions", () => {
         choice: 1,
       },
     ]);
+
+    await user.click(previous());
+    expect(checkedOptions(FIRST)).toEqual([]);
+    expect(option("At a ridge", FIRST)).toBeEnabled();
+  });
+
+  it("keeps a question's choice, outcome and explanation across moves, and answering does not move", async () => {
+    const { open, user } = await renderCourse(withTwoQuestions);
+    await open("Transform boundaries");
+
+    await user.click(option("At a ridge", FIRST));
+    await user.click(checkAnswer());
+    expect(
+      await screen.findByText("Plates slide past each other there."),
+    ).toBeVisible();
+    // Answering leaves the block on the question answered.
+    expect(group(FIRST)).toBeVisible();
+    expect(screen.getByText("1 of 2")).toBeVisible();
+    expect(screen.queryByRole("group", { name: SECOND })).toBeNull();
+
+    await user.click(next());
+    await user.click(option("Steadily", SECOND));
+    await user.click(previous());
+
+    expect(
+      screen.getByText("Plates slide past each other there."),
+    ).toBeVisible();
+    expect(row("At a ridge", FIRST)).toHaveTextContent(
+      "Your answer, incorrect",
+    );
+    expect(row("At a transform boundary", FIRST)).toHaveTextContent(
+      "Correct answer",
+    );
+    expect(announced()).toContain("Incorrect");
+
+    await user.click(next());
+    expect(checkedOptions(SECOND)).toEqual([
+      expect.stringContaining("Steadily"),
+    ]);
+    expect(checkAnswer()).toBeEnabled();
   });
 });
 

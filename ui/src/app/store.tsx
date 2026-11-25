@@ -105,7 +105,8 @@ export function createAtlasStore(client: CoreClient): AtlasStore {
 
 /**
  * Handles the rejection of a request whose failure the store records, so a
- * screen shows it from the store.
+ * screen, or a notice when the screen has no place for it, shows it from the
+ * store.
  */
 export function failureInStore(): void {}
 

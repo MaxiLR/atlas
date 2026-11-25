@@ -47,7 +47,7 @@ export function WindowFrame({
       </header>
       <main
         className={cn(
-          "min-w-0 overflow-y-auto px-5 pt-10 pb-8 min-[761px]:px-6 min-[761px]:pb-16",
+          "relative min-w-0 overflow-y-auto px-5 pt-10 pb-8 min-[761px]:px-6 min-[761px]:pb-16",
           width === "list" ? "min-[761px]:pt-20" : "min-[761px]:pt-24",
         )}
       >

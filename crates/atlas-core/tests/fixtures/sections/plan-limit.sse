@@ -17,5 +17,5 @@ event: response.output_text.delta
 data: {"type":"response.output_text.delta","sequence_number":5,"item_id":"msg_7a01c2d4","output_index":0,"content_index":0,"delta":"Heat escaping from deep inside the Earth ","logprobs":[]}
 
 event: response.failed
-data: {"type":"response.failed","sequence_number":6,"response":{"id":"resp_7a01c2d3e4f5a601","object":"response","created_at":1763560000,"status":"failed","error":{"code":"subscription_sharing_usage_limit_exceeded","message":"You have reached the usage limit of your ChatGPT plan.","param":null},"incomplete_details":null,"model":"gpt-6.2-sol","output":[],"store":false}}
+data: {"type":"response.failed","sequence_number":6,"response":{"id":"resp_7a01c2d3e4f5a601","object":"response","created_at":1763560000,"status":"failed","error":{"code":"usage_limit_reached","message":"You have hit your ChatGPT usage limit.","param":null},"incomplete_details":null,"model":"gpt-6.2-sol","output":[],"store":false}}
 

@@ -5,7 +5,7 @@ use chrono::{DateTime, Utc};
 use rusqlite::{OptionalExtension, Row, params};
 use uuid::Uuid;
 
-use super::courses::require_course;
+use super::courses::{ERASE_CHAT_MESSAGE, ERASE_SIDE_CHAT, require_course};
 use super::{Id, Store, StoreError, Time, changed_one, id_at, json, json_at, time_at};
 use crate::protocol::{Anchor, ChatMessage, ChatRole, Citation, MessageState, Source};
 
@@ -188,5 +188,34 @@ impl Store {
             .query_map([Id(chat)], message_row)?
             .collect::<Result<_, _>>()?;
         Ok(messages)
+    }
+
+    /// Deletes a live chat and its messages permanently, in one transaction:
+    /// every row stays as a tombstone with its content erased, as a course's
+    /// deletion leaves it; a message deleted before keeps its deletion time.
+    /// An absent or already deleted chat is not found, and nothing changes.
+    pub fn delete_side_chat(&self, chat: Uuid) -> Result<(), StoreError> {
+        let now = Time(self.now());
+        let mut connection = self.connection();
+        let transaction = connection.transaction()?;
+        let changed = transaction.execute(
+            &format!(
+                "UPDATE side_chats SET {ERASE_SIDE_CHAT}
+                     deleted_at = ?2, updated_at = ?2
+                 WHERE id = ?1 AND deleted_at IS NULL"
+            ),
+            params![Id(chat), now],
+        )?;
+        changed_one(changed, || format!("side chat {chat}"))?;
+        transaction.execute(
+            &format!(
+                "UPDATE side_chat_messages SET {ERASE_CHAT_MESSAGE}
+                     deleted_at = COALESCE(deleted_at, ?2), updated_at = ?2
+                 WHERE chat_id = ?1"
+            ),
+            params![Id(chat), now],
+        )?;
+        transaction.commit()?;
+        Ok(())
     }
 }

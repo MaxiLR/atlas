@@ -1,0 +1,38 @@
+/*
+ * Sonner's motion and focus ring, restyled for Atlas's notices. A notice
+ * rises 8 px and fades in over 200 ms ease-out, and leaves the same way.
+ * Sonner injects its own stylesheet unlayered when it loads, so each rule
+ * here names the toaster as well to outweigh Sonner's; Sonner's own
+ * reduced-motion rule still stops every transition.
+ */
+
+[data-sonner-toaster] [data-sonner-toast] {
+  transition:
+    transform 200ms ease-out,
+    opacity 200ms ease-out,
+    height 200ms ease-out;
+}
+
+/* Waiting to enter: 8 px low. */
+[data-sonner-toaster] [data-sonner-toast][data-y-position="bottom"] {
+  --y: translateY(8px);
+}
+
+/* In place. Sonner's own rules still stack the notices behind the front. */
+[data-sonner-toaster] [data-sonner-toast][data-mounted="true"] {
+  --y: translateY(0);
+}
+
+/* Leaving: back down the 8 px it rose. */
+[data-sonner-toaster]
+  [data-sonner-toast][data-removed="true"][data-front="true"][data-swipe-out="false"] {
+  --y: translateY(8px);
+}
+
+/* Sonner makes each toast focusable; focus is the accent outline. */
+[data-sonner-toaster] [data-sonner-toast]:focus-visible {
+  border-radius: 8px;
+  box-shadow: none;
+  outline: 2px solid var(--atlas-focus);
+  outline-offset: 2px;
+}

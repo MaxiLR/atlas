@@ -45,14 +45,14 @@ const exercised: CoreRequest["type"][] = [
   "Define",
   "LookupWikipedia",
   "ListGlossary",
+  "DeleteGlossaryEntry",
   "ListSideChats",
   "StartSideChat",
   "OpenSideChat",
   "SendSideChatMessage",
   "StopSideChatReply",
+  "DeleteSideChat",
   "GetUsage",
-  "ConnectUsage",
-  "CancelConnectUsage",
   "SetWindowFocused",
   "GetExportDocument",
   "ExportPdf",
@@ -123,6 +123,32 @@ describe("SignIn", () => {
     );
     expect(state().navigation.screen).toBe("library");
   });
+
+  it("starts the usage meter: awaiting a reading, then the reading", async () => {
+    const { store, state, events } = startFake("first-launch");
+
+    await store.send({ type: "SignIn" });
+    await vi.waitFor(() =>
+      expect(selectUsage(state())?.type).toBe("Connected"),
+    );
+
+    const usage = events.flatMap((event) =>
+      event.type === "UsageChanged" ? [event.usage] : [],
+    );
+    expect(usage.map((reported) => reported.type)).toEqual([
+      "AwaitingReading",
+      "Connected",
+    ]);
+    const reading = selectUsage(state());
+    expect(reading).toMatchObject({
+      type: "Connected",
+      reading: { stale: null },
+    });
+    expect(
+      reading?.type === "Connected" &&
+        reading.reading.windows.slice(0, 2).map((window) => window.name),
+    ).toEqual(["5h", "7d"]);
+  });
 });
 
 describe("CancelSignIn", () => {
@@ -156,8 +182,8 @@ describe("EnablePlanUsage", () => {
 });
 
 describe("SignOut", () => {
-  it("ends the plan login and the usage login together, keeping the courses", async () => {
-    const { store, state } = startFake("usage-reading");
+  it("ends the plan login and the usage meter with it, keeping the courses", async () => {
+    const { store, state, events } = startFake("usage-reading");
     await store.send({ type: "GetUsage" });
     expect(selectUsage(state())?.type).toBe("Connected");
 
@@ -168,7 +194,11 @@ describe("SignOut", () => {
       reason: { type: "SignedOut" },
     });
     expect(state().navigation.screen).toBe("signIn");
-    expect(selectUsage(state())).toEqual({ type: "NotConnected" });
+    expect(events).toContainEqual({
+      type: "UsageChanged",
+      usage: { type: "NoPlanLogin" },
+    });
+    expect(selectUsage(state())).toEqual({ type: "NoPlanLogin" });
     const { courses } = await store.send({ type: "ListCourses" });
     expect(courses.map((course) => course.topic)).toContain("Plate tectonics");
   });
@@ -958,6 +988,47 @@ describe("ListGlossary", () => {
   });
 });
 
+describe("DeleteGlossaryEntry", () => {
+  it("removes the entry for good: the glossary, its count and a Wikipedia lookup no longer find it", async () => {
+    const { store, state } = startFake();
+    const course = await openCourse(store, "Plate tectonics");
+    const { entries } = await store.send({
+      type: "ListGlossary",
+      courseId: course.id,
+    });
+    const entryId = entries[0]!.id;
+
+    await expect(
+      store.send({ type: "DeleteGlossaryEntry", entryId }),
+    ).resolves.toEqual({ type: "Done" });
+
+    expect(state().glossary.byCourse[course.id]).toEqual([]);
+    expect(state().course.byId[course.id]?.glossaryCount).toBe(0);
+    await expect(
+      store.send({ type: "LookupWikipedia", entryId }),
+    ).rejects.toMatchObject({ type: "NotFound" });
+    const listed = await store.send({
+      type: "ListGlossary",
+      courseId: course.id,
+    });
+    expect(listed.entries).toEqual([]);
+    const reopened = await store.send({
+      type: "OpenCourse",
+      courseId: course.id,
+    });
+    expect(reopened.course.glossaryCount).toBe(0);
+  });
+
+  it("does not find an entry it does not hold", async () => {
+    const { store } = startFake();
+    await openCourse(store, "Plate tectonics");
+
+    await expect(
+      store.send({ type: "DeleteGlossaryEntry", entryId: "no-such-entry" }),
+    ).rejects.toMatchObject({ type: "NotFound" });
+  });
+});
+
 describe("ListSideChats", () => {
   it("lists the course's side chats with their passage", async () => {
     const { store, state } = startFake();
@@ -1090,52 +1161,147 @@ describe("StopSideChatReply", () => {
   });
 });
 
+describe("DeleteSideChat", () => {
+  it("stops the reply streaming in it before it answers, then removes it for good: it lists, opens and counts no more", async () => {
+    const valve = createValve();
+    const { store, state, events } = startFake("default", {
+      pace: valve.pace,
+    });
+    const course = await openCourse(store, "Plate tectonics");
+    const listed = await store.send({
+      type: "ListSideChats",
+      courseId: course.id,
+    });
+    const sample = listed.chats[0]!.id;
+    const { chat } = await store.send({
+      type: "StartSideChat",
+      courseId: course.id,
+      anchor: null,
+    });
+    const replying = store.send({
+      type: "SendSideChatMessage",
+      chatId: chat.id,
+      text: "Why do plates move at all?",
+    });
+    replying.catch(() => {});
+    valve.step();
+    valve.step();
+    await vi.waitFor(() =>
+      expect(state().sideChats.chats[chat.id]?.reply).not.toBeNull(),
+    );
+    const from = events.length;
+
+    const deleting = store.send({ type: "DeleteSideChat", chatId: chat.id });
+    valve.open();
+    await expect(deleting).resolves.toEqual({ type: "Done" });
+
+    const after = events.slice(from);
+    expect(
+      after.flatMap((event) =>
+        event.type === "Generation" &&
+        event.target.type === "SideChat" &&
+        event.target.chatId === chat.id &&
+        event.event.type === "Finished"
+          ? [event.event.outcome.type]
+          : [],
+      ),
+    ).toEqual(["Stopped"]);
+    expect(
+      after.filter(
+        (event) =>
+          (event.type === "SideChatsChanged" && event.chat.id === chat.id) ||
+          (event.type === "FollowUpPrompts" && event.chatId === chat.id),
+      ),
+    ).toEqual([]);
+    await expect(replying).rejects.toMatchObject({ type: "NotFound" });
+    expect(selectSideChats(state(), course.id)?.map(({ id }) => id)).toEqual([
+      sample,
+    ]);
+    expect(state().sideChats.chats[chat.id]).toBeUndefined();
+    expect(state().navigation.panel.chatId).toBeNull();
+    expect(state().course.byId[course.id]?.sideChatCount).toBe(1);
+
+    await expect(
+      store.send({ type: "OpenSideChat", chatId: chat.id }),
+    ).rejects.toMatchObject({ type: "NotFound" });
+    const { chats } = await store.send({
+      type: "ListSideChats",
+      courseId: course.id,
+    });
+    expect(chats.map(({ id }) => id)).not.toContain(chat.id);
+    expect(chats).toHaveLength(1);
+    const reopened = await store.send({
+      type: "OpenCourse",
+      courseId: course.id,
+    });
+    expect(reopened.course.sideChatCount).toBe(1);
+  });
+
+  it("does not find a chat it does not hold", async () => {
+    const { store } = startFake();
+    await openCourse(store, "Plate tectonics");
+
+    await expect(
+      store.send({ type: "DeleteSideChat", chatId: "no-such-chat" }),
+    ).rejects.toMatchObject({ type: "NotFound" });
+  });
+});
+
 describe("GetUsage", () => {
-  it("reports the meter empty until usage is connected", async () => {
-    const { store, state } = startFake();
+  it("answers that there is no plan login while signed out", async () => {
+    const { store, state } = startFake("first-launch");
+
+    const { usage } = await store.send({ type: "GetUsage" });
+
+    expect(usage).toEqual({ type: "NoPlanLogin" });
+    expect(selectUsage(state())).toEqual({ type: "NoPlanLogin" });
+  });
+
+  it("takes a reading when signed in without one, with no connection step", async () => {
+    const { core, store, state } = startFake();
 
     await store.send({ type: "GetUsage" });
 
-    expect(selectUsage(state())).toEqual({ type: "NotConnected" });
-  });
-});
-
-describe("ConnectUsage", () => {
-  it("shows the device code, then the first reading", async () => {
-    const valve = createValve();
-    const { store, state } = startFake("default", { pace: valve.pace });
-
-    const { usage } = await store.send({ type: "ConnectUsage" });
-
-    expect(usage).toMatchObject({
-      type: "Connecting",
-      userCode: expect.stringMatching(/\S/),
-      verificationUrl: expect.stringMatching(/^https:\/\//),
-    });
-    expect(selectUsage(state())?.type).toBe("Connecting");
-    valve.open();
     await vi.waitFor(() =>
-      expect(selectUsage(state())?.type).toBe("Connected"),
+      expect(selectUsage(state())).toMatchObject({
+        type: "Connected",
+        reading: { stale: null },
+      }),
     );
-    const reading = selectUsage(state());
+    const usage = selectUsage(state());
     expect(
-      reading?.type === "Connected" &&
-        reading.reading.windows.slice(0, 2).map((window) => window.name),
-    ).toEqual(["5h", "7d"]);
+      usage?.type === "Connected" &&
+        usage.reading.windows
+          .slice(0, 2)
+          .map((window) => [window.name, window.used]),
+    ).toEqual([
+      ["5h", 0.38],
+      ["7d", 0.61],
+    ]);
+    expect(core.opened).toEqual([]);
   });
-});
 
-describe("CancelConnectUsage", () => {
-  it("abandons the usage sign-in", async () => {
-    const valve = createValve();
-    const { store, state } = startFake("default", { pace: valve.pace });
-    await store.send({ type: "ConnectUsage" });
+  it("answers that the first reading failed, and reads again when asked again", async () => {
+    const { core, store, state } = startFake();
+    core.world.usageFailure = "Timeout";
 
-    await store.send({ type: "CancelConnectUsage" });
-    valve.open();
-    await drained();
+    await store.send({ type: "GetUsage" });
+    await vi.waitFor(() =>
+      expect(selectUsage(state())).toEqual({
+        type: "FirstReadFailed",
+        reason: "Timeout",
+      }),
+    );
 
-    expect(selectUsage(state())).toEqual({ type: "NotConnected" });
+    core.world.usageFailure = null;
+    await store.send({ type: "GetUsage" });
+
+    await vi.waitFor(() =>
+      expect(selectUsage(state())).toMatchObject({
+        type: "Connected",
+        reading: { stale: null },
+      }),
+    );
   });
 });
 

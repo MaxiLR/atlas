@@ -1,13 +1,15 @@
-//! The plan login: sign in, plan usage on, off or not allowed, sign out, the
+//! The Codex login: sign in, plan usage on or not allowed, sign out, the
 //! `TokenSource` the provider draws from, and the `require_plan` guard.
 //!
 //! The tokens and the provider's not-allowed report stay in the secret store
 //! with the login, behind [`PlanAuth`]; what the session keeps itself is the
-//! sign-in waiting for the browser and why the last login ended.
+//! sign-in waiting for the browser and why the last login ended. A Codex
+//! login always has plan usage on; a login saved by plan sharing reads as
+//! signed out.
 //!
-//! Whenever the session signs in, turns plan usage on or signs out, the models
-//! feature reports the list again: read from the provider while it can be,
-//! empty while the plan provider has no plan usage to list it with.
+//! Whenever the session signs in or signs out, the models feature reports
+//! the list again: read from the provider while it can be, empty while the
+//! plan provider has no login to list it with.
 
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
@@ -17,13 +19,11 @@ use tokio::task::JoinHandle;
 use super::{Features, models};
 use crate::CoreDeps;
 use crate::auth::{
-    AccessToken, AuthError, HostId, Login, PlanAuth, PlanAuthDeps, RefreshError, SignInMode,
-    Unreachable,
+    AccessToken, AuthError, Login, PlanAuth, PlanAuthDeps, RefreshError, Unreachable,
 };
 use crate::ports::{Clock, EventSink};
 use crate::protocol::{Account, CoreError, CoreEvent, PlanUsage, Session, SignedOutReason};
 use crate::provider::{ProviderError, TokenSource};
-use crate::store::Store;
 
 /// How long before its expiry an access token is refreshed.
 const REFRESH_MARGIN: chrono::TimeDelta = chrono::TimeDelta::minutes(5);
@@ -40,19 +40,13 @@ pub(crate) struct Feature {
 }
 
 impl Feature {
-    pub(crate) fn new(
-        deps: &CoreDeps,
-        store: &Arc<Store>,
-        models: &Arc<models::Feature>,
-    ) -> Result<Self, CoreError> {
-        let host_id = HostId(format!("urn:uuid:{}", store.host_id()?));
+    pub(crate) fn new(deps: &CoreDeps, models: &Arc<models::Feature>) -> Result<Self, CoreError> {
         let login = Arc::new(PlanLogin {
             auth: PlanAuth::new(PlanAuthDeps {
                 endpoints: deps.endpoints.clone(),
                 secrets: deps.secrets.clone(),
                 browser: deps.browser.clone(),
                 clock: deps.clock.clone(),
-                host_id,
             }),
             clock: deps.clock.clone(),
             events: deps.events.clone(),
@@ -70,15 +64,20 @@ impl Feature {
         })
     }
 
+    /// The plan login as a token source, for the usage meter, which reads
+    /// with it.
+    pub(crate) fn tokens(&self) -> Arc<dyn TokenSource> {
+        self.login.clone()
+    }
+
     /// Refuses a request that spends plan usage unless plan usage is on.
     pub(crate) async fn require_plan(&self, _cx: &Features) -> Result<(), CoreError> {
         if !self.plan_route {
             return Ok(());
         }
         match self.login.plan_usage()? {
-            Some(PlanUsage::On) => Ok(()),
-            Some(PlanUsage::Off) => Err(CoreError::PlanUsageOff),
             Some(PlanUsage::NotAllowed) => Err(CoreError::PlanNotAllowed),
+            Some(_) => Ok(()),
             None => Err(CoreError::SignInRequired),
         }
     }
@@ -88,8 +87,8 @@ impl Feature {
     }
 
     /// Opens the browser on the authorisation page; the session is signing in
-    /// until the browser comes back. Signed in with plan usage on or off, it
-    /// answers the session as it is.
+    /// until the browser comes back. Signed in with plan usage on, it answers
+    /// the session as it is.
     pub(crate) async fn sign_in(&self, _cx: &Features) -> Result<Session, CoreError> {
         let mut attempt = self.attempt.lock().await;
         match self.login.session()? {
@@ -97,7 +96,7 @@ impl Feature {
             | Session::SignedIn {
                 plan_usage: PlanUsage::NotAllowed,
                 ..
-            } => self.start(&mut attempt, SignInMode::SignIn).await,
+            } => self.start(&mut attempt).await,
             session => Ok(session),
         }
     }
@@ -122,15 +121,11 @@ impl Feature {
         }
     }
 
-    /// Asks for the plan permission again, with consent, for a login that
-    /// was granted none.
+    /// A Codex login always has plan usage on, so there is nothing to ask
+    /// for: a signed-in session answers as it is.
     pub(crate) async fn enable_plan_usage(&self, _cx: &Features) -> Result<Session, CoreError> {
-        let mut attempt = self.attempt.lock().await;
+        let _attempt = self.attempt.lock().await;
         match self.login.session()? {
-            Session::SignedIn {
-                plan_usage: PlanUsage::Off,
-                ..
-            } => self.start(&mut attempt, SignInMode::EnablePlanUsage).await,
             Session::SignedIn {
                 plan_usage: PlanUsage::NotAllowed,
                 ..
@@ -140,33 +135,27 @@ impl Feature {
         }
     }
 
-    /// Ends the plan login and the usage meter's login together; a failure of
-    /// one does not keep the other signed in.
-    pub(crate) async fn sign_out(&self, cx: &Features) -> Result<Session, CoreError> {
+    /// Ends the Codex login. The usage meter, which reads with it, hears of
+    /// it through the session's change.
+    pub(crate) async fn sign_out(&self, _cx: &Features) -> Result<Session, CoreError> {
         let mut attempt = self.attempt.lock().await;
         if let Some(pending) = attempt.take() {
             pending.abort();
         }
         self.login.state().signing_in = None;
         let plan = self.login.auth.sign_out().await;
-        let usage = cx.usage.sign_out(cx).await;
         self.login.state().reason = Some(SignedOutReason::SignedOut);
         let session = self.login.changed()?;
         // Signed out, the plan provider has no list to read; whatever reading
         // fails here is read again on the next need.
         let _ = self.models.session_changed(!self.plan_route, || {}).await;
         plan.map_err(auth_error)?;
-        usage?;
         Ok(session)
     }
 
     /// Opens the browser and waits for its return in the background.
-    async fn start(
-        &self,
-        attempt: &mut Option<JoinHandle<()>>,
-        mode: SignInMode,
-    ) -> Result<Session, CoreError> {
-        let pending = self.login.auth.start(mode).await.map_err(auth_error)?;
+    async fn start(&self, attempt: &mut Option<JoinHandle<()>>) -> Result<Session, CoreError> {
+        let pending = self.login.auth.start().await.map_err(auth_error)?;
         let number = {
             let mut state = self.login.state();
             state.attempts += 1;
@@ -176,19 +165,17 @@ impl Feature {
         let session = self.login.changed()?;
         let login = self.login.clone();
         let models = self.models.clone();
-        let plan_route = self.plan_route;
         *attempt = Some(tokio::spawn(async move {
             let result = pending.finish().await;
             match &result {
-                Ok(saved) => {
-                    let listed = !plan_route || plan_usage(saved) == PlanUsage::On;
-                    // The list follows the new login; a failed reading is
-                    // read again on the next need.
+                // The list follows the new login; a failed reading is read
+                // again on the next need.
+                Ok(_) => {
                     let _ = models
-                        .session_changed(listed, || login.finish(number, mode, result))
+                        .session_changed(true, || login.finish(number, result))
                         .await;
                 }
-                Err(_) => login.finish(number, mode, result),
+                Err(_) => login.finish(number, result),
             }
         }));
         Ok(session)
@@ -262,28 +249,20 @@ impl PlanLogin {
     }
 
     /// The browser came back for sign-in `number`.
-    fn finish(&self, number: u64, mode: SignInMode, result: Result<Login, AuthError>) {
+    fn finish(&self, number: u64, result: Result<Login, AuthError>) {
         {
             let mut state = self.state();
             if state.signing_in != Some(number) {
                 return;
             }
             state.signing_in = None;
-            match (mode, result) {
-                (SignInMode::SignIn, Ok(_)) => {
-                    state.reason = None;
-                }
-                (SignInMode::SignIn, Err(AuthError::Declined)) => {
-                    state.reason = Some(SignedOutReason::Declined);
-                }
-                (SignInMode::SignIn, Err(error)) => {
-                    state.reason = Some(SignedOutReason::Failed {
-                        error: auth_error(error),
-                    });
-                }
-                // The saved login stays as it was.
-                (SignInMode::EnablePlanUsage, _) => {}
-            }
+            state.reason = match result {
+                Ok(_) => None,
+                Err(AuthError::Declined) => Some(SignedOutReason::Declined),
+                Err(error) => Some(SignedOutReason::Failed {
+                    error: auth_error(error),
+                }),
+            };
         }
         let _ = self.changed();
     }
@@ -355,7 +334,7 @@ impl TokenSource for PlanLogin {
     }
 
     async fn rejected(&self) {
-        // The tokens are cleared even when the revocation is not confirmed.
+        // The backend refused a fresh token too: the login is cleared locally.
         let _ = self.auth.sign_out().await;
         self.end_login();
     }
@@ -370,10 +349,8 @@ impl TokenSource for PlanLogin {
 fn plan_usage(login: &Login) -> PlanUsage {
     if login.plan_not_allowed {
         PlanUsage::NotAllowed
-    } else if login.plan_usage {
-        PlanUsage::On
     } else {
-        PlanUsage::Off
+        PlanUsage::On
     }
 }
 

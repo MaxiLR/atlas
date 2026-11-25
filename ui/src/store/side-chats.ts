@@ -42,12 +42,15 @@ export interface SideChatsSlice {
   listed: Record<string, true>;
   /** The chats opened, by id. */
   chats: Record<string, OpenChat>;
+  /** The chats deleted: whatever arrives later for one is ignored. */
+  deleted: Record<string, true>;
 }
 
 export const initialSideChats: SideChatsSlice = {
   byCourse: {},
   listed: {},
   chats: {},
+  deleted: {},
 };
 
 export function chatsListed(
@@ -57,7 +60,10 @@ export function chatsListed(
 ): SideChatsSlice {
   return {
     ...slice,
-    byCourse: { ...slice.byCourse, [courseId]: chats },
+    byCourse: {
+      ...slice.byCourse,
+      [courseId]: chats.filter((chat) => slice.deleted[chat.id] !== true),
+    },
     listed: { ...slice.listed, [courseId]: true },
   };
 }
@@ -67,6 +73,7 @@ export function chatChanged(
   slice: SideChatsSlice,
   summary: SideChatSummary,
 ): SideChatsSlice {
+  if (slice.deleted[summary.id] === true) return slice;
   const chats = slice.byCourse[summary.courseId] ?? [];
   const at = chats.findIndex((chat) => chat.id === summary.id);
   return {
@@ -76,6 +83,42 @@ export function chatChanged(
       [summary.courseId]:
         at === -1 ? [summary, ...chats] : chats.with(at, summary),
     },
+  };
+}
+
+/** The course holding the chat, among those heard of or opened. */
+export function chatCourse(
+  slice: SideChatsSlice,
+  chatId: string,
+): string | undefined {
+  return (
+    slice.chats[chatId]?.chat.courseId ??
+    Object.values(slice.byCourse)
+      .flat()
+      .find((chat) => chat.id === chatId)?.courseId
+  );
+}
+
+/** The chat was deleted, for good. */
+export function chatDeleted(
+  slice: SideChatsSlice,
+  chatId: string,
+): SideChatsSlice {
+  const chats = { ...slice.chats };
+  delete chats[chatId];
+  const courseId = chatCourse(slice, chatId);
+  const listed = courseId === undefined ? undefined : slice.byCourse[courseId];
+  return {
+    ...slice,
+    byCourse:
+      courseId === undefined || listed === undefined
+        ? slice.byCourse
+        : {
+            ...slice.byCourse,
+            [courseId]: listed.filter(({ id }) => id !== chatId),
+          },
+    chats,
+    deleted: { ...slice.deleted, [chatId]: true },
   };
 }
 

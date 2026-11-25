@@ -58,6 +58,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "./sheet";
+import { Notice } from "./sonner";
 import {
   Tooltip,
   TooltipContent,
@@ -382,6 +383,39 @@ describe.each(schemes)("in the %s theme", (scheme) => {
     await closeByEscape(user, surface);
     await waitFor(() => expect(screen.queryByRole("tooltip")).toBeNull());
   });
+
+  it.each([
+    ["an error", "error", "alert"],
+    ["a success", "success", "status"],
+  ] as const)(
+    "%s notice floats raised with the softer shadow, menu corners and no state hue",
+    async (_, kind, role) => {
+      render(
+        <Notice
+          kind={kind}
+          title="Session could not be read"
+          description="secrets.json is not valid JSON."
+          action={{ label: "Retry", onClick() {} }}
+          onDismiss={() => {}}
+        />,
+      );
+      const surface = screen.getByRole(role);
+      await applyStyles(scheme);
+
+      expectFloating(surface);
+      expect(radiusOf(surface)).toBe("8px");
+      // Float, soft: one layer, 4 px down and 16 px of blur.
+      const soft = visibleLayers(surface).filter((layer) => layer.blur > 0);
+      expect(soft).toHaveLength(1);
+      expect(soft[0]).toMatchObject({ y: 4, blur: 16 });
+      // The icon's shape and the words carry the state, not green or red.
+      const icons = [...surface.querySelectorAll("svg")];
+      expect(icons.length).toBeGreaterThan(1);
+      for (const icon of icons) {
+        expect(tokenOf(getComputedStyle(icon).color, icon)).toBe("muted");
+      }
+    },
+  );
 
   it("every floating surface takes the same shadow", async () => {
     const user = userEvent.setup();

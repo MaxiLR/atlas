@@ -1,12 +1,14 @@
-//! What a refusal of the plan route means and how a request recovers from it,
-//! following the plan route's errors and recovery guide.
+//! What a refusal of the Codex backend means and how a request recovers from
+//! it, after the OMP Codex provider.
 //!
-//! A structured error object decides by its `code`, whether it answers the
-//! request or fails the stream (`response.failed`). Before a stream opens,
-//! admission may answer `{"detail": …}` without an error object; then the
-//! status decides. Only codes, params, statuses and request ids are kept:
-//! messages and bodies never enter an error.
+//! An error object decides by its `code`, or by its `type` when it names no
+//! code (the Codex backend reports its usage limit as a `type`), whether it
+//! answers the request or fails the stream (`response.failed`). A body
+//! without a known code is decided by the status. Only codes, params,
+//! statuses, reset times and request ids are kept: messages and bodies never
+//! enter an error.
 
+use chrono::{DateTime, Utc};
 use serde_json::Value;
 
 use super::ResponseFailure;
@@ -46,7 +48,7 @@ impl Failure {
     pub(super) fn settled(self) -> ProviderError {
         match self {
             Self::Temporary { request_id, .. } => ProviderError::Failed {
-                message: "the plan route was temporarily unavailable".to_owned(),
+                message: "the Codex backend was temporarily unavailable".to_owned(),
                 request_id,
             },
             Self::Unauthorized { request_id } => ProviderError::SignInRequired { request_id },
@@ -56,30 +58,61 @@ impl Failure {
     }
 }
 
+/// An error code the Codex backend documents a recovery for.
+fn known(code: &str) -> bool {
+    matches!(
+        code,
+        "usage_limit_reached"
+            | "usage_not_included"
+            | "rate_limit_exceeded"
+            | "server_is_overloaded"
+            | "slow_down"
+            | "unsupported_parameter"
+            | "token_expired"
+    )
+}
+
+/// The machine-readable code of an error object: its `code`, or its `type`
+/// when that names a Codex error the backend reports without a code.
+pub(super) fn error_code(error: &Value) -> Option<String> {
+    let field = |name: &str| error.get(name).and_then(Value::as_str);
+    field("code")
+        .or_else(|| field("type").filter(|kind| known(kind)))
+        .map(str::to_owned)
+}
+
+/// When a usage limit resets: `resets_at` in seconds since the epoch.
+pub(super) fn resets_at(error: &Value) -> Option<DateTime<Utc>> {
+    DateTime::from_timestamp(error.get("resets_at")?.as_i64()?, 0)
+}
+
 /// An answer with a status other than success, before any stream.
 pub(super) fn refusal(status: u16, body: &[u8], request_id: Option<String>) -> Failure {
     let error = serde_json::from_slice::<Value>(body)
         .ok()
         .and_then(|body| body.get("error").cloned());
-    let field = |name: &str| {
-        error
-            .as_ref()
-            .and_then(|error| error.get(name))
-            .and_then(Value::as_str)
-            .map(str::to_owned)
-    };
-    if let Some(code) = field("code") {
-        return coded(&code, field("param"), request_id);
+    let code = error.as_ref().and_then(error_code);
+    if status == 401 {
+        return Failure::Unauthorized { request_id };
     }
-    match status {
-        401 => Failure::Unauthorized { request_id },
-        403 => Failure::NotAllowed { request_id },
-        503 => Failure::Temporary {
+    if let (Some(error), Some(code)) = (&error, code.as_deref().filter(|code| known(code))) {
+        let param = error
+            .get("param")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        return coded(code, param, resets_at(error), request_id);
+    }
+    match (status, code) {
+        (429 | 500 | 502 | 503 | 504, _) => Failure::Temporary {
             unreachable: false,
             request_id,
         },
-        _ => Failure::Final(ProviderError::Failed {
-            message: format!("the plan route answered {status}"),
+        (403, None) => Failure::NotAllowed { request_id },
+        (_, code) => Failure::Final(ProviderError::Failed {
+            message: match code {
+                Some(code) => format!("the Codex backend refused the request with {code}"),
+                None => format!("the Codex backend answered {status}"),
+            },
             request_id,
         }),
     }
@@ -88,7 +121,7 @@ pub(super) fn refusal(status: u16, body: &[u8], request_id: Option<String>) -> F
 /// A stream that ended with `response.failed` or an `error` event.
 pub(super) fn response_failure(failure: ResponseFailure) -> Failure {
     match failure.code {
-        Some(code) => coded(&code, failure.param, failure.request_id),
+        Some(code) => coded(&code, failure.param, failure.resets_at, failure.request_id),
         None => Failure::Final(ProviderError::Failed {
             message: "the response failed without an error code".to_owned(),
             request_id: failure.request_id,
@@ -96,29 +129,28 @@ pub(super) fn response_failure(failure: ResponseFailure) -> Failure {
     }
 }
 
-/// The recovery for an error code. `subscription_sharing_route_not_supported`,
-/// `chatpass_v2_scope_not_authorized`,
-/// `chatpass_v2_invalid_authorization_context` and codes without a documented
-/// recovery fail without a retry.
-fn coded(code: &str, param: Option<String>, request_id: Option<String>) -> Failure {
+/// The recovery for an error code; codes without a known recovery fail
+/// without a retry.
+fn coded(
+    code: &str,
+    param: Option<String>,
+    resets_at: Option<DateTime<Utc>>,
+    request_id: Option<String>,
+) -> Failure {
     match code {
-        "subscription_sharing_user_not_eligible" => Failure::NotAllowed { request_id },
-        "subscription_sharing_usage_limit_exceeded" => Failure::Final(ProviderError::PlanLimit {
-            resets_at: None,
+        "usage_limit_reached" => Failure::Final(ProviderError::PlanLimit {
+            resets_at,
             request_id,
         }),
-        "subscription_sharing_usage_unavailable" | "subscription_sharing_user_unavailable" => {
-            Failure::Temporary {
-                unreachable: false,
-                request_id,
-            }
-        }
-        "subscription_sharing_unsupported_capability" => {
-            Failure::Final(ProviderError::Unsupported { param, request_id })
-        }
-        "subscription_sharing_invalid_user" => Failure::Unauthorized { request_id },
+        "usage_not_included" => Failure::NotAllowed { request_id },
+        "rate_limit_exceeded" | "server_is_overloaded" | "slow_down" => Failure::Temporary {
+            unreachable: false,
+            request_id,
+        },
+        "unsupported_parameter" => Failure::Final(ProviderError::Unsupported { param, request_id }),
+        "token_expired" => Failure::Unauthorized { request_id },
         _ => Failure::Final(ProviderError::Failed {
-            message: format!("the plan route refused the request with {code}"),
+            message: format!("the Codex backend refused the request with {code}"),
             request_id,
         }),
     }

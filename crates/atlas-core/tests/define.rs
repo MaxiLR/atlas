@@ -13,7 +13,7 @@ use atlas_core::Core;
 use atlas_core::protocol::{
     Anchor, Block, BlockContent, ChatRole, CoreError, CoreEvent, CoreRequest, CoreResponse,
     GenerationEvent, GenerationOutcome, GenerationTarget, GlossaryEntry, MessageState,
-    VersionStyle,
+    VersionStyle, WikipediaResult,
 };
 use atlas_core::provider::{FakeProvider, FakeScript, ProviderError, ProviderRequest, Task};
 use atlas_core::store::{NewChatMessage, NewSectionVersion, Store};
@@ -47,6 +47,8 @@ struct Harness {
     events: Arc<RecordingEvents>,
     /// The same database file, for laying the course down.
     store: Store,
+    /// The database file, for reading what is left under the store.
+    path: PathBuf,
     course: Uuid,
 }
 
@@ -74,6 +76,7 @@ impl Harness {
             provider,
             events,
             store,
+            path,
             course,
         };
         harness.insert_version(
@@ -175,6 +178,69 @@ impl Harness {
     fn requests(&self) -> Vec<ProviderRequest> {
         self.provider.requests()
     }
+
+    async fn delete(&self, entry_id: Uuid) -> Result<CoreResponse, CoreError> {
+        self.core
+            .handle(CoreRequest::DeleteGlossaryEntry { entry_id })
+            .await
+    }
+
+    async fn glossary_count(&self) -> u32 {
+        match self
+            .core
+            .handle(CoreRequest::OpenCourse {
+                course_id: self.course,
+            })
+            .await
+        {
+            Ok(CoreResponse::Course { course }) => course.glossary_count,
+            other => panic!("expected the course, got {other:?}"),
+        }
+    }
+
+    async fn exported_glossary(&self) -> Vec<GlossaryEntry> {
+        match self
+            .core
+            .handle(CoreRequest::GetExportDocument {
+                course_id: self.course,
+            })
+            .await
+        {
+            Ok(CoreResponse::ExportDocument { document }) => document.glossary,
+            other => panic!("expected the export document, got {other:?}"),
+        }
+    }
+
+    /// The stored row of an entry, read under the store: term, definition,
+    /// quote, Wikipedia result and deletion time.
+    fn raw_entry(&self, entry: Uuid) -> RawEntry {
+        rusqlite::Connection::open(&self.path)
+            .unwrap()
+            .query_row(
+                "SELECT term, definition, quote, wikipedia, deleted_at
+                 FROM glossary_entries WHERE id = ?1",
+                [entry.to_string()],
+                |row| {
+                    Ok(RawEntry {
+                        term: row.get(0)?,
+                        definition: row.get(1)?,
+                        quote: row.get(2)?,
+                        wikipedia: row.get(3)?,
+                        deleted_at: row.get(4)?,
+                    })
+                },
+            )
+            .unwrap()
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct RawEntry {
+    term: String,
+    definition: String,
+    quote: String,
+    wikipedia: Option<String>,
+    deleted_at: Option<String>,
 }
 
 fn prose(index: u32, text: &str) -> Block {
@@ -406,4 +472,89 @@ async fn an_entry_belongs_to_its_version_and_not_to_a_later_version_of_the_secti
     assert_eq!(again, first, "the first version keeps its own entry");
     assert_eq!(harness.requests().len(), 2, "with no request");
     assert_eq!(harness.glossary().await, vec![first, on_later]);
+}
+
+// -- deleting an entry --------------------------------------------------------
+
+const OTHER_TERM: &str = "iron and nickel";
+const THIRD_DEFINITION: &str = "Where the crust meets the mantle, about 35 km down under the \
+                                continents.";
+const WIKIPEDIA_SENTINEL: &str = "WIKIPEDIA-SENTINEL-71c4";
+
+fn other_anchor() -> Anchor {
+    Anchor {
+        version_id: LAYERS_V1,
+        block: 1,
+        quote: OTHER_TERM.to_owned(),
+    }
+}
+
+#[tokio::test]
+async fn a_deleted_entry_leaves_the_glossary_the_export_and_the_count_and_is_erased() {
+    let harness = Harness::new(provider([
+        Ok(DEFINITION.to_owned()),
+        Ok(SECOND_DEFINITION.to_owned()),
+        Ok(THIRD_DEFINITION.to_owned()),
+    ]));
+    let doomed = harness.define(anchor(LAYERS_V1)).await.expect("defined");
+    let kept = harness.define(other_anchor()).await.expect("defined");
+    harness
+        .store
+        .set_wikipedia(
+            doomed.id,
+            &WikipediaResult::Found {
+                title: TERM.to_owned(),
+                extract: WIKIPEDIA_SENTINEL.to_owned(),
+                url: "https://en.wikipedia.org/wiki/Moho".to_owned(),
+            },
+        )
+        .unwrap();
+    assert_eq!(harness.glossary_count().await, 2);
+    let kept_row = harness.raw_entry(kept.id);
+    harness.events.take();
+
+    assert_eq!(harness.delete(doomed.id).await, Ok(CoreResponse::Done));
+
+    assert_eq!(harness.events.take(), [], "no event: Done answers");
+    assert_eq!(harness.glossary().await, vec![kept.clone()]);
+    assert_eq!(harness.exported_glossary().await, vec![kept.clone()]);
+    assert_eq!(harness.glossary_count().await, 1);
+
+    // The row stays, tombstoned, with its content erased; the other entry's
+    // row is as it was.
+    let erased = harness.raw_entry(doomed.id);
+    assert!(erased.deleted_at.is_some(), "tombstoned: {erased:?}");
+    assert_eq!(
+        erased,
+        RawEntry {
+            term: String::new(),
+            definition: String::new(),
+            quote: String::new(),
+            wikipedia: None,
+            deleted_at: erased.deleted_at.clone(),
+        }
+    );
+    assert_eq!(harness.raw_entry(kept.id), kept_row);
+
+    // Defining the same passage again asks anew.
+    let again = harness.define(anchor(LAYERS_V1)).await.expect("defined");
+    assert_eq!(harness.requests().len(), 3, "a new request");
+    assert_ne!(again.id, doomed.id);
+    assert_eq!(again.definition, THIRD_DEFINITION);
+    assert_eq!(harness.glossary().await, vec![kept, again]);
+}
+
+#[tokio::test]
+async fn deleting_an_unknown_or_already_deleted_entry_is_not_found() {
+    let harness = Harness::new(provider([Ok(DEFINITION.to_owned())]));
+    let entry = harness.define(anchor(LAYERS_V1)).await.expect("defined");
+    assert_eq!(harness.delete(entry.id).await, Ok(CoreResponse::Done));
+
+    for id in [entry.id, Uuid::new_v4()] {
+        let answer = harness.delete(id).await;
+        assert!(
+            matches!(answer, Err(CoreError::NotFound { .. })),
+            "expected not found for {id}, got {answer:?}"
+        );
+    }
 }

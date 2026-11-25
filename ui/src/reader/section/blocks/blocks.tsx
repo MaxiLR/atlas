@@ -9,19 +9,18 @@ import {
 } from "react";
 
 import { CatalogVisual } from "@/catalog/catalog-visual";
-import { CheckPlaceContext } from "@/catalog/components/check-question/check-place";
 import { CaptionInFrame, FrameDescription } from "@/catalog/frame-context";
 import { checkVisualSpec } from "@/catalog/visual-spec";
 import { Figure } from "@/components/ui/figure";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { BlockContent } from "@/core/generated/BlockContent";
 import type { BlockKind } from "@/core/generated/BlockKind";
-import type { CheckQuestion } from "@/core/generated/CheckQuestion";
 import type { Citation } from "@/core/generated/Citation";
 import type { Source } from "@/core/generated/Source";
 import type { ShownBlock } from "@/store";
 import { unknownTag } from "@/store/unknown-tag";
 
+import { Check, type CheckBlock } from "./check-block";
 import type { Mark } from "./markdown-plugins";
 import { Prose, type MarkProps } from "./prose";
 import { RegistryEntry } from "./registry-entry";
@@ -159,56 +158,6 @@ function captionOf(spec: unknown, description: string | null): string {
     if (typeof caption === "string") return caption;
   }
   return description ?? "";
-}
-
-/**
- * Where the check block sits: its stored version (null while written) and
- * index, and whether its questions can be answered there.
- */
-interface CheckBlock {
-  versionId: string | null;
-  block: number;
-  answerable: boolean;
-}
-
-function Check({
-  questions,
-  ...at
-}: CheckBlock & { questions: CheckQuestion[] }) {
-  return (
-    <>
-      <h2>{questions.length === 1 ? "Check question" : "Check questions"}</h2>
-      {questions.map((question) => (
-        <CheckEntry key={question.index} question={question} {...at} />
-      ))}
-    </>
-  );
-}
-
-function CheckEntry({
-  question,
-  versionId,
-  block,
-  answerable,
-}: CheckBlock & { question: CheckQuestion }) {
-  const { stem, options, index, answer } = question;
-  const props = useMemo(
-    () => ({ stem, options: options.map((text) => ({ text })) }),
-    [stem, options],
-  );
-  const place = useMemo(
-    () => ({ versionId, block, question: index, answer }),
-    [versionId, block, index, answer],
-  );
-  // Outside a place to answer it, the registry shows the stem and options.
-  if (!answerable) {
-    return <RegistryEntry type="check-question" props={props} />;
-  }
-  return (
-    <CheckPlaceContext value={place}>
-      <RegistryEntry type="check-question" props={props} />
-    </CheckPlaceContext>
-  );
 }
 
 function Complete({

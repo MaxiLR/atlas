@@ -174,6 +174,13 @@ components:
     typography: "{typography.interface}"
     rounded: "{rounded.panel}"
     padding: "16px"
+  notice:
+    backgroundColor: "{colors.raised}"
+    textColor: "{colors.body}"
+    typography: "{typography.interface}"
+    rounded: "{rounded.option}"
+    width: "356px"
+    padding: "14px 12px 14px 16px"
 ---
 
 # Design System: Atlas
@@ -337,7 +344,8 @@ canvas (panel at 1.055:1, raised up to 1.12:1, capped at white in the light
 theme), and from hairlines. Panels and
 figures have a hairline edge and no shadow. Only floating surfaces (menus,
 popovers, dialogs, sheets and the narrow overlays of the rail and side panel)
-take the soft shadow, together with a stronger hairline ring.
+take the soft shadow, together with a stronger hairline ring. Notices float
+too, under the softer Float, soft.
 
 ### Shadow Vocabulary
 
@@ -345,6 +353,10 @@ take the soft shadow, together with a stronger hairline ring.
   `0 2px 32px color-mix(in oklab, canvas 25%, transparent), 0 8px 24px color-mix(in oklab, canvas 35%, transparent)`;
   light: the same in heading ink at 8 % and 10 %): under floating surfaces
   only.
+- **Float, soft** (dark: `0 4px 16px color-mix(in oklab, canvas 40%, transparent)`;
+  light: the same in heading ink at 8 %): under notices only. The full Float
+  reads heavier than the rest of the window for a surface that stays up while
+  the candidate keeps working.
 
 ### Named Rules
 
@@ -417,6 +429,55 @@ The signature the world lends, used in lessons and in the index alike.
   corners for menus and 12 px for popovers.
 - **Motion:** a 100 ms fade with a 0.98 zoom from the trigger's side; none
   under reduced motion.
+
+### Deleting
+
+**The Confirm Rule.** A confirm dialog guards only a higher-risk delete, such
+as a course. A glossary entry or a side chat can be recreated, so it is deleted
+at once and for good: no dialog, no Undo, no notice. The outcome shows in
+place: the row leaves its list, the dotted underline or the margin mark leaves
+the text, and the counts drop.
+
+- **Rows:** each glossary entry and side-chat row keeps a ⋯ ghost icon button
+  at its top right, opening the course row's menu with one item, the trash
+  icon in Red. The menu's second click is the only guard.
+- **Open item:** the definition popover's foot and an open side chat's header
+  carry a 28 px ghost icon button with the trash icon in Support Grey, its name
+  as a tooltip on hover and focus.
+- **Focus afterwards:** in a list, the next row, else the previous one, else
+  the empty message; from the popover, the passage the term was in.
+
+### Notices
+
+Shadcn's Sonner, mounted once for the whole window.
+
+- **Place:** bottom right, 16 px from the window's right edge and 16 px above
+  whatever the window ends with: its bottom edge, or in the reader the top of
+  the 64 px foot, so a notice never covers Next. Never the top of the window,
+  where the bar and the traffic lights are. 356 px wide, never wider than the
+  window less 32 px.
+- **Style:** Raised Slate, a strong hairline ring, Float, soft; 8 px corners
+  like a menu. Padding 14 px top and bottom, 16 px left.
+- **Anatomy:** a title row with a 14 px icon in Support Grey, the title in
+  13 px at 510 in Cool White and a 24 px ghost Dismiss at the right; the reason
+  under it in 13 px Support Grey, aligned with the title; an action, when there
+  is one, under the reason as a ghost button in Cool White, its text aligned
+  with the reason.
+- **State:** `CircleCheck` for a success, `OctagonX` for an error, both in
+  Support Grey; no green or red. An error is announced as an alert, a success
+  as a status.
+- **Copy:** the title is a short fragment with no full stop ("Session could
+  not be read"); the reason is the core's sentence or the file name.
+- **Persistence:** an error stays until dismissed or until its failure
+  resolves; a success closes after Sonner's default time and stays while
+  hovered or focused. Every notice carries Dismiss. No notice is a modal.
+- **Motion:** rises 8 px and fades in over 200 ms ease-out, and leaves the
+  same way; none under reduced motion.
+
+**The Notice Rule.** A notice reports an outcome the candidate cannot see where
+they are looking. An outcome already visible in place gets no notice, and a
+failure that has a place on screen stays there: placement steps, section
+status, side-chat replies, Define and the library keep their inline failures.
 
 ### Navigation: the Route Line
 

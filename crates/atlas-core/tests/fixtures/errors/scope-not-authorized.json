@@ -1,8 +1,0 @@
-{
-  "error": {
-    "message": "The signed permission context does not authorize this operation.",
-    "type": "permission_error",
-    "param": null,
-    "code": "chatpass_v2_scope_not_authorized"
-  }
-}

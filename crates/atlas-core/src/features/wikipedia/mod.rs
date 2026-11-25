@@ -16,7 +16,7 @@ use uuid::Uuid;
 
 use super::Features;
 use crate::CoreDeps;
-use crate::protocol::{CoreError, WikipediaResult};
+use crate::protocol::{CoreError, GlossaryEntry, WikipediaResult};
 use crate::store::Store;
 
 /// Wikimedia asks API clients to name themselves.
@@ -59,27 +59,35 @@ impl Feature {
     }
 
     /// The entry's stored result, or the summary of its term, stored unless
-    /// the lookup failed.
+    /// the lookup failed. A lookup that finishes for an entry deleted
+    /// meanwhile is dropped: nothing is written and the entry is not found.
     pub(crate) async fn lookup(
         &self,
         _cx: &Features,
         entry_id: Uuid,
     ) -> Result<WikipediaResult, CoreError> {
-        let entry = self
-            .store
-            .glossary_entry(entry_id)?
-            .ok_or_else(|| CoreError::NotFound {
-                what: format!("glossary entry {entry_id}"),
-            })?;
+        let entry = self.entry(entry_id)?;
         if let Some(stored) = entry.wikipedia {
             return Ok(stored);
         }
         let result = match self.summary(&entry.term).await {
             Ok(result) => result,
-            Err(error) => return Ok(WikipediaResult::Failed { error }),
+            Err(error) => {
+                self.entry(entry_id)?;
+                return Ok(WikipediaResult::Failed { error });
+            }
         };
+        // Stored only while the entry is live.
         self.store.set_wikipedia(entry_id, &result)?;
         Ok(result)
+    }
+
+    fn entry(&self, entry_id: Uuid) -> Result<GlossaryEntry, CoreError> {
+        self.store
+            .glossary_entry(entry_id)?
+            .ok_or_else(|| CoreError::NotFound {
+                what: format!("glossary entry {entry_id}"),
+            })
     }
 
     async fn summary(&self, term: &str) -> Result<WikipediaResult, CoreError> {

@@ -1,5 +1,5 @@
 //! The core's ports on the desktop: the system browser and the events the
-//! interface receives. The Keychain is in [`crate::keychain`].
+//! interface receives. The secret store is in [`crate::secrets`].
 
 use std::sync::mpsc::{Sender, channel};
 

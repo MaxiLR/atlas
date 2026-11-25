@@ -79,9 +79,27 @@ pub struct ProviderCitation {
     pub end: u32,
 }
 
+/// The plan's usage a response reported in its headers: its primary and its
+/// secondary window, each only when all its headers were readable.
+#[derive(Debug, Clone, PartialEq)]
+pub struct UsageSnapshot {
+    pub primary: Option<WindowUsage>,
+    pub secondary: Option<WindowUsage>,
+}
+
+/// One window of a [`UsageSnapshot`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct WindowUsage {
+    /// The share used, from 0 to 1.
+    pub used: f64,
+    /// The window's length.
+    pub window_minutes: u64,
+    pub resets_at: DateTime<Utc>,
+}
+
 /// What a provider stream yields. A response counts only after `Completed`;
 /// a stream that ends without it is broken.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ProviderEvent {
     TextDelta(String),
     /// A web search is running.
@@ -96,6 +114,9 @@ pub enum ProviderEvent {
     Incomplete {
         reason: Option<String>,
     },
+    /// The response reported the plan's usage, before anything it streamed.
+    /// Only the usage meter reads it.
+    Usage(UsageSnapshot),
 }
 
 /// Why a provider call ended without a response. Each error a refusal of the
@@ -105,7 +126,7 @@ pub enum ProviderEvent {
 pub enum ProviderError {
     #[error("the stream ended before the response completed{}", for_request(.request_id))]
     Incomplete { request_id: Option<String> },
-    /// No reset time is inferred from the plan route's code.
+    /// The reset time is the one the Codex backend reports, when it does.
     #[error("the plan's usage limit is reached{}", for_request(.request_id))]
     PlanLimit {
         resets_at: Option<DateTime<Utc>>,
@@ -279,7 +300,8 @@ pub async fn complete_text(
                 )));
             }
             ProviderEvent::Retrying { .. } => text.clear(),
-            ProviderEvent::Searching | ProviderEvent::Citation(_) => {}
+            // Only the usage meter reads the plan's usage.
+            ProviderEvent::Searching | ProviderEvent::Citation(_) | ProviderEvent::Usage(_) => {}
         }
     }
     Err(ProviderError::Incomplete { request_id: None })

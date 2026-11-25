@@ -350,6 +350,48 @@ describe("placement", () => {
     await expectNoMarking();
   });
 
+  it("says what is happening while the next question is written, with the answer kept and locked", async () => {
+    const fake = renderApp("empty-library", { hold: ["AnswerPlacement"] });
+    await startCourse(fake.user);
+    await rate(fake.user);
+    const group = await question(stems[0]!);
+    const chosen = within(group).getByRole("radio", {
+      name: plateTectonicsQuestions[0]!.options[2],
+    });
+    await fake.user.click(chosen);
+    // Announced only if it appears in a live region that was already there.
+    const live = screen
+      .getByText(/Nothing is marked right or wrong here/)
+      .closest("[aria-live]");
+    await fake.user.click(screen.getByRole("button", { name: "Continue" }));
+
+    const status = await screen.findByRole("status");
+    expect(status).toBe(live);
+    expect(status).toHaveTextContent(
+      "Choosing what comes next from your answer.",
+    );
+    const locked = await question(stems[0]!);
+    for (const option of within(locked).getAllByRole("radio"))
+      expect(option).toBeDisabled();
+    expect(
+      within(locked).getByRole("radio", {
+        name: plateTectonicsQuestions[0]!.options[2],
+      }),
+    ).toBeChecked();
+    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+    await fake.user.keyboard("1");
+    expect(
+      within(locked).getByRole("radio", {
+        name: plateTectonicsQuestions[0]!.options[2],
+      }),
+    ).toBeChecked();
+
+    await fake.release();
+
+    expect(await question(stems[1]!)).toBeVisible();
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
   it("asks a fifth and a sixth question when placement goes on, and draws them as possible until asked", async () => {
     const fake = renderApp("placement-six-questions");
     await startCourse(fake.user);

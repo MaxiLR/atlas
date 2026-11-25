@@ -1,10 +1,14 @@
 //! The ChatGPT plan provider wired to the session, through `Core::handle`: the
 //! provider the shell builds, which takes its tokens from the plan login,
-//! against one local server for the authorisation server and the plan route
-//! (`/auth/…` and `/api/…` on `127.0.0.1`), with a secret store in memory, a
-//! browser that follows only local redirects, and a fake clock.
+//! against one local server for the authorisation server, the plan route and
+//! the usage endpoint (`/auth/…`, `/api/…` and `/chatgpt/…` on `127.0.0.1`),
+//! with a secret store in memory, a browser that follows only local
+//! redirects, and a fake clock.
+//!
+//! The Codex callback port is fixed, so each harness holds [`CALLBACK_PORT`]
+//! and the tests run one at a time.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -12,7 +16,7 @@ use std::time::Duration;
 use atlas_core::ports::{Browser, BrowserError, Clock, Endpoints};
 use atlas_core::protocol::{
     Account, CoreError, CoreEvent, CoreRequest, CoreResponse, Model, ModelList, PlanUsage, Session,
-    SignedOutReason,
+    SignedOutReason, UsageState,
 };
 use atlas_core::protocol::{Goal, PlacementAnswer, PlacementState, PlacementStep, SelfRating};
 use atlas_core::provider::{FakeProvider, FakeScript, Task};
@@ -26,7 +30,8 @@ use axum::extract::{Form, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Json, Redirect, Response};
 use axum::routing::{get, post};
-use jsonwebtoken::jwk::{Jwk, JwkSet, PublicKeyUse};
+use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use jsonwebtoken::{Algorithm, EncodingKey, Header};
 use serde_json::{Value, json};
 use tempfile::TempDir;
@@ -37,12 +42,29 @@ use uuid::Uuid;
 const EMAIL: &str = "grace@example.com";
 const SUBJECT: &str = "user-9Kd1";
 const KEY_ID: &str = "wiring-key-1";
+/// The workspace every access token names.
+const ACCOUNT: &str = "acct-wiring";
 
-const AUTHORIZE: &str = "/auth/api/accounts/authorize";
-const TOKEN: &str = "/auth/api/accounts/oauth/token";
-const REVOKE: &str = "/auth/oauth/revoke";
+const CODEX_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
+const AUTHORIZE: &str = "/auth/oauth/authorize";
+const TOKEN: &str = "/auth/oauth/token";
 const RESPONSES: &str = "/api/responses";
 const MODELS: &str = "/api/models";
+const USAGE: &str = "/chatgpt/backend-api/wham/usage";
+
+/// Held by every harness: sign-in listens on the one registered port.
+static CALLBACK_PORT: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// Waits a moment for an earlier test's sign-in to close its listener on the
+/// callback port.
+async fn callback_port_released() {
+    for _ in 0..200 {
+        if std::net::TcpListener::bind(("127.0.0.1", 1455)).is_ok() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
 
 /// The fake server's signing key. A test key, used nowhere else.
 const SIGNING_KEY: &str = "-----BEGIN PRIVATE KEY-----
@@ -105,21 +127,23 @@ impl Reply {
     }
 }
 
-/// A request to the plan route as the server received it.
+/// A request to the plan route or the usage endpoint as the server received
+/// it.
 #[derive(Debug, Clone)]
 struct Call {
     path: String,
     bearer: Option<String>,
+    /// The `chatgpt-account-id` header.
+    account: Option<String>,
 }
 
 #[derive(Default)]
 struct ServerState {
     /// The token endpoint's form of every call, in order.
     token_calls: Vec<HashMap<String, String>>,
-    registered: Vec<String>,
-    codes: HashMap<String, (String, String)>,
-    /// Refresh tokens still valid, with their client id.
-    live_refresh: HashMap<String, String>,
+    codes: HashSet<String>,
+    /// Refresh tokens still valid.
+    live_refresh: HashSet<String>,
     /// Every access token issued, in order.
     access_tokens: Vec<String>,
     counter: u32,
@@ -144,14 +168,13 @@ impl ServerInner {
         self.state.lock().expect("server lock poisoned")
     }
 
-    fn id_token(&self, client_id: &str, nonce: &str) -> String {
+    fn id_token(&self) -> String {
         let now = self.clock.now().timestamp();
         let claims = json!({
             "iss": self.issuer(),
             "sub": SUBJECT,
             "email": EMAIL,
-            "aud": client_id,
-            "nonce": nonce,
+            "aud": CODEX_CLIENT_ID,
             "iat": now,
             "exp": now + 3600,
         });
@@ -161,12 +184,22 @@ impl ServerInner {
         jsonwebtoken::encode(&header, &claims, &key).expect("a signed ID token")
     }
 
-    /// Issues a fresh access and refresh token for `client_id`.
-    fn issue(&self, state: &mut ServerState, client_id: String) -> (String, String) {
+    /// Issues a fresh access and refresh token. The access token is an
+    /// unsigned JWT naming the account, as OpenAI's do.
+    fn issue(&self, state: &mut ServerState) -> (String, String) {
         state.counter += 1;
-        let access = format!("access-{}", state.counter);
+        let claims = json!({
+            "https://api.openai.com/auth": { "chatgpt_account_id": ACCOUNT },
+            "n": state.counter,
+        });
+        let access = [
+            URL_SAFE_NO_PAD.encode(json!({ "alg": "none" }).to_string()),
+            URL_SAFE_NO_PAD.encode(claims.to_string()),
+            "signature".to_owned(),
+        ]
+        .join(".");
         let refresh = format!("refresh-{}", state.counter);
-        state.live_refresh.insert(refresh.clone(), client_id);
+        state.live_refresh.insert(refresh.clone());
         state.access_tokens.push(access.clone());
         (access, refresh)
     }
@@ -176,26 +209,7 @@ fn oauth_error(error: &str) -> Response {
     (StatusCode::BAD_REQUEST, Json(json!({ "error": error }))).into_response()
 }
 
-async fn discovery(State(server): State<Arc<ServerInner>>) -> Json<Value> {
-    let base = server.base.as_str().trim_end_matches('/');
-    Json(json!({
-        "issuer": server.issuer(),
-        "authorization_endpoint": format!("{base}{AUTHORIZE}"),
-        "token_endpoint": format!("{base}{TOKEN}"),
-        "jwks_uri": format!("{base}/auth/.well-known/jwks.json"),
-        "revocation_endpoint": format!("{base}{REVOKE}"),
-    }))
-}
-
-async fn jwks() -> Json<Value> {
-    let key = EncodingKey::from_rsa_pem(SIGNING_KEY.as_bytes()).expect("a valid test key");
-    let mut jwk = Jwk::from_encoding_key(&key, Algorithm::RS256).expect("a public JWK");
-    jwk.common.key_id = Some(KEY_ID.to_owned());
-    jwk.common.public_key_use = Some(PublicKeyUse::Signature);
-    Json(serde_json::to_value(JwkSet { keys: vec![jwk] }).expect("a JWK set"))
-}
-
-/// Approves at once, granting every scope asked for.
+/// Approves at once.
 async fn authorize(
     State(server): State<Arc<ServerInner>>,
     Query(params): Query<HashMap<String, String>>,
@@ -203,30 +217,13 @@ async fn authorize(
     let param = |name: &str| params.get(name).cloned().unwrap_or_default();
     let mut callback = Url::parse(&param("redirect_uri")).expect("a redirect URI");
     let mut state = server.state();
-    let requested = param("client_id");
-    let (client_id, named) = if requested == "dynamic_agent_client" {
-        state.counter += 1;
-        let issued = format!("oaiapp_wiring_{}", state.counter);
-        state.registered.push(issued.clone());
-        (issued.clone(), Some(issued))
-    } else {
-        (requested, None)
-    };
     state.counter += 1;
     let code = format!("code-{}", state.counter);
-    state
-        .codes
-        .insert(code.clone(), (client_id, param("nonce")));
-    {
-        let mut pairs = callback.query_pairs_mut();
-        pairs
-            .append_pair("code", &code)
-            .append_pair("scope", &param("scope"))
-            .append_pair("state", &param("state"));
-        if let Some(client_id) = named {
-            pairs.append_pair("client_id", &client_id);
-        }
-    }
+    state.codes.insert(code.clone());
+    callback
+        .query_pairs_mut()
+        .append_pair("code", &code)
+        .append_pair("state", &param("state"));
     Redirect::to(callback.as_str()).into_response()
 }
 
@@ -237,49 +234,39 @@ async fn token(
     let field = |name: &str| form.get(name).cloned().unwrap_or_default();
     let mut state = server.state();
     state.token_calls.push(form.clone());
+    if field("client_id") != CODEX_CLIENT_ID {
+        return oauth_error("invalid_client");
+    }
     match field("grant_type").as_str() {
         "authorization_code" => {
-            let Some((client_id, nonce)) = state.codes.remove(&field("code")) else {
+            if !state.codes.remove(&field("code")) {
                 return oauth_error("invalid_grant");
-            };
-            let id_token = server.id_token(&client_id, &nonce);
-            let (access, refresh) = server.issue(&mut state, client_id);
+            }
+            let (access, refresh) = server.issue(&mut state);
             Json(json!({
                 "access_token": access,
                 "refresh_token": refresh,
-                "id_token": id_token,
+                "id_token": server.id_token(),
                 "token_type": "Bearer",
                 "expires_in": 3600,
-                "scope": "openid email profile offline_access chatgpt.tokens.use.direct",
             }))
             .into_response()
         }
         "refresh_token" => {
-            let Some(client_id) = state.live_refresh.remove(&field("refresh_token")) else {
+            if !state.live_refresh.remove(&field("refresh_token")) {
                 return oauth_error("invalid_grant");
-            };
-            let (access, refresh) = server.issue(&mut state, client_id);
+            }
+            let (access, refresh) = server.issue(&mut state);
             Json(json!({
                 "access_token": access,
                 "refresh_token": refresh,
                 "token_type": "Bearer",
                 "expires_in": 3600,
-                "scope": "openid email profile offline_access chatgpt.tokens.use.direct",
             }))
             .into_response()
         }
         _ => oauth_error("unsupported_grant_type"),
     }
-}
-
-async fn revoke(
-    State(server): State<Arc<ServerInner>>,
-    Form(form): Form<HashMap<String, String>>,
-) -> StatusCode {
-    if let Some(token) = form.get("token") {
-        server.state().live_refresh.remove(token);
-    }
-    StatusCode::OK
 }
 
 fn bearer(headers: &HeaderMap) -> Option<String> {
@@ -288,6 +275,17 @@ fn bearer(headers: &HeaderMap) -> Option<String> {
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "))
         .map(str::to_owned)
+}
+
+fn call(path: &str, headers: &HeaderMap) -> Call {
+    Call {
+        path: path.to_owned(),
+        bearer: bearer(headers),
+        account: headers
+            .get("chatgpt-account-id")
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned),
+    }
 }
 
 fn reply(reply: Reply) -> Response {
@@ -300,10 +298,7 @@ fn reply(reply: Reply) -> Response {
 }
 
 async fn models(State(server): State<Arc<ServerInner>>, headers: HeaderMap) -> Response {
-    server.state().calls.push(Call {
-        path: MODELS.to_owned(),
-        bearer: bearer(&headers),
-    });
+    server.state().calls.push(call(MODELS, &headers));
     reply(Reply::json(
         200,
         &json!({
@@ -322,16 +317,27 @@ async fn responses(
     _body: Bytes,
 ) -> Response {
     let mut state = server.state();
-    state.calls.push(Call {
-        path: RESPONSES.to_owned(),
-        bearer: bearer(&headers),
-    });
+    state.calls.push(call(RESPONSES, &headers));
     let next = if state.responses.len() > 1 {
         state.responses.pop_front()
     } else {
         state.responses.front().cloned()
     };
     reply(next.unwrap_or_else(|| Reply::sse(&completed())))
+}
+
+/// The usage endpoint: always the five-hour and weekly windows.
+async fn usage(State(server): State<Arc<ServerInner>>, headers: HeaderMap) -> Response {
+    server.state().calls.push(call(USAGE, &headers));
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/usage/five-hour-weekly.json"
+    );
+    reply(Reply {
+        status: 200,
+        content_type: "application/json",
+        body: std::fs::read_to_string(path).expect("the usage fixture"),
+    })
 }
 
 struct FakeServer {
@@ -350,13 +356,11 @@ impl FakeServer {
             state: Mutex::new(ServerState::default()),
         });
         let app = Router::new()
-            .route("/auth/.well-known/openid-configuration", get(discovery))
-            .route("/auth/.well-known/jwks.json", get(jwks))
             .route(AUTHORIZE, get(authorize))
             .route(TOKEN, post(token))
-            .route(REVOKE, post(revoke))
             .route(MODELS, get(models))
             .route(RESPONSES, post(responses))
+            .route(USAGE, get(usage))
             .with_state(inner.clone());
         tokio::spawn(async move {
             axum::serve(listener, app)
@@ -397,6 +401,17 @@ impl FakeServer {
             .iter()
             .filter(|call| call.path == path)
             .map(|call| call.bearer.clone())
+            .collect()
+    }
+
+    /// Every call to `path`, in order.
+    fn calls(&self, path: &str) -> Vec<Call> {
+        self.inner
+            .state()
+            .calls
+            .iter()
+            .filter(|call| call.path == path)
+            .cloned()
             .collect()
     }
 }
@@ -537,12 +552,16 @@ struct Harness {
     course_id: Uuid,
     question_id: Uuid,
     _dir: TempDir,
+    /// Released when the test ends, for the next harness to sign in.
+    _port: tokio::sync::MutexGuard<'static, ()>,
 }
 
 impl Harness {
     /// The core as the shell builds it by default: the plan provider on the
     /// server's endpoints, with no token source of its own.
     async fn start() -> Self {
+        let port = CALLBACK_PORT.lock().await;
+        callback_port_released().await;
         let dir = tempfile::tempdir().expect("a temp dir");
         let clock = Arc::new(FakeClock::default());
         let server = FakeServer::start(clock.clone()).await;
@@ -573,6 +592,7 @@ impl Harness {
             seen: Mutex::new(Vec::new()),
             core,
             _dir: dir,
+            _port: port,
         }
     }
 
@@ -737,6 +757,61 @@ async fn a_completed_sign_in_reports_the_plan_list_without_a_list_request() {
 }
 
 // ---------------------------------------------------------------------------
+// The usage meter reads with the plan login
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn a_completed_sign_in_awaits_one_usage_reading_with_the_plan_login() {
+    let harness = Harness::start().await;
+
+    assert_eq!(harness.sign_in().await, signed_in(PlanUsage::On));
+    harness
+        .event(|event| {
+            matches!(
+                event,
+                CoreEvent::UsageChanged {
+                    usage: UsageState::Connected { .. }
+                }
+            )
+        })
+        .await;
+
+    let events = harness.events();
+    let signed = events
+        .iter()
+        .position(|event| {
+            event
+                == &CoreEvent::SessionChanged {
+                    session: signed_in(PlanUsage::On),
+                }
+        })
+        .expect("the session change is reported");
+    let usage: Vec<&UsageState> = events[signed..]
+        .iter()
+        .filter_map(|event| match event {
+            CoreEvent::UsageChanged { usage } => Some(usage),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(usage[0], &UsageState::AwaitingReading, "{events:?}");
+    match usage[1] {
+        UsageState::Connected { reading } => {
+            let names: Vec<&str> = reading.windows.iter().map(|w| w.name.as_str()).collect();
+            assert_eq!(names, ["7d", "5h"]);
+            assert_eq!(reading.stale, None);
+        }
+        other => panic!("expected the reading, got {other:?}"),
+    }
+    // Long enough for a second reading, were one taken.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let reads = harness.server.calls(USAGE);
+    assert_eq!(reads.len(), 1, "one reading: {reads:?}");
+    let token = harness.server.access_tokens()[0].clone();
+    assert_eq!(reads[0].bearer.as_deref(), Some(token.as_str()));
+    assert_eq!(reads[0].account.as_deref(), Some(ACCOUNT));
+}
+
+// ---------------------------------------------------------------------------
 // Generations carry the session's tokens
 // ---------------------------------------------------------------------------
 
@@ -803,7 +878,7 @@ async fn a_not_allowed_refusal_keeps_the_session_signed_in_as_not_allowed() {
     harness.signed_in().await;
     harness
         .server
-        .answer_responses([Reply::json(403, &fixture_error("user-not-eligible.json"))]);
+        .answer_responses([Reply::json(403, &fixture_error("usage-not-included.json"))]);
 
     assert_eq!(harness.generate().await, Err(CoreError::PlanNotAllowed));
 

@@ -2,24 +2,19 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-/// The usage meter, which has its own sign-in and fails without consequence.
+/// The usage meter, read with the plan login; a failed reading has no
+/// consequence for anything else.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(tag = "type", rename_all_fields = "camelCase")]
 pub enum UsageState {
-    /// The meter is empty until the candidate connects it.
-    NotConnected,
-    /// The device code to enter on OpenAI's page, until `expires_at`.
-    Connecting {
-        user_code: String,
-        verification_url: String,
-        expires_at: DateTime<Utc>,
-    },
+    /// There is no plan login to read with: the meter is empty.
+    NoPlanLogin,
+    /// Signed in, and no reading has arrived yet.
+    AwaitingReading,
     /// The last reading, stale when a later one failed.
     Connected { reading: UsageReading },
-    /// Connected, but the first reading failed: there are no windows.
+    /// Signed in, but the first reading failed: there are no windows.
     FirstReadFailed { reason: UsageFailure },
-    /// The usage login ended.
-    SignedOut,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -57,7 +52,7 @@ pub enum UsageLevel {
     Limit,
 }
 
-/// Why a usage reading or sign-in failed: a kind, never a response body.
+/// Why a usage reading failed: a kind, never a response body.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub enum UsageFailure {
     Network,

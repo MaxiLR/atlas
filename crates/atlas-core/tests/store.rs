@@ -4,21 +4,22 @@
 
 mod support;
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use atlas_core::domain::conventions::{Convention, ConventionKind, ConventionOrigin};
-use atlas_core::domain::course_map::{Concept, MapEntry};
+use atlas_core::domain::course_map::{Concept, CourseMap, MapEntry};
 use atlas_core::domain::ladder::RungId;
 use atlas_core::domain::profile::{Knowledge, Misconception};
 use atlas_core::domain::questions::{KeyedCheckQuestion, KeyedOption, KeyedPlacementQuestion};
 use atlas_core::domain::record::{RecordStatus, SectionRecord, StoredRecord, TaughtConcept};
-use atlas_core::index_tree::TreeSection;
+use atlas_core::index_tree::{IndexTree, TreeChapter, TreeSection};
 use atlas_core::ports::Clock;
 use atlas_core::protocol::{
-    Anchor, Block, BlockContent, ChatRole, CourseStage, Goal, MessageState, PlacementAnswer,
-    SelfRating, Source, VersionStyle, WikipediaResult,
+    Anchor, Block, BlockContent, ChatRole, Citation, CourseStage, Goal, MessageState,
+    PlacementAnswer, SelfRating, Source, VersionStyle, WikipediaResult,
 };
 use atlas_core::store::{
     CheckBlock, ConventionOutcome, NewChatMessage, NewGlossaryEntry, NewSectionVersion, RecordKind,
@@ -26,6 +27,7 @@ use atlas_core::store::{
 };
 use atlas_core::testing::FakeClock;
 use chrono::{DateTime, TimeZone, Utc};
+use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension};
 use support::sample_course::{
     CHAPTER_MOTION, KINDS_OF_BOUNDARY, LAYERS, LAYERS_V1, LITHOSPHERE, LITHOSPHERE_V1, MICROPLATES,
@@ -1378,13 +1380,10 @@ fn local_settings_persist_and_are_not_syncable_records() {
     let fixture = Fixture::new();
     assert_eq!(fixture.store.selected_model().unwrap(), None);
     fixture.store.set_selected_model(Some("gpt-5")).unwrap();
-    let host = fixture.store.host_id().unwrap();
-    assert_eq!(fixture.store.host_id().unwrap(), host);
     drop(fixture.store);
 
     let store = Store::open(&fixture.path, fixture.clock.clone()).unwrap();
     assert_eq!(store.selected_model().unwrap().as_deref(), Some("gpt-5"));
-    assert_eq!(store.host_id().unwrap(), host);
     store.set_selected_model(None).unwrap();
     assert_eq!(store.selected_model().unwrap(), None);
 
@@ -1402,5 +1401,279 @@ fn local_settings_persist_and_are_not_syncable_records() {
             !columns.iter().any(|column| column.contains("host")),
             "{table} has {columns:?}"
         );
+    }
+}
+
+// Deleting a glossary entry or a side chat.
+
+/// A second course with one chapter of one section and a version of it.
+fn store_other_course(store: &Store) -> (Uuid, Uuid) {
+    let course = store.create_course("Volcanoes").unwrap().id;
+    let section = Uuid::new_v4();
+    let tree = IndexTree {
+        chapters: vec![TreeChapter {
+            id: Uuid::new_v4(),
+            title: "Volcanoes".to_owned(),
+            sections: vec![TreeSection {
+                id: section,
+                title: "What a volcano is".to_owned(),
+                line: "What a volcano is.".to_owned(),
+                read: true,
+                children: Vec::new(),
+            }],
+        }],
+    };
+    let map = CourseMap {
+        concepts: Vec::new(),
+        entries: Vec::new(),
+    };
+    store.insert_index(course, &tree, &map, &[]).unwrap();
+    let version = Uuid::new_v4();
+    store
+        .insert_version(&new_version(version, section, simple_record("vent")), &[])
+        .unwrap();
+    (course, version)
+}
+
+fn message(role: ChatRole, text: &str) -> NewChatMessage {
+    NewChatMessage {
+        role,
+        text: text.to_owned(),
+        state: MessageState::Complete,
+        citations: vec![Citation {
+            block: 0,
+            start: 0,
+            end: 4,
+            source: 1,
+        }],
+        sources: vec![Source {
+            number: 1,
+            url: "https://example.org/mantle".to_owned(),
+            title: "Mantle".to_owned(),
+        }],
+    }
+}
+
+/// Every row of the glossary and side-chat tables, column by column, keyed
+/// by table and id.
+type Rows = BTreeMap<(String, String), BTreeMap<String, Value>>;
+
+fn glossary_and_chat_rows(connection: &Connection) -> Rows {
+    let mut rows = Rows::new();
+    for table in ["glossary_entries", "side_chats", "side_chat_messages"] {
+        let mut statement = connection
+            .prepare(&format!("SELECT * FROM {table}"))
+            .unwrap();
+        #[allow(clippy::useless_conversion)]
+        let columns: Vec<String> = statement
+            .column_names()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let mut query = statement.query([]).unwrap();
+        while let Some(row) = query.next().unwrap() {
+            let values: BTreeMap<String, Value> = columns
+                .iter()
+                .enumerate()
+                .map(|(at, column)| (column.clone(), row.get::<_, Value>(at).unwrap()))
+                .collect();
+            let Value::Text(id) = values["id"].clone() else {
+                panic!("{table} has an id that is not text");
+            };
+            rows.insert((table.to_owned(), id), values);
+        }
+    }
+    rows
+}
+
+fn text(value: &str) -> Value {
+    Value::Text(value.to_owned())
+}
+
+fn stored_time(value: &Value) -> DateTime<Utc> {
+    match value {
+        Value::Text(text) => parse_time(text),
+        other => panic!("not a time: {other:?}"),
+    }
+}
+
+#[test]
+fn deleting_an_entry_or_a_chat_tombstones_and_erases_it_and_leaves_every_other_row() {
+    let fixture = Fixture::new();
+    let store = &fixture.store;
+    let (course, _) = store_sample(store);
+    let (other_course, other_version) = store_other_course(store);
+    let add_entry = |course: Uuid, version: Uuid, term: &str| {
+        store
+            .add_glossary_entry(&NewGlossaryEntry {
+                course,
+                term: term.to_owned(),
+                definition: format!("What {term} means."),
+                anchor: anchor(version, term),
+            })
+            .unwrap()
+            .id
+    };
+    let doomed_entry = add_entry(course, LAYERS_V1, "mantle");
+    store
+        .set_wikipedia(
+            doomed_entry,
+            &WikipediaResult::Found {
+                title: "Mantle (geology)".to_owned(),
+                extract: "A layer between the crust and the core.".to_owned(),
+                url: "https://en.wikipedia.org/wiki/Mantle_(geology)".to_owned(),
+            },
+        )
+        .unwrap();
+    let kept_entry = add_entry(course, LAYERS_V1, "crust");
+    let other_entry = add_entry(other_course, other_version, "vent");
+
+    let doomed_chat = store
+        .start_side_chat(course, Some(&anchor(LAYERS_V1, "mantle")))
+        .unwrap()
+        .id;
+    let asked = store
+        .add_chat_message(doomed_chat, &message(ChatRole::Candidate, "Why?"))
+        .unwrap();
+    let replied = store
+        .add_chat_message(doomed_chat, &message(ChatRole::Agent, "Heat."))
+        .unwrap();
+    let kept_chat = store.start_side_chat(course, None).unwrap().id;
+    store
+        .add_chat_message(kept_chat, &message(ChatRole::Candidate, "How deep?"))
+        .unwrap();
+    let other_chat = store
+        .start_side_chat(other_course, Some(&anchor(other_version, "vent")))
+        .unwrap()
+        .id;
+    store
+        .add_chat_message(other_chat, &message(ChatRole::Candidate, "How hot?"))
+        .unwrap();
+    // A message deleted before keeps its deletion time and is erased too.
+    let earlier = fixture.advance();
+    assert!(store.delete(RecordKind::ChatMessage, replied.id).unwrap());
+
+    let raw = fixture.raw();
+    let before = glossary_and_chat_rows(&raw);
+    let deleted_at = fixture.advance();
+
+    store.delete_glossary_entry(doomed_entry).unwrap();
+    store.delete_side_chat(doomed_chat).unwrap();
+
+    let after = glossary_and_chat_rows(&raw);
+    assert_eq!(
+        after.keys().collect::<Vec<_>>(),
+        before.keys().collect::<Vec<_>>(),
+        "no row is removed or added"
+    );
+    let doomed = |table: &str, id: Uuid| (table.to_owned(), id.to_string());
+    #[allow(clippy::type_complexity)]
+    let erased: [(&str, Uuid, &[(&str, Value)]); 4] = [
+        (
+            "glossary_entries",
+            doomed_entry,
+            &[
+                ("term", text("")),
+                ("definition", text("")),
+                ("quote", text("")),
+                ("wikipedia", Value::Null),
+            ],
+        ),
+        ("side_chats", doomed_chat, &[("quote", text(""))]),
+        (
+            "side_chat_messages",
+            asked.id,
+            &[
+                ("text", text("")),
+                ("citations", text("")),
+                ("sources", text("")),
+            ],
+        ),
+        (
+            "side_chat_messages",
+            replied.id,
+            &[
+                ("text", text("")),
+                ("citations", text("")),
+                ("sources", text("")),
+            ],
+        ),
+    ];
+    for (key, row) in &after {
+        let old = &before[key];
+        let Some((table, id, columns)) = erased
+            .iter()
+            .find(|(table, id, _)| *key == doomed(table, *id))
+        else {
+            assert_eq!(row, old, "{key:?} is untouched");
+            continue;
+        };
+        assert_eq!(row["created_at"], old["created_at"], "{key:?}");
+        assert_eq!(stored_time(&row["updated_at"]), deleted_at, "{key:?}");
+        let tombstone = if *id == replied.id {
+            earlier
+        } else {
+            deleted_at
+        };
+        assert_eq!(stored_time(&row["deleted_at"]), tombstone, "{key:?}");
+        for (column, value) in *columns {
+            assert_eq!(&row[*column], value, "{table}.{column} of {id} is erased");
+        }
+    }
+
+    assert_eq!(store.glossary_entry(doomed_entry).unwrap(), None);
+    assert_eq!(
+        store
+            .glossary(course)
+            .unwrap()
+            .iter()
+            .map(|entry| entry.id)
+            .collect::<Vec<_>>(),
+        vec![kept_entry]
+    );
+    assert_eq!(store.glossary(other_course).unwrap()[0].id, other_entry);
+    assert_eq!(store.side_chat(doomed_chat).unwrap(), None);
+    assert_eq!(store.chat_messages(doomed_chat).unwrap(), vec![]);
+    assert_eq!(
+        store
+            .side_chats(course)
+            .unwrap()
+            .iter()
+            .map(|chat| chat.id)
+            .collect::<Vec<_>>(),
+        vec![kept_chat]
+    );
+}
+
+#[test]
+fn deleting_an_unknown_or_deleted_entry_or_chat_is_not_found() {
+    let fixture = Fixture::new();
+    let store = &fixture.store;
+    let (course, _) = store_sample(store);
+    let entry = store
+        .add_glossary_entry(&NewGlossaryEntry {
+            course,
+            term: "mantle".to_owned(),
+            definition: "Hot rock below the crust.".to_owned(),
+            anchor: anchor(LAYERS_V1, "mantle"),
+        })
+        .unwrap()
+        .id;
+    let chat = store.start_side_chat(course, None).unwrap().id;
+
+    store.delete_glossary_entry(entry).unwrap();
+    store.delete_side_chat(chat).unwrap();
+
+    for id in [entry, Uuid::new_v4()] {
+        assert!(matches!(
+            store.delete_glossary_entry(id),
+            Err(StoreError::NotFound(_))
+        ));
+    }
+    for id in [chat, Uuid::new_v4()] {
+        assert!(matches!(
+            store.delete_side_chat(id),
+            Err(StoreError::NotFound(_))
+        ));
     }
 }

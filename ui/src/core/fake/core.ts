@@ -172,8 +172,11 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
   >();
   /** The style each section was last generated in. */
   const lastStyle = new Map<string, VersionStyle>();
-  /** Side-chat replies running, by chat id. */
-  const replies = new Map<string, Control>();
+  /** Side-chat replies running, by chat id, and when each has settled. */
+  const replies = new Map<
+    string,
+    { control: Control; settled: Promise<unknown> }
+  >();
   // A newer attempt makes an older one's late return a no-op.
   let signInAttempt = 0;
   let usageAttempt = 0;
@@ -320,16 +323,27 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
     return finish({ type: "Completed" });
   }
 
-  /** A usage reading, as after a completed generation or every five minutes. */
+  /**
+   * A usage reading with the plan login, when there is one; none while a
+   * scenario holds the first reading back.
+   */
   function takeReading(): void {
-    if (world.usage.type !== "Connected") return;
-    world.usage = {
-      type: "Connected",
-      reading:
+    if (world.session.type !== "SignedIn") return;
+    if (world.firstReadingHeld && world.usage.type !== "Connected") return;
+    if (world.usage.type === "Connected") {
+      world.usage = {
+        type: "Connected",
+        reading:
+          world.usageFailure === null
+            ? reading(world)
+            : { ...world.usage.reading, stale: world.usageFailure },
+      };
+    } else {
+      world.usage =
         world.usageFailure === null
-          ? reading(world)
-          : { ...world.usage.reading, stale: world.usageFailure },
-    };
+          ? { type: "Connected", reading: reading(world) }
+          : { type: "FirstReadFailed", reason: world.usageFailure };
+    }
     emit({ type: "UsageChanged", usage: world.usage });
   }
 
@@ -475,8 +489,17 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
 
   async function handle(request: CoreRequest): Promise<CoreResponse> {
     switch (request.type) {
-      case "GetSession":
+      case "GetSession": {
+        const unreadable = world.sessionUnreadable;
+        if (unreadable !== null) {
+          // Requests made together, as React's development mode makes on
+          // mount, are one ask; one made after the failure was answered
+          // reads the session.
+          setTimeout(() => (world.sessionUnreadable = null));
+          fail(unreadable);
+        }
         return { type: "Session", session: world.session };
+      }
 
       case "SignIn": {
         if (world.session.type !== "SignedOut") {
@@ -495,6 +518,14 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
             planUsage: world.grantedPlanUsage,
           };
           emit({ type: "SessionChanged", session: world.session });
+          // The meter waits for its first reading, taken with the new login.
+          if (world.usage.type !== "NoPlanLogin") return;
+          const first = ++usageAttempt;
+          world.usage = { type: "AwaitingReading" };
+          emit({ type: "UsageChanged", usage: world.usage });
+          void pace().then(() => {
+            if (first === usageAttempt) takeReading();
+          });
         });
         return { type: "Session", session: world.session };
       }
@@ -523,12 +554,15 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
         signInAttempt += 1;
         usageAttempt += 1;
         world.session = { type: "SignedOut", reason: { type: "SignedOut" } };
-        world.usage = { type: "NotConnected" };
+        world.usage = { type: "NoPlanLogin" };
         emit({ type: "SessionChanged", session: world.session });
         emit({ type: "UsageChanged", usage: world.usage });
         return { type: "Session", session: world.session };
 
       case "OpenManageUsage":
+        if (world.browserFailure !== null) {
+          fail({ type: "Provider", message: world.browserFailure });
+        }
         opened.push(MANAGE_USAGE);
         return { type: "Done" };
 
@@ -541,6 +575,9 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
             type: "InvalidRequest",
             message: `only web links open in the browser, not ${request.url}`,
           });
+        }
+        if (world.browserFailure !== null) {
+          fail({ type: "Provider", message: world.browserFailure });
         }
         opened.push(request.url);
         return { type: "Done" };
@@ -937,15 +974,20 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
         });
         chat.followUps = [];
         const control: Control = { stopped: false };
-        replies.set(chat.id, control);
-        const { outcome, arrived } = await stream(
+        const streaming = stream(
           { type: "SideChat", courseId: chat.courseId, chatId: chat.id },
           sideChatReply,
           control,
-        ).finally(() => replies.delete(chat.id));
+        );
+        replies.set(chat.id, { control, settled: streaming.catch(() => {}) });
+        const { outcome, arrived } = await streaming.finally(() =>
+          replies.delete(chat.id),
+        );
         if (outcome.type !== "Completed" && outcome.type !== "Stopped") {
           throw outcomeError(outcome);
         }
+        // Deleted meanwhile, the chat stores and announces nothing more.
+        chatOf(chat.id);
         const complete = outcome.type === "Completed";
         const block = sideChatReply.blocks[0]!;
         const cited = complete && !world.searchRefused;
@@ -981,44 +1023,50 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
       }
 
       case "StopSideChatReply": {
-        const control = replies.get(request.chatId);
-        if (control !== undefined) control.stopped = true;
+        const running = replies.get(request.chatId);
+        if (running !== undefined) running.control.stopped = true;
+        return { type: "Done" };
+      }
+
+      case "DeleteGlossaryEntry": {
+        const { entryId } = request;
+        const course =
+          world.courses.find(({ glossary }) =>
+            glossary.some(({ id }) => id === entryId),
+          ) ?? fail({ type: "NotFound", what: `glossary entry ${entryId}` });
+        if (world.deleteFailure !== null) {
+          fail({ type: "Store", message: world.deleteFailure });
+        }
+        course.glossary.splice(
+          course.glossary.findIndex(({ id }) => id === entryId),
+          1,
+        );
+        return { type: "Done" };
+      }
+
+      case "DeleteSideChat": {
+        const chat = chatOf(request.chatId);
+        if (world.deleteFailure !== null) {
+          fail({ type: "Store", message: world.deleteFailure });
+        }
+        // Removed before its reply is stopped, so the reply finds no chat to
+        // store into; the answer waits until that reply has settled.
+        const { chats } = courseOf(chat.courseId);
+        chats.splice(chats.indexOf(chat), 1);
+        const running = replies.get(chat.id);
+        if (running !== undefined) {
+          running.control.stopped = true;
+          await running.settled;
+        }
         return { type: "Done" };
       }
 
       case "GetUsage":
-        return { type: "Usage", usage: world.usage };
-
-      case "ConnectUsage": {
-        if (world.usage.type === "Connected") {
-          return { type: "Usage", usage: world.usage };
-        }
-        requireOnline();
-        const attempt = ++usageAttempt;
-        world.usage = {
-          type: "Connecting",
-          userCode: "QWRT-7KPD",
-          verificationUrl: "https://auth.openai.com/codex/device",
-          expiresAt: iso(world, 15 * MINUTE),
-        };
-        opened.push(world.usage.verificationUrl);
-        emit({ type: "UsageChanged", usage: world.usage });
-        void pace().then(() => {
-          if (attempt !== usageAttempt) return;
-          world.usage =
-            world.usageFailure === null
-              ? { type: "Connected", reading: reading(world) }
-              : { type: "FirstReadFailed", reason: world.usageFailure };
-          emit({ type: "UsageChanged", usage: world.usage });
-        });
-        return { type: "Usage", usage: world.usage };
-      }
-
-      case "CancelConnectUsage":
-        if (world.usage.type === "Connecting") {
+        // Signed in without a reading yet, the first ask takes one, in place
+        // of any first reading still on its way.
+        if (world.usage.type !== "Connected") {
           usageAttempt += 1;
-          world.usage = { type: "NotConnected" };
-          emit({ type: "UsageChanged", usage: world.usage });
+          takeReading();
         }
         return { type: "Usage", usage: world.usage };
 
@@ -1085,12 +1133,17 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
 
       case "ExportPdf": {
         const course = courseOf(request.courseId);
+        const failure = world.exportFailure;
+        if (failure?.type === "Refused") fail(failure.error);
         return {
           type: "Exported",
-          result: {
-            type: "Saved",
-            path: `/Users/candidate/Documents/${course.topic}.pdf`,
-          },
+          result:
+            failure?.type === "Failed"
+              ? { type: "Failed", reason: failure.reason }
+              : {
+                  type: "Saved",
+                  path: `/Users/candidate/Documents/${course.topic}.pdf`,
+                },
         };
       }
     }

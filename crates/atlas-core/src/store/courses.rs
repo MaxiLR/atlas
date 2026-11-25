@@ -444,25 +444,26 @@ impl Store {
     }
 }
 
+/// The assignments that erase a deleted side-chat message's content, each
+/// ending in a comma.
+pub(super) const ERASE_CHAT_MESSAGE: &str = "text = '', citations = '', sources = '',";
+/// The same for a side chat: its passage, when it has one.
+pub(super) const ERASE_SIDE_CHAT: &str = "quote = CASE WHEN quote IS NULL THEN NULL ELSE '' END,";
+/// The same for a glossary entry.
+pub(super) const ERASE_GLOSSARY_ENTRY: &str =
+    "quote = '', term = '', definition = '', wikipedia = NULL,";
+
 /// Every table holding a course's records: the assignments that erase a
 /// row's content (each ending in a comma), and the rows that belong to the
 /// course `?1`.
 const COURSE_ROWS: [(&str, &str, &str); 15] = [
     (
         "side_chat_messages",
-        "text = '', citations = '', sources = '',",
+        ERASE_CHAT_MESSAGE,
         "chat_id IN (SELECT id FROM side_chats WHERE course_id = ?1)",
     ),
-    (
-        "side_chats",
-        "quote = CASE WHEN quote IS NULL THEN NULL ELSE '' END,",
-        "course_id = ?1",
-    ),
-    (
-        "glossary_entries",
-        "quote = '', term = '', definition = '', wikipedia = NULL,",
-        "course_id = ?1",
-    ),
+    ("side_chats", ERASE_SIDE_CHAT, "course_id = ?1"),
+    ("glossary_entries", ERASE_GLOSSARY_ENTRY, "course_id = ?1"),
     (
         "check_answers",
         "",

@@ -3,6 +3,7 @@ import type { UsageFailure } from "./UsageFailure";
 import type { UsageReading } from "./UsageReading";
 
 /**
- * The usage meter, which has its own sign-in and fails without consequence.
+ * The usage meter, read with the plan login; a failed reading has no
+ * consequence for anything else.
  */
-export type UsageState = { "type": "NotConnected" } | { "type": "Connecting", userCode: string, verificationUrl: string, expiresAt: string, } | { "type": "Connected", reading: UsageReading, } | { "type": "FirstReadFailed", reason: UsageFailure, } | { "type": "SignedOut" };
+export type UsageState = { "type": "NoPlanLogin" } | { "type": "AwaitingReading" } | { "type": "Connected", reading: UsageReading, } | { "type": "FirstReadFailed", reason: UsageFailure, };

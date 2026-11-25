@@ -1,12 +1,11 @@
-//! The usage reader, a port of Headroom's Codex provider (ADR-0007): its own
-//! device-code sign-in, refresh, and `GET {chatgpt}/backend-api/wham/usage`.
-//! It shares nothing with the plan login but the secret store.
+//! The usage reader, a port of Headroom's Codex provider (ADR-0007):
+//! `GET {chatgpt}/backend-api/wham/usage` with the plan login's access token
+//! and the headers every call of the plan route carries.
 //!
 //! Failures are kinds only ([`UsageFailure`]): no failure carries a response
 //! body or a token.
 
 mod json;
-mod login;
 mod reading;
 
 pub use reading::level_of;
@@ -18,41 +17,11 @@ use chrono::{DateTime, Utc};
 use serde_json::{Map, Value};
 use url::Url;
 
-use crate::auth::{AccessToken, RefreshToken};
-use crate::ports::{Browser, Clock, Endpoints};
+use crate::ports::{Clock, Endpoints};
 use crate::protocol::UsageFailure;
 
 /// How long a request may take.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
-
-/// The device code shown while the usage login waits.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DeviceCode {
-    pub user_code: String,
-    /// OpenAI's page where the code is entered.
-    pub verification_url: Url,
-    /// When the login stops waiting for the code.
-    pub expires_at: DateTime<Utc>,
-}
-
-/// Who signed in to the usage meter.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct UsageAccount {
-    pub account_id: String,
-    pub email: Option<String>,
-    /// The plan as words: `Plus`, `Self serve business prolite`.
-    pub plan: Option<String>,
-}
-
-/// The usage meter's login.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct UsageLogin {
-    pub access_token: AccessToken,
-    pub refresh_token: RefreshToken,
-    pub expires_at: DateTime<Utc>,
-    pub signed_in_at: DateTime<Utc>,
-    pub account: UsageAccount,
-}
 
 /// One usage window as the account reports it.
 #[derive(Debug, Clone, PartialEq)]
@@ -83,18 +52,15 @@ pub struct Usage {
 /// What the reader needs from its host.
 pub struct UsageReaderDeps {
     pub endpoints: Endpoints,
-    /// The time, and the pauses between polls of the login.
+    /// The time the windows' resets are counted from.
     pub clock: Arc<dyn Clock>,
-    /// Opens OpenAI's device page.
-    pub browser: Arc<dyn Browser>,
 }
 
-/// Signs in to, refreshes and reads the usage meter.
+/// Reads the plan's usage.
 pub struct UsageReader {
     http: reqwest::Client,
     endpoints: Endpoints,
     clock: Arc<dyn Clock>,
-    browser: Arc<dyn Browser>,
 }
 
 impl UsageReader {
@@ -107,37 +73,7 @@ impl UsageReader {
             http,
             endpoints: deps.endpoints,
             clock: deps.clock,
-            browser: deps.browser,
         }
-    }
-
-    /// `{auth}/<segments>`.
-    fn auth_url(&self, segments: &[&str]) -> Url {
-        under(&self.endpoints.auth, segments)
-    }
-
-    async fn post_json(&self, url: Url, body: &Value) -> Result<reqwest::Response, UsageFailure> {
-        send(self.http.post(url).json(body)).await
-    }
-
-    async fn post_form(
-        &self,
-        url: Url,
-        fields: &[(&str, &str)],
-    ) -> Result<reqwest::Response, UsageFailure> {
-        let body = url::form_urlencoded::Serializer::new(String::new())
-            .extend_pairs(fields)
-            .finish();
-        send(
-            self.http
-                .post(url)
-                .header(
-                    reqwest::header::CONTENT_TYPE,
-                    "application/x-www-form-urlencoded",
-                )
-                .body(body),
-        )
-        .await
     }
 }
 

@@ -98,6 +98,17 @@ impl Feature {
         Ok(self.store.glossary(course_id)?)
     }
 
+    /// Deletes an entry for good: tombstoned with its content erased, so
+    /// defining the same passage again asks anew. No event: the interface
+    /// drops the entry when Done answers.
+    pub(crate) async fn delete_entry(
+        &self,
+        _cx: &Features,
+        entry_id: Uuid,
+    ) -> Result<(), CoreError> {
+        Ok(self.store.delete_glossary_entry(entry_id)?)
+    }
+
     /// The course the anchored block belongs to.
     fn course_of(&self, anchor: &Anchor) -> Result<Uuid, CoreError> {
         let not_found = || CoreError::NotFound {
@@ -227,6 +238,8 @@ impl Feature {
                 ProviderEvent::Incomplete { reason } => return Ok(Written::Incomplete(reason)),
                 // No search is asked for, so none is reported.
                 ProviderEvent::Searching | ProviderEvent::Citation(_) => {}
+                // Only the usage meter reads the plan's usage.
+                ProviderEvent::Usage(_) => {}
             }
         }
         Err(ProviderError::Incomplete { request_id: None })

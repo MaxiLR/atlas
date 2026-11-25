@@ -1,13 +1,12 @@
 import {
   BanIcon,
-  GaugeIcon,
   HistoryIcon,
   OctagonAlertIcon,
   RotateCwIcon,
   TriangleAlertIcon,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useRef, type ComponentProps } from "react";
+import { useEffect, type ComponentProps } from "react";
 
 import { failureInStore, useAtlas, useAtlasStore } from "@/app/store";
 import { Button } from "@/components/ui/button";
@@ -17,7 +16,7 @@ import {
   PopoverTitle,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { Spinner } from "@/components/ui/spinner";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
   TooltipContent,
@@ -34,7 +33,6 @@ import { useNarrow } from "@/reader/narrow";
 import { selectUsage } from "@/store";
 import { unknownTag } from "@/store/unknown-tag";
 
-import { ConnectUsageDialog } from "./connect-dialog";
 import { paceOf, untilReset } from "./pace";
 import { useNow } from "./use-now";
 
@@ -95,7 +93,7 @@ const LEVELS: Record<UsageLevel, LevelLook | null> = {
 /** Why a reading failed, as the end of a sentence. */
 const FAILURES: Record<UsageFailure, string> = {
   Network: "the network could not be reached",
-  Auth: "OpenAI no longer accepts the usage login",
+  Auth: "OpenAI did not accept the plan login",
   Rejected: "OpenAI refused the request",
   Timeout: "OpenAI did not answer in time",
   Cancelled: "the reading was cancelled",
@@ -195,6 +193,58 @@ function WindowRow({ shown, stale }: { shown: Shown; stale: boolean }) {
       </dl>
       <Bar shown={shown} stale={stale} />
     </div>
+  );
+}
+
+/** A bar with nothing on it yet: the track alone, no fill and no pace mark. */
+function EmptyBar() {
+  return (
+    <div className="py-1.5">
+      <div role="img" className="h-1 rounded-[2px] bg-edge-strong" />
+    </div>
+  );
+}
+
+/**
+ * The first reading on its way: the 5-hour and Weekly rows already in place,
+ * their figures a skeleton and their bars empty, so the meter keeps its
+ * height when the reading lands; folded, the two empty bars. Assistive
+ * technology hears only that usage is being read.
+ */
+function Pending({ compact }: { compact: boolean }) {
+  return (
+    <>
+      <p role="status" className="sr-only">
+        Reading usage
+      </p>
+      {compact ? (
+        <div aria-hidden className="flex w-10 flex-col gap-2">
+          <EmptyBar />
+          <EmptyBar />
+        </div>
+      ) : (
+        <>
+          <div aria-hidden className="grid gap-1.5">
+            {["5-hour", "Weekly"].map((name) => (
+              <div key={name}>
+                <dl className="flex items-baseline justify-between gap-2 text-12">
+                  <dt className="flex min-w-0 items-center gap-2 font-medium text-body">
+                    <span className="truncate">{name}</span>
+                  </dt>
+                  <dd className="shrink-0">
+                    <Skeleton className="inline-block h-2.5 w-30 align-middle" />
+                  </dd>
+                </dl>
+                <EmptyBar />
+              </div>
+            ))}
+          </div>
+          {/* As tall as the row a reading adds under its bars for the other
+              windows or the stale mark. */}
+          <div aria-hidden className="-mb-1 h-7" />
+        </>
+      )}
+    </>
   );
 }
 
@@ -335,68 +385,19 @@ function Windows({
   );
 }
 
-/** Connect usage, as a button with words or, folded, as an icon. */
-function ConnectButton({
-  compact,
-  onConnect,
-}: {
-  compact: boolean;
-  onConnect: () => void;
-}) {
-  return (
-    <Button
-      aria-label="Connect usage"
-      size={compact ? "icon" : "default"}
-      className={cn(!compact && "self-start")}
-      onClick={onConnect}
-    >
-      <GaugeIcon aria-hidden />
-      {!compact && "Connect usage"}
-    </Button>
-  );
-}
-
-/** What the meter shows in each state of the usage login and its readings. */
+/** What the meter shows while it has a plan login to read with. */
 function MeterState({
   usage,
   compact,
-  onConnect,
-  onCancel,
-  onDialogGone,
+  onRetry,
 }: {
-  usage: UsageState;
+  usage: Exclude<UsageState, { type: "NoPlanLogin" }>;
   compact: boolean;
-  onConnect: () => void;
-  onCancel: () => void;
-  onDialogGone: () => void;
+  onRetry: () => void;
 }) {
   switch (usage.type) {
-    case "NotConnected":
-      return (
-        <>
-          {!compact && <p>See how much of your plan is left.</p>}
-          <ConnectButton compact={compact} onConnect={onConnect} />
-        </>
-      );
-    case "Connecting":
-      return (
-        <>
-          {compact ? (
-            <Spinner aria-label="Connecting usage" />
-          ) : (
-            <p className="flex items-center gap-2">
-              <Spinner aria-hidden role="presentation" />
-              Connecting usage
-            </p>
-          )}
-          <ConnectUsageDialog
-            userCode={usage.userCode}
-            expiresAt={usage.expiresAt}
-            onCancel={onCancel}
-            onGone={onDialogGone}
-          />
-        </>
-      );
+    case "AwaitingReading":
+      return <Pending compact={compact} />;
     case "Connected":
       return <Windows reading={usage.reading} compact={compact} />;
     case "FirstReadFailed": {
@@ -404,7 +405,7 @@ function MeterState({
       return compact ? (
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button size="icon" aria-label="Try again" onClick={onConnect}>
+            <Button size="icon" aria-label="Try again" onClick={onRetry}>
               <RotateCwIcon aria-hidden />
             </Button>
           </TooltipTrigger>
@@ -413,70 +414,55 @@ function MeterState({
       ) : (
         <>
           <p>{sentence}</p>
-          <Button className="self-start" onClick={onConnect}>
+          <Button className="self-start" onClick={onRetry}>
             <RotateCwIcon aria-hidden />
             Try again
           </Button>
         </>
       );
     }
-    case "SignedOut":
-      return (
-        <>
-          {!compact && <p>The usage login ended.</p>}
-          <ConnectButton compact={compact} onConnect={onConnect} />
-        </>
-      );
     default:
       return unknownTag(usage);
   }
 }
 
 /**
- * The usage meter at the foot of the rail. Empty until Connect usage; while
- * the usage login runs, its device code shows in a dialog; connected, it shows
- * the 5-hour and weekly windows as bars, the others in a popover. Folded below
- * 1024 px, it shows the bars only, their figures on hover and focus.
+ * The usage meter at the foot of the rail, read with the plan login. Without
+ * one it shows nothing; signed in, it holds the 5-hour and weekly rows empty
+ * until the first reading arrives, even before the core has answered, then
+ * shows the windows as bars, the others in a popover. Folded below 1024 px,
+ * it shows the bars only, their figures on hover and focus.
  */
 export function UsageMeter({ folded }: { folded: boolean }) {
   const { send } = useAtlasStore();
   const usage = useAtlas(selectUsage);
+  const signedIn = useAtlas(
+    (state) => state.session.session?.type === "SignedIn",
+  );
   const narrow = useNarrow();
   const compact = folded && narrow;
-  const meter = useRef<HTMLElement>(null);
 
   useEffect(() => {
     send({ type: "GetUsage" }).catch(failureInStore);
   }, [send]);
 
-  if (usage === null) return null;
+  const shown: UsageState | null =
+    usage ?? (signedIn ? { type: "AwaitingReading" } : null);
+  if (shown === null || shown.type === "NoPlanLogin") return null;
   return (
     <TooltipProvider>
       <section
-        ref={meter}
         aria-label="Plan usage"
-        // While the login runs the meter is the status the candidate waits
-        // on, so it stays perceivable beside the device-code dialog.
-        aria-live={usage.type === "Connecting" ? "polite" : undefined}
         className={cn(
           "flex shrink-0 flex-col gap-2 border-t border-edge px-5 pt-3 pb-4 text-12 text-muted-foreground",
           compact && "items-center px-0",
         )}
       >
         <MeterState
-          usage={usage}
+          usage={shown}
           compact={compact}
-          onConnect={() => send({ type: "ConnectUsage" }).catch(failureInStore)}
-          onCancel={() =>
-            send({ type: "CancelConnectUsage" }).catch(failureInStore)
-          }
-          // Focus returns to the meter's control in its new state: Connect
-          // usage again, or the windows once connected.
-          onDialogGone={() =>
-            meter.current
-              ?.querySelector<HTMLElement>('button, [tabindex="0"]')
-              ?.focus()
-          }
+          // A failed first reading is read again on the next ask.
+          onRetry={() => send({ type: "GetUsage" }).catch(failureInStore)}
         />
       </section>
     </TooltipProvider>

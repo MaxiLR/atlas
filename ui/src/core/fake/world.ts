@@ -113,6 +113,8 @@ export interface FakeWorld {
   usageShares: [number, number, number];
   /** Why every usage reading fails, when it does. */
   usageFailure: UsageFailure | null;
+  /** The first usage reading never lands: the meter stays awaiting it. */
+  firstReadingHeld: boolean;
   /** Anything needing a request says the app is offline. */
   offline: boolean;
   /** The account's policy refuses web search. */
@@ -121,6 +123,17 @@ export interface FakeWorld {
   /** How many questions placement asks a new course, four to six. */
   placementQuestions: number;
   placementFailure: PlacementFailure | null;
+  /** Why the session cannot be read, until it is asked again. */
+  sessionUnreadable: CoreError | null;
+  /** How every PDF export ends instead of being saved: refused, or failed. */
+  exportFailure:
+    | { type: "Refused"; error: CoreError }
+    | { type: "Failed"; reason: string }
+    | null;
+  /** Why the browser cannot open a link, when it cannot. */
+  browserFailure: string | null;
+  /** Why deleting a glossary entry or a side chat fails, when it does. */
+  deleteFailure: string | null;
 }
 
 export const account = { email: "candidate@example.com" };
@@ -139,14 +152,19 @@ export function createWorld(clock: FakeClock): FakeWorld {
       current: "gpt-5.5",
     },
     courses: [],
-    usage: { type: "NotConnected" },
+    usage: { type: "NoPlanLogin" },
     usageShares: [0.38, 0.61, 0.12],
     usageFailure: null,
+    firstReadingHeld: false,
     offline: false,
     searchRefused: false,
     fault: null,
     placementQuestions: 4,
     placementFailure: null,
+    sessionUnreadable: null,
+    exportFailure: null,
+    browserFailure: null,
+    deleteFailure: null,
   };
 }
 
@@ -598,7 +616,7 @@ export function reading(world: FakeWorld): UsageReading {
   };
 }
 
-/** The usage meter connected, with a reading taken now. */
-export function connectUsage(world: FakeWorld): void {
+/** The usage meter with a reading taken now, as after signing in. */
+export function readUsage(world: FakeWorld): void {
   world.usage = { type: "Connected", reading: reading(world) };
 }
